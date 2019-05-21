@@ -207,7 +207,7 @@ static void render(bb_state_t *state)
             writez(termfd, "\e[33m");
 
         struct stat info = {0};
-        stat(entry->d_fullname, &info);
+        lstat(entry->d_fullname, &info);
 
         {
             // Filesize:
@@ -301,8 +301,8 @@ static int compare_bits(void *r, const void *v1, const void *v2)
     int diff = -(f1->d_isdir - f2->d_isdir);
     if (diff) return -diff; // Always sort dirs before files
     struct stat info1, info2;
-    stat(f1->d_fullname, &info1);
-    stat(f2->d_fullname, &info2);
+    lstat(f1->d_fullname, &info1);
+    lstat(f2->d_fullname, &info2);
     return -((info1.st_mode & 0x3FF) - (info2.st_mode & 0x3FF))*sign;
 }
 
@@ -313,8 +313,8 @@ static int compare_size(void *r, const void *v1, const void *v2)
     int diff = -(f1->d_isdir - f2->d_isdir);
     if (diff) return -diff; // Always sort dirs before files
     struct stat info1, info2;
-    stat(f1->d_fullname, &info1);
-    stat(f2->d_fullname, &info2);
+    lstat(f1->d_fullname, &info1);
+    lstat(f2->d_fullname, &info2);
     return -(info1.st_size - info2.st_size)*sign;
 }
 
@@ -325,8 +325,8 @@ static int compare_date(void *r, const void *v1, const void *v2)
     int diff = -(f1->d_isdir - f2->d_isdir);
     if (diff) return -diff; // Always sort dirs before files
     struct stat info1, info2;
-    stat(f1->d_fullname, &info1);
-    stat(f2->d_fullname, &info2);
+    lstat(f1->d_fullname, &info1);
+    lstat(f2->d_fullname, &info2);
     if (info1.st_mtimespec.tv_sec == info2.st_mtimespec.tv_sec)
         return -(info1.st_mtimespec.tv_nsec - info2.st_mtimespec.tv_nsec)*sign;
     else
