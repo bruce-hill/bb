@@ -540,6 +540,7 @@ static void explore(char *path, int print_dir, int print_selection)
             entry->d_reclen = dp->d_reclen;
             entry->d_type = dp->d_type;
             entry->d_isdir = dp->d_type == DT_DIR;
+            entry->visible = 1;
             if (!entry->d_isdir && entry->d_type == DT_LNK) {
                 struct stat statbuf;
                 if (stat(entry->d_fullname, &statbuf) == 0)
@@ -687,7 +688,8 @@ static void explore(char *path, int print_dir, int print_selection)
             case ' ':
                 picked = state.cursor;
               toggle:
-                if (picked == 0) goto skip_redraw;
+                if (strcmp(state.files[picked]->d_name, "..") == 0)
+                    goto skip_redraw;
                 if (IS_SELECTED(state.files[picked])) {
                   toggle_off:;
                     entry_t *e = state.files[picked];
@@ -707,14 +709,35 @@ static void explore(char *path, int print_dir, int print_selection)
                 }
                 goto redraw;
 
-            case KEY_ESC:
-                for (entry_t *e = state.firstselected; e; e = e->next) {
-                    e->next = NULL;
-                    e->atme = NULL;
-                    if (!e->visible) free(e);
+            case KEY_CTRL_A:
+                for (int i = 0; i < state.nfiles; i++) {
+                    entry_t *e = state.files[i];
+                    if (e->atme) continue;
+                    if (strcmp(e->d_name, "..") == 0)
+                        continue;
+                    if (state.firstselected)
+                        state.firstselected->atme = &e->next;
+                    e->next = state.firstselected;
+                    e->atme = &state.firstselected;
+                    state.firstselected = e;
+                    ++state.nselected;
                 }
+                goto redraw;
+
+            case KEY_ESC: {
+                entry_t **tofree = calloc(state.nselected, sizeof(entry_t*));
+                int i = 0;
+                for (entry_t *e = state.firstselected; e; e = e->next) {
+                    if (!e->visible) tofree[i++] = e;
+                    *e->atme = NULL;
+                    e->atme = NULL;
+                }
+                if (state.firstselected) err("???");
+                while (i) free(tofree[--i]);
+                free(tofree);
                 state.nselected = 0;
                 goto redraw;
+            }
 
             case 'j':
                 if (state.cursor >= state.nfiles - 1)
@@ -814,38 +837,37 @@ static void explore(char *path, int print_dir, int print_selection)
 
             case 'l': case '\r':
                 picked = state.cursor;
-              open_file:
-                {
-                    if (state.files[picked]->d_isdir) {
-                        if (strcmp(state.files[picked]->d_name, "..") == 0) {
-                            char *p = strrchr(state.path, '/');
-                            if (p) strcpy(to_select, p+1);
-                            else to_select[0] = '\0';
-                        } else to_select[0] = '\0';
+              open_file: {
+                if (state.files[picked]->d_isdir) {
+                    if (strcmp(state.files[picked]->d_name, "..") == 0) {
+                        char *p = strrchr(state.path, '/');
+                        if (p) strcpy(to_select, p+1);
+                        else to_select[0] = '\0';
+                    } else to_select[0] = '\0';
 
-                        char tmp[MAX_PATH];
-                        if (!realpath(state.files[picked]->d_fullname, tmp))
-                            err("realpath failed");
-                        free(path);
-                        path = calloc(strlen(tmp) + 1, sizeof(char));
-                        strcpy(path, tmp);
-                        goto tail_call;
-                    } else {
-                        char *name = state.files[picked]->d_name;
-                        close_term();
-                        pid_t child = run_cmd(NULL, NULL,
+                    char tmp[MAX_PATH];
+                    if (!realpath(state.files[picked]->d_fullname, tmp))
+                        err("realpath failed");
+                    free(path);
+                    path = calloc(strlen(tmp) + 1, sizeof(char));
+                    strcpy(path, tmp);
+                    goto tail_call;
+                } else {
+                    char *name = state.files[picked]->d_name;
+                    close_term();
+                    pid_t child = run_cmd(NULL, NULL,
 #ifdef __APPLE__
-                                "if file -bI %s | grep '^text/' >/dev/null; then $EDITOR %s; else open %s; fi",
+                            "if file -bI %s | grep '^text/' >/dev/null; then $EDITOR %s; else open %s; fi",
 #else
-                                "if file -bi %s | grep '^text/' >/dev/null; then $EDITOR %s; else xdg-open %s; fi",
+                            "if file -bi %s | grep '^text/' >/dev/null; then $EDITOR %s; else xdg-open %s; fi",
 #endif
-                                name, name, name);
-                        waitpid(child, NULL, 0);
-                        init_term();
-                        goto redraw;
-                    }
-                    break;
+                            name, name, name);
+                    waitpid(child, NULL, 0);
+                    init_term();
+                    goto redraw;
                 }
+                break;
+            }
 
             case 'm':
                 if (state.nselected) {
@@ -863,6 +885,7 @@ static void explore(char *path, int print_dir, int print_selection)
                     write_selection(fd, state.firstselected);
                     for (entry_t *e = state.firstselected; e; e = e->next) {
                         e->next = NULL;
+                        *(e->atme) = NULL;
                         e->atme = NULL;
                         if (!e->visible) free(e);
                     }
@@ -911,7 +934,7 @@ static void explore(char *path, int print_dir, int print_selection)
                 close(fd);
                 waitpid(child, NULL, 0);
 
-                printf("press any key to continue...");
+                printf("\npress any key to continue...\n");
                 fflush(stdout);
                 getchar();
 
