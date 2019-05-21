@@ -408,6 +408,68 @@ static int term_get_event()
     return -1;
 }
 
+static char *input(const char *prompt, const char *starter)
+{
+    size_t len = 0, capacity = MAX(100, starter ? strlen(starter)+1 : 0);
+    char *reply = calloc(capacity, 1);
+    if (!reply) err("allocation failure");
+    if (starter)
+        len = strcpy(reply, starter) - reply;
+
+    // Show cursor:
+    writez(termfd, "\e[?25h");
+
+    while (1) {
+      redraw:
+        term_move(0, height-1);
+        writez(termfd, "\e[K\e[33m");
+        writez(termfd, prompt);
+        writez(termfd, "\e[0m");
+        write(termfd, reply, len);
+
+      skip_redraw:;
+        int c = term_get_event();
+        switch (c) {
+            case KEY_BACKSPACE: case KEY_BACKSPACE2:
+                if (len > 0) {
+                    reply[--len] = '\0';
+                    goto redraw;
+                }
+                goto skip_redraw;
+            case KEY_CTRL_U:
+                if (len > 0) {
+                    len = 0;
+                    reply[0] = '\0';
+                    goto redraw;
+                }
+                goto skip_redraw;
+            case KEY_CTRL_C: case KEY_ESC:
+                free(reply);
+                reply = NULL;
+                goto done;
+            case '\r':
+                goto done;
+            default:
+                if (' ' <= c && c <= '~') {
+                    if (len + 1 >= capacity) {
+                        capacity += 100;
+                        reply = realloc(reply, capacity);
+                        if (!reply)
+                            err("allocation failure");
+                    }
+                    reply[len++] = c;
+                    reply[len] = '\0';
+                    goto redraw;
+                }
+                goto skip_redraw;
+        }
+    }
+  done:
+    // Hide cursor:
+    writez(termfd, "\e[?25l");
+    return reply;
+}
+
 static void explore(char *path, int print_dir, int print_selection)
 {
     char *tmp = path;
@@ -420,27 +482,6 @@ static void explore(char *path, int print_dir, int print_selection)
 
   tail_call:
 
-    state.path = path;
-
-    DIR *dir = opendir(state.path);
-    if (!dir)
-        err("Couldn't open dir: %s", state.path);
-    if (chdir(state.path) != 0)
-        err("Couldn't chdir into %s", state.path);
-    struct dirent *dp;
-
-    // Hash inode -> entry_t with linear probing
-    size_t hashsize = 2 * state.nselected;
-    entry_t **selecthash = calloc(hashsize, sizeof(entry_t*));
-    if (!selecthash)
-        err("Failed to allocate %d spaces for selecthash", hashsize);
-    for (entry_t *p = state.firstselected; p; p = p->next) {
-        int probe = ((int)p->d_ino) % hashsize;
-        while (selecthash[probe])
-            probe = (probe + 1) % hashsize;
-        selecthash[probe] = p;
-    }
-
     if (state.files) {
         for (int i = 0; i < state.nfiles; i++) {
             entry_t *e = state.files[i];
@@ -451,51 +492,74 @@ static void explore(char *path, int print_dir, int print_selection)
         free(state.files);
         state.files = NULL;
     }
-    size_t pathlen = strlen(state.path);
-    size_t filecap = 0;
     state.nfiles = 0;
-    while ((dp = readdir(dir)) != NULL) {
-        if (dp->d_name[0] == '.' && dp->d_name[1] == '\0')
-            continue;
-        if (!state.showhidden && dp->d_name[0] == '.' && !(dp->d_name[1] == '.' && dp->d_name[2] == '\0'))
-            continue;
-        // Hashed lookup from selected:
-        if (state.nselected > 0) {
-            for (int probe = ((int)dp->d_ino) % hashsize; selecthash[probe]; probe = (probe + 1) % hashsize) {
-                if (selecthash[probe]->d_ino == dp->d_ino) {
-                    selecthash[probe]->visible = 1;
-                    state.files[state.nfiles++] = selecthash[probe];
-                    goto next_file;
+    state.path = path;
+
+    { // Populate the file list:
+        // Hash inode -> entry_t with linear probing
+        size_t hashsize = 2 * state.nselected;
+        entry_t **selecthash = calloc(hashsize, sizeof(entry_t*));
+        if (!selecthash)
+            err("Failed to allocate %d spaces for selecthash", hashsize);
+        for (entry_t *p = state.firstselected; p; p = p->next) {
+            int probe = ((int)p->d_ino) % hashsize;
+            while (selecthash[probe])
+                probe = (probe + 1) % hashsize;
+            selecthash[probe] = p;
+        }
+
+        DIR *dir = opendir(state.path);
+        if (!dir)
+            err("Couldn't open dir: %s", state.path);
+        if (chdir(state.path) != 0)
+            err("Couldn't chdir into %s", state.path);
+        struct dirent *dp;
+        size_t pathlen = strlen(state.path);
+        size_t filecap = 0;
+        while ((dp = readdir(dir)) != NULL) {
+            if (dp->d_name[0] == '.' && dp->d_name[1] == '\0')
+                continue;
+            if (!state.showhidden && dp->d_name[0] == '.' && !(dp->d_name[1] == '.' && dp->d_name[2] == '\0'))
+                continue;
+            // Hashed lookup from selected:
+            if (state.nselected > 0) {
+                for (int probe = ((int)dp->d_ino) % hashsize; selecthash[probe]; probe = (probe + 1) % hashsize) {
+                    if (selecthash[probe]->d_ino == dp->d_ino) {
+                        selecthash[probe]->visible = 1;
+                        state.files[state.nfiles++] = selecthash[probe];
+                        goto next_file;
+                    }
                 }
             }
-        }
-        entry_t *entry = malloc(sizeof(entry_t) + pathlen + dp->d_namlen + 2);
-        strncpy(entry->d_fullname, state.path, pathlen);
-        entry->d_fullname[pathlen] = '/';
-        entry->d_name = &entry->d_fullname[pathlen + 1];
-        strncpy(entry->d_name, dp->d_name, dp->d_namlen + 1);
-        entry->d_ino = dp->d_ino;
-        entry->d_reclen = dp->d_reclen;
-        entry->d_type = dp->d_type;
-        entry->d_isdir = dp->d_type == DT_DIR;
-        if (!entry->d_isdir && entry->d_type == DT_LNK) {
-            struct stat statbuf;
-            if (stat(entry->d_fullname, &statbuf) == 0)
-                entry->d_isdir = S_ISDIR(statbuf.st_mode);
-        }
-        entry->d_namlen = dp->d_namlen;
-        entry->next = NULL, entry->atme = NULL;
+            entry_t *entry = malloc(sizeof(entry_t) + pathlen + dp->d_namlen + 2);
+            strncpy(entry->d_fullname, state.path, pathlen);
+            entry->d_fullname[pathlen] = '/';
+            entry->d_name = &entry->d_fullname[pathlen + 1];
+            strncpy(entry->d_name, dp->d_name, dp->d_namlen + 1);
+            entry->d_ino = dp->d_ino;
+            entry->d_reclen = dp->d_reclen;
+            entry->d_type = dp->d_type;
+            entry->d_isdir = dp->d_type == DT_DIR;
+            if (!entry->d_isdir && entry->d_type == DT_LNK) {
+                struct stat statbuf;
+                if (stat(entry->d_fullname, &statbuf) == 0)
+                    entry->d_isdir = S_ISDIR(statbuf.st_mode);
+            }
+            entry->d_namlen = dp->d_namlen;
+            entry->next = NULL, entry->atme = NULL;
 
-        if (state.nfiles >= filecap) {
-            filecap += 100;
-            state.files = realloc(state.files, filecap*sizeof(entry_t*));
+            if (state.nfiles >= filecap) {
+                filecap += 100;
+                state.files = realloc(state.files, filecap*sizeof(entry_t*));
+                if (!state.files) err("allocation failure");
+            }
+            state.files[state.nfiles++] = entry;
+          next_file:;
         }
-        state.files[state.nfiles++] = entry;
-      next_file:;
+        closedir(dir);
+        free(selecthash);
+        if (state.nfiles == 0) err("No files found (not even '..')");
     }
-    closedir(dir);
-    free(selecthash);
-    if (state.nfiles == 0) err("No files found (not even '..')");
 
     state.cursor = 0;
     state.scroll = 0;
@@ -649,7 +713,6 @@ static void explore(char *path, int print_dir, int print_selection)
                     e->atme = NULL;
                     if (!e->visible) free(e);
                 }
-                state.firstselected = NULL;
                 state.nselected = 0;
                 goto redraw;
 
@@ -796,14 +859,20 @@ static void explore(char *path, int print_dir, int print_selection)
             case 'D': {
                 int fd;
                 run_cmd(NULL, &fd, "xargs rm -rf");
-                if (state.nselected)
+                if (state.nselected > 0) {
                     write_selection(fd, state.firstselected);
-                else {
+                    for (entry_t *e = state.firstselected; e; e = e->next) {
+                        e->next = NULL;
+                        e->atme = NULL;
+                        if (!e->visible) free(e);
+                    }
+                    state.nselected = 0;
+                } else {
                     writez(fd, state.files[state.cursor]->d_fullname);
                     write(fd, "\n", 1);
                 }
                 close(fd);
-                break;
+                goto tail_call;
             }
 
             case 'p':
@@ -812,34 +881,39 @@ static void explore(char *path, int print_dir, int print_selection)
                     run_cmd(NULL, &fd, "xargs -I {} cp {} .");
                     write_selection(fd, state.firstselected);
                     close(fd);
+                } else if (strcmp(state.files[state.cursor]->d_name, "..") != 0) {
+                    run_cmd(NULL, NULL, "cp %s %s.copy", state.files[state.cursor]->d_name);
                 }
-                break;
+                goto tail_call;
+
+            case 'n': {
+                char *name = input("new file: ", "foo");
+                if (!name) goto redraw;
+                run_cmd(NULL, NULL, "touch %s", name);
+                goto tail_call;
+            }
 
             case '|': {
+                char *cmd = input("> ", NULL);
+                if (!cmd)
+                    goto redraw;
+                // TODO: avoid having this spam the terminal history
                 close_term();
-                char *buf = NULL;
-                size_t bufsize = 0;
-                printf("> ");
-                fflush(stdout);
-                getline(&buf, &bufsize, stdin);
-
                 int fd;
-                pid_t child = run_cmd(NULL, &fd, buf);
+                pid_t child = run_cmd(NULL, &fd, cmd);
+                free(cmd);
                 if (state.nselected > 0) {
                     write_selection(fd, state.firstselected);
                 } else {
-                    for (int i = 0; i < state.nfiles; i++) {
-                        write(fd, state.files[i]->d_name, state.files[i]->d_namlen);
-                        write(fd, "\n", 1);
-                    }
+                    write(fd, state.files[state.cursor]->d_name, state.files[state.cursor]->d_namlen);
+                    write(fd, "\n", 1);
                 }
                 close(fd);
                 waitpid(child, NULL, 0);
 
-                printf("press enter to continue...");
+                printf("press any key to continue...");
                 fflush(stdout);
-                getline(&buf, &bufsize, stdin);
-                free(buf);
+                getchar();
 
                 init_term();
                 goto tail_call;
