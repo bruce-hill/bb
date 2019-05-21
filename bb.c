@@ -186,31 +186,30 @@ static void render(bb_state_t *state)
     entry_t **files = state->files;
     for (int i = state->scroll; i < state->scroll + height - 3 && i < state->nfiles; i++) {
         entry_t *entry = files[i];
+        struct stat info = {0};
+        lstat(entry->d_fullname, &info);
 
         int x = 0;
         int y = i - state->scroll + 2;
         term_move(x, y);
 
-        // Selection box:
-        if (IS_SELECTED(entry))
-            writez(termfd, "\e[43m \e[0m");
-        else
-            writez(termfd, " ");
+        { // Selection box:
+            if (IS_SELECTED(entry))
+                writez(termfd, "\e[43m \e[0m");
+            else
+                writez(termfd, " ");
 
-        if (i == state->cursor)
-            writez(termfd, "\e[30;47m");
-        else if (entry->d_isdir && entry->d_type == DT_LNK)
-            writez(termfd, "\e[36m");
-        else if (entry->d_isdir)
-            writez(termfd, "\e[34m");
-        else if (entry->d_type == DT_LNK)
-            writez(termfd, "\e[33m");
+            if (i == state->cursor)
+                writez(termfd, "\e[30;47m");
+            else if (entry->d_isdir && entry->d_type == DT_LNK)
+                writez(termfd, "\e[36m");
+            else if (entry->d_isdir)
+                writez(termfd, "\e[34m");
+            else if (entry->d_type == DT_LNK)
+                writez(termfd, "\e[33m");
+        }
 
-        struct stat info = {0};
-        lstat(entry->d_fullname, &info);
-
-        {
-            // Filesize:
+        { // Filesize:
             int j = 0;
             const char* units = "BKMGTPEZY";
             double bytes = (double)info.st_size;
@@ -223,8 +222,7 @@ static void render(bb_state_t *state)
             writez(termfd, buf);
         }
 
-        {
-            // Date:
+        { // Date:
             char buf[64];
             strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(info.st_mtime)));
             writez(termfd, buf);
@@ -232,8 +230,7 @@ static void render(bb_state_t *state)
             writez(termfd, " │ ");
         }
 
-        {
-            // Permissions:
+        { // Permissions:
             char buf[] = {
                 '0' + ((info.st_mode >> 6) & 7),
                 '0' + ((info.st_mode >> 3) & 7),
@@ -243,21 +240,22 @@ static void render(bb_state_t *state)
             writez(termfd, " │ ");
         }
 
-        // Name:
-        write(termfd, entry->d_name, entry->d_namlen);
-        if (entry->d_isdir)
-            writez(termfd, "/");
-
-        if (entry->d_type == DT_LNK) {
-            char linkpath[MAX_PATH] = {0};
-            ssize_t pathlen;
-            if ((pathlen = readlink(entry->d_name, linkpath, sizeof(linkpath))) < 0)
-                err("readlink() failed");
-            //writez(termfd, "\e[36m -> "); // Cyan FG
-            writez(termfd, " -> ");
-            write(termfd, linkpath, pathlen);
+        { // Name:
+            write(termfd, entry->d_name, entry->d_namlen);
             if (entry->d_isdir)
                 writez(termfd, "/");
+
+            if (entry->d_type == DT_LNK) {
+                char linkpath[MAX_PATH] = {0};
+                ssize_t pathlen;
+                if ((pathlen = readlink(entry->d_name, linkpath, sizeof(linkpath))) < 0)
+                    err("readlink() failed");
+                //writez(termfd, "\e[36m -> "); // Cyan FG
+                writez(termfd, " -> ");
+                write(termfd, linkpath, pathlen);
+                if (entry->d_isdir)
+                    writez(termfd, "/");
+            }
         }
         writez(termfd, " \e[0m"); // Reset color and attributes
     }
