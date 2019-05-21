@@ -357,7 +357,7 @@ static int term_get_event()
     return -1;
 }
 
-static void explore(char *path)
+static void explore(char *path, int print_dir, int print_selection)
 {
     char *tmp = path;
     path = malloc(strlen(tmp) + 1);
@@ -716,17 +716,32 @@ static void explore(char *path)
     }
 done:
     close_term();
-    write_selection(STDOUT_FILENO, state.firstselected);
+    if (print_dir)
+        printf("%s\n", state.path);
+    if (print_selection)
+        write_selection(STDOUT_FILENO, state.firstselected);
     return;
 }
 
 int main(int argc, char *argv[])
 {
     init_term();
-    char path[MAX_PATH];
-    if (!realpath(argc > 1 ? argv[1] : ".", path))
+    char _realpath[MAX_PATH];
+    char *path = ".";
+    int print_dir = 0, print_selection = 0;
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-d") == 0) {
+            print_dir = 1;
+        } else if (strcmp(argv[i], "-s") == 0) {
+            print_selection = 1;
+        } else {
+            path = argv[i];
+            break;
+        }
+    }
+    if (!realpath(path, _realpath))
         err("realpath failed");
-    explore(path);
+    explore(_realpath, print_dir, print_selection);
 done:
     return 0;
 }
