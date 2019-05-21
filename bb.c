@@ -24,7 +24,7 @@
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
 #define MAX_PATH 4096
 #define writez(fd, str) write(fd, str, strlen(str))
-#define IS_SELECTED(p) ((p)->next || (p)->prev)
+#define IS_SELECTED(p) ((p)->atme)
 
 static const int SCROLLOFF = 5;
 
@@ -34,8 +34,9 @@ static int width, height;
 static int mouse_x, mouse_y;
 
 typedef struct entry_s {
-    struct entry_s *next, *prev;
+    struct entry_s *next, **atme;
     int visible : 1;
+    int d_isdir : 1;
     ino_t      d_ino;
     __uint16_t d_reclen;
     __uint8_t  d_type;
@@ -50,6 +51,7 @@ typedef struct {
     size_t nselected, nfiles;
     int scroll, cursor;
     struct timespec lastclick;
+    int showhidden : 1;
 } bb_state_t;
 
 static void err(const char *msg, ...);
@@ -163,6 +165,9 @@ static void render(bb_state_t *state)
     writez(termfd, "\e[2J\e[0;1m"); // Clear, reset color + bold
     term_move(0,0);
     writez(termfd, state->path);
+
+    term_move(0,1);
+    writez(termfd, "\e[32m    Size         Date          Bits   Name");
     writez(termfd, "\e[0m"); // Reset color
 
     char fullpath[MAX_PATH];
@@ -173,21 +178,23 @@ static void render(bb_state_t *state)
         entry_t *entry = files[i];
 
         int x = 0;
-        int y = i - state->scroll + 1;
+        int y = i - state->scroll + 2;
         term_move(x, y);
 
         // Selection box:
         if (IS_SELECTED(entry))
-            writez(termfd, "\e[43m \e[0m"); // Yellow BG
+            writez(termfd, "\e[43m \e[0m");
         else
             writez(termfd, " ");
 
-        if (i != state->cursor && entry->d_type & DT_DIR) {
-            writez(termfd, "\e[34m"); // Blue FG
-        }
-        if (i == state->cursor) {
-            writez(termfd, "\e[7m"); // Reverse color
-        }
+        if (i == state->cursor)
+            writez(termfd, "\e[30;47m");
+        else if (entry->d_isdir && entry->d_type == DT_LNK)
+            writez(termfd, "\e[36m");
+        else if (entry->d_isdir)
+            writez(termfd, "\e[34m");
+        else if (entry->d_type == DT_LNK)
+            writez(termfd, "\e[33m");
 
         struct stat info = {0};
         fullpath[pathlen] = '/';
@@ -205,7 +212,7 @@ static void render(bb_state_t *state)
                 j++;
             }
             char buf[16] = {0};
-            sprintf(buf, "%6.*f%c  ", j > 0 ? 1 : 0, bytes, units[j]);
+            sprintf(buf, "%6.*f%c │", j > 0 ? 1 : 0, bytes, units[j]);
             writez(termfd, buf);
         }
 
@@ -214,24 +221,38 @@ static void render(bb_state_t *state)
             char buf[64];
             strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(info.st_mtime)));
             writez(termfd, buf);
-            writez(termfd, "  ");
+            //writez(termfd, "  ");
+            writez(termfd, " │ ");
+        }
+
+        {
+            // Permissions:
+            char buf[] = {
+                '0' + ((info.st_mode >> 6) & 7),
+                '0' + ((info.st_mode >> 3) & 7),
+                '0' + ((info.st_mode >> 0) & 7),
+            };
+            write(termfd, buf, 5);
+            writez(termfd, " │ ");
         }
 
         // Name:
         write(termfd, entry->d_name, entry->d_namlen);
-
-        if (entry->d_type & DT_DIR) {
+        if (entry->d_isdir)
             writez(termfd, "/");
-        }
+
         if (entry->d_type == DT_LNK) {
             char linkpath[MAX_PATH] = {0};
             ssize_t pathlen;
             if ((pathlen = readlink(entry->d_name, linkpath, sizeof(linkpath))) < 0)
                 err("readlink() failed");
-            writez(termfd, "\e[36m -> "); // Cyan FG
+            //writez(termfd, "\e[36m -> "); // Cyan FG
+            writez(termfd, " -> ");
             write(termfd, linkpath, pathlen);
+            if (entry->d_isdir)
+                writez(termfd, "/");
         }
-        writez(termfd, "\e[0m"); // Reset color and attributes
+        writez(termfd, " \e[0m"); // Reset color and attributes
     }
 
     term_move(0, height - 1);
@@ -244,7 +265,7 @@ static int compare_alpha(const void *v1, const void *v2)
 {
     const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
     int diff;
-    diff = (f1->d_type & DT_DIR) - (f2->d_type & DT_DIR);
+    diff = -(f1->d_isdir - f2->d_isdir);
     if (diff) return -diff;
     const char *p1 = f1->d_name, *p2 = f2->d_name;
     while (*p1 && *p2) {
@@ -385,8 +406,10 @@ static void explore(char *path)
     while ((dp = readdir(dir)) != NULL) {
         if (dp->d_name[0] == '.' && dp->d_name[1] == '\0')
             continue;
+        if (!state.showhidden && dp->d_name[0] == '.' && !(dp->d_name[1] == '.' && dp->d_name[2] == '\0'))
+            continue;
         // Hashed lookup from selected:
-        if (state.firstselected) {
+        if (state.nselected > 0) {
             for (int probe = ((int)dp->d_ino) % hashsize; selecthash[probe]; probe = (probe + 1) % hashsize) {
                 if (selecthash[probe]->d_ino == dp->d_ino) {
                     selecthash[probe]->visible = 1;
@@ -403,8 +426,14 @@ static void explore(char *path)
         entry->d_ino = dp->d_ino;
         entry->d_reclen = dp->d_reclen;
         entry->d_type = dp->d_type;
+        entry->d_isdir = dp->d_type == DT_DIR;
+        if (!entry->d_isdir && entry->d_type == DT_LNK) {
+            struct stat statbuf;
+            if (stat(entry->d_fullname, &statbuf) == 0)
+                entry->d_isdir = S_ISDIR(statbuf.st_mode);
+        }
         entry->d_namlen = dp->d_namlen;
-        entry->next = NULL, entry->prev = NULL;
+        entry->next = NULL, entry->atme = NULL;
 
         if (state.nfiles >= filecap) {
             filecap += 100;
@@ -437,9 +466,7 @@ static void explore(char *path)
       redraw:
         render(&state);
       skip_redraw:
-        scrolloff = MIN(SCROLLOFF, height/2);
-        //sleep(2);
-        //if (1) goto done;
+        scrolloff = MIN(SCROLLOFF, (height-4)/2);
         int key = term_get_event();
         switch (key) {
             case KEY_MOUSE_LEFT: {
@@ -448,8 +475,8 @@ static void explore(char *path)
                 double dt_ms = 1e3*(double)(clicktime.tv_sec - state.lastclick.tv_sec);
                 dt_ms += 1e-6*(double)(clicktime.tv_nsec - state.lastclick.tv_nsec);
                 state.lastclick = clicktime;
-                if (mouse_y > 0 && state.scroll + (mouse_y - 1) < state.nfiles) {
-                    int clicked = state.scroll + (mouse_y - 1);
+                if (mouse_y > 0 && state.scroll + (mouse_y - 2) < state.nfiles) {
+                    int clicked = state.scroll + (mouse_y - 2);
                     if (dt_ms > 200) {
                     // Single click
                         if (mouse_x == 0) {
@@ -473,43 +500,52 @@ static void explore(char *path)
                 goto done;
 
             case KEY_CTRL_D:
-                state.cursor = MIN(state.nfiles - 1, state.cursor + (height - 3) / 2);
-                if (state.nfiles <= height - 3)
+                state.cursor = MIN(state.nfiles - 1, state.cursor + (height - 4) / 2);
+                if (state.nfiles <= height - 4)
                     goto redraw;
-                state.scroll += (height - 3)/2;
-                if (state.scroll > state.nfiles - (height - 3))
-                    state.scroll = state.nfiles - (height - 3);
+                state.scroll += (height - 4)/2;
+                if (state.scroll > state.nfiles - (height - 4))
+                    state.scroll = state.nfiles - (height - 4);
                 goto redraw;
 
             case KEY_CTRL_U:
-                state.cursor = MAX(0, state.cursor - (height - 3) / 2);
-                if (state.nfiles <= height - 3)
+                state.cursor = MAX(0, state.cursor - (height - 4) / 2);
+                if (state.nfiles <= height - 4)
                     goto redraw;
-                state.scroll -= (height - 3)/2;
+                state.scroll -= (height - 4)/2;
                 if (state.scroll < 0)
                     state.scroll = 0;
+                goto redraw;
+
+            case 'g':
+                state.cursor = 0;
+                state.scroll = 0;
+                goto redraw;
+
+            case 'G':
+                state.cursor = state.nfiles - 1;
+                if (state.nfiles > height - 4)
+                    state.scroll = state.nfiles - (height - 4);
                 goto redraw;
 
             case ' ':
                 picked = state.cursor;
               toggle:
+                if (picked == 0) goto skip_redraw;
                 if (IS_SELECTED(state.files[picked])) {
                   toggle_off:;
                     entry_t *e = state.files[picked];
-                    if (state.firstselected == e)
-                        state.firstselected = e->next;
-                    if (e->prev) e->prev->next = e->next;
-                    if (e->next) e->next->prev = e->prev;
-                    e->next = NULL;
-                    e->prev = NULL;
+                    if (e->next) e->next->atme = e->atme;
+                    *(e->atme) = e->next;
+                    e->next = NULL, e->atme = NULL;
                     --state.nselected;
                 } else {
                   toggle_on:;
                     entry_t *e = state.files[picked];
-                    if (state.firstselected) {
-                        e->next = state.firstselected;
-                        state.firstselected->prev = e;
-                    }
+                    if (state.firstselected)
+                        state.firstselected->atme = &e->next;
+                    e->next = state.firstselected;
+                    e->atme = &state.firstselected;
                     state.firstselected = e;
                     ++state.nselected;
                 }
@@ -518,7 +554,7 @@ static void explore(char *path)
             case KEY_ESC:
                 for (entry_t *e = state.firstselected; e; e = e->next) {
                     e->next = NULL;
-                    e->prev = NULL;
+                    e->atme = NULL;
                     if (!e->visible) free(e);
                 }
                 state.firstselected = NULL;
@@ -529,7 +565,7 @@ static void explore(char *path)
                 if (state.cursor >= state.nfiles - 1)
                     goto skip_redraw;
                 ++state.cursor;
-                if (state.cursor > state.scroll + height - 4 - scrolloff && state.scroll < state.nfiles - (height - 3)) {
+                if (state.cursor > state.scroll + height - 4 - 1 - scrolloff && state.scroll < state.nfiles - (height - 4)) {
                     ++state.scroll;
                 }
                 goto redraw;
@@ -547,11 +583,14 @@ static void explore(char *path)
                 if (state.cursor < state.nfiles - 1) {
                     if (IS_SELECTED(state.files[state.cursor])) {
                         picked = ++state.cursor;
-                        goto toggle_on;
+                        if (!IS_SELECTED(state.files[picked]))
+                            goto toggle_on;
                     } else {
                         picked = ++state.cursor;
-                        goto toggle_off;
+                        if (IS_SELECTED(state.files[picked]))
+                            goto toggle_off;
                     }
+                    goto redraw;
                 }
                 goto skip_redraw;
 
@@ -559,64 +598,42 @@ static void explore(char *path)
                 if (state.cursor > 0) {
                     if (IS_SELECTED(state.files[state.cursor])) {
                         picked = --state.cursor;
-                        goto toggle_on;
+                        if (!IS_SELECTED(state.files[picked]))
+                            goto toggle_on;
                     } else {
                         picked = --state.cursor;
-                        goto toggle_off;
+                        if (IS_SELECTED(state.files[picked]))
+                            goto toggle_off;
                     }
+                    goto redraw;
                 }
                 goto skip_redraw;
 
             case 'h':
-                if (strcmp(state.path, "/") != 0) {
-                    char *p = strrchr(state.path, '/');
-                    if (p) strcpy(to_select, p+1);
-                    else to_select[0] = '\0';
-                    char tmp[MAX_PATH], tmp2[MAX_PATH];
-                    strcpy(tmp, state.path);
-                    strcat(tmp, "/");
-                    strcat(tmp, "..");
-                    if (!realpath(tmp, tmp2))
-                        err("realpath failed");
-                    free(path);
-                    path = malloc(strlen(tmp2) + 1);
-                    strcpy(path, tmp2);
-                    goto tail_call;
-                }
-                break;
+                picked = 0;
+                goto open_file;
+
+            case '.':
+                state.showhidden ^= 1;
+                goto tail_call;
 
             case 'l': case '\r':
                 picked = state.cursor;
               open_file:
                 {
-                    int is_dir = state.files[picked]->d_type & DT_DIR;
-                    if (state.files[picked]->d_type == DT_LNK) {
-                        char linkpath[MAX_PATH];
-                        if (readlink(state.files[picked]->d_name, linkpath, sizeof(linkpath)) < 0)
-                            err("readlink() failed");
-                        DIR *dir = opendir(linkpath);
-                        if (dir) {
-                            is_dir = 1;
-                            if (closedir(dir) < 0)
-                                err("Failed to close directory: %s", linkpath);
-                        }
-                    }
-                    if (is_dir) {
+                    if (state.files[picked]->d_isdir) {
                         if (strcmp(state.files[picked]->d_name, "..") == 0) {
                             char *p = strrchr(state.path, '/');
                             if (p) strcpy(to_select, p+1);
                             else to_select[0] = '\0';
                         } else to_select[0] = '\0';
 
-                        char tmp[MAX_PATH], tmp2[MAX_PATH];
-                        strcpy(tmp, state.path);
-                        strcat(tmp, "/");
-                        strcat(tmp, state.files[picked]->d_name);
-                        if (!realpath(tmp, tmp2))
+                        char tmp[MAX_PATH];
+                        if (!realpath(state.files[picked]->d_fullname, tmp))
                             err("realpath failed");
                         free(path);
-                        path = malloc(strlen(tmp2) + 1);
-                        strcpy(path, tmp2);
+                        path = calloc(strlen(tmp) + 1, sizeof(char));
+                        strcpy(path, tmp);
                         goto tail_call;
                     } else {
                         char *name = state.files[picked]->d_name;
@@ -662,31 +679,35 @@ static void explore(char *path)
                 }
                 break;
 
-            case 'x':
-                if (state.nselected) {
-                    close_term();
+            case '|': {
+                close_term();
+                char *buf = NULL;
+                size_t bufsize = 0;
+                printf("> ");
+                fflush(stdout);
+                getline(&buf, &bufsize, stdin);
 
-                    char *buf = NULL;
-                    size_t bufsize = 0;
-                    printf("> ");
-                    fflush(stdout);
-                    getline(&buf, &bufsize, stdin);
-
-                    int fd;
-                    pid_t child = run_cmd(NULL, &fd, "xargs %s", buf);
+                int fd;
+                pid_t child = run_cmd(NULL, &fd, buf);
+                if (state.nselected > 0) {
                     write_selection(fd, state.firstselected);
-                    close(fd);
-                    waitpid(child, NULL, 0);
-
-                    printf("press enter to continue...");
-                    fflush(stdout);
-                    getline(&buf, &bufsize, stdin);
-                    free(buf);
-
-                    init_term();
-                    goto redraw;
+                } else {
+                    for (int i = 0; i < state.nfiles; i++) {
+                        write(fd, state.files[i]->d_name, state.files[i]->d_namlen);
+                        write(fd, "\n", 1);
+                    }
                 }
-                break;
+                close(fd);
+                waitpid(child, NULL, 0);
+
+                printf("press enter to continue...");
+                fflush(stdout);
+                getline(&buf, &bufsize, stdin);
+                free(buf);
+
+                init_term();
+                goto tail_call;
+            }
 
             default:
                 goto skip_redraw;
