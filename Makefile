@@ -1,7 +1,7 @@
 PREFIX=
 CC=cc
 CFLAGS=-O0 -std=gnu99 -g
-LIBS=-ltermbox
+LIBS=
 NAME=bb
 
 all: $(NAME)
