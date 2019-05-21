@@ -33,10 +33,16 @@ static int termfd;
 static int width, height;
 static int mouse_x, mouse_y;
 
+typedef enum {
+    SORT_ALPHA = 0,
+    SORT_SIZE,
+    SORT_BITS,
+    SORT_DATE
+} sortmethod_t;
+
 typedef struct entry_s {
     struct entry_s *next, **atme;
-    int visible : 1;
-    int d_isdir : 1;
+    int visible : 1, d_isdir : 1;
     ino_t      d_ino;
     __uint16_t d_reclen;
     __uint8_t  d_type;
@@ -51,7 +57,8 @@ typedef struct {
     size_t nselected, nfiles;
     int scroll, cursor;
     struct timespec lastclick;
-    int showhidden : 1;
+    int showhidden, sort_reverse;
+    sortmethod_t sortmethod;
 } bb_state_t;
 
 static void err(const char *msg, ...);
@@ -167,12 +174,15 @@ static void render(bb_state_t *state)
     writez(termfd, state->path);
 
     term_move(0,1);
-    writez(termfd, "\e[32m    Size         Date          Bits   Name");
-    writez(termfd, "\e[0m"); // Reset color
+    { // Column labels
+        char buf[] = "\e[32m    Size         Date           Bits  Name\e[0m";
+        buf[8] = state->sortmethod == SORT_SIZE ? (state->sort_reverse ? '-' : '+') : ' ';
+        buf[21] = state->sortmethod == SORT_DATE ? (state->sort_reverse ? '-' : '+') : ' ';
+        buf[36] = state->sortmethod == SORT_BITS ? (state->sort_reverse ? '-' : '+') : ' ';
+        buf[42] = state->sortmethod == SORT_ALPHA ? (state->sort_reverse ? '-' : '+') : ' ';
+        writez(termfd, buf);
+    }
 
-    char fullpath[MAX_PATH];
-    size_t pathlen = strlen(state->path);
-    strncpy(fullpath, state->path, pathlen + 1);
     entry_t **files = state->files;
     for (int i = state->scroll; i < state->scroll + height - 3 && i < state->nfiles; i++) {
         entry_t *entry = files[i];
@@ -197,10 +207,7 @@ static void render(bb_state_t *state)
             writez(termfd, "\e[33m");
 
         struct stat info = {0};
-        fullpath[pathlen] = '/';
-        strncpy(fullpath + pathlen + 1, entry->d_name, entry->d_namlen);
-        fullpath[pathlen + 1 + entry->d_namlen] = '\0';
-        lstat(fullpath, &info);
+        stat(entry->d_fullname, &info);
 
         {
             // Filesize:
@@ -261,27 +268,69 @@ static void render(bb_state_t *state)
     write(termfd, buf, len);
 }
 
-static int compare_alpha(const void *v1, const void *v2)
+static int compare_alpha(void *r, const void *v1, const void *v2)
 {
+    int sign = *((int *)r) ? -1 : 1;
     const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
-    int diff;
-    diff = -(f1->d_isdir - f2->d_isdir);
-    if (diff) return -diff;
+    int diff = -(f1->d_isdir - f2->d_isdir);
+    if (diff) return -diff; // Always sort dirs before files
     const char *p1 = f1->d_name, *p2 = f2->d_name;
     while (*p1 && *p2) {
-        int diff = (*p1 - *p2);
-        if ('0' <= *p1 && *p1 <= '9' && '0' <= *p2 && *p2 <= '9') {
+        char c1 = *p1, c2 = *p2;
+        if ('A' <= c1 && 'Z' <= c1) c1 = c1 - 'A' + 'a';
+        if ('A' <= c2 && 'Z' <= c2) c2 = c2 - 'A' + 'a';
+        int diff = (c1 - c2);
+        if ('0' <= c1 && c1 <= '9' && '0' <= c2 && c2 <= '9') {
             long n1 = strtol(p1, (char**)&p1, 10);
             long n2 = strtol(p2, (char**)&p2, 10);
             diff = ((p1 - f1->d_name) - (p2 - f2->d_name)) || (n1 - n2);
-            if (diff) return diff;
+            if (diff) return diff*sign;
         } else if (diff) {
-            return diff;
+            return diff*sign;
         } else {
             ++p1, ++p2;
         }
     }
-    return *p1 - *p2;
+    return (*p1 - *p2)*sign;
+}
+
+static int compare_bits(void *r, const void *v1, const void *v2)
+{
+    int sign = *((int *)r) ? -1 : 1;
+    const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
+    int diff = -(f1->d_isdir - f2->d_isdir);
+    if (diff) return -diff; // Always sort dirs before files
+    struct stat info1, info2;
+    stat(f1->d_fullname, &info1);
+    stat(f2->d_fullname, &info2);
+    return -((info1.st_mode & 0x3FF) - (info2.st_mode & 0x3FF))*sign;
+}
+
+static int compare_size(void *r, const void *v1, const void *v2)
+{
+    int sign = *((int *)r) ? -1 : 1;
+    const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
+    int diff = -(f1->d_isdir - f2->d_isdir);
+    if (diff) return -diff; // Always sort dirs before files
+    struct stat info1, info2;
+    stat(f1->d_fullname, &info1);
+    stat(f2->d_fullname, &info2);
+    return -(info1.st_size - info2.st_size)*sign;
+}
+
+static int compare_date(void *r, const void *v1, const void *v2)
+{
+    int sign = *((int *)r) ? -1 : 1;
+    const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
+    int diff = -(f1->d_isdir - f2->d_isdir);
+    if (diff) return -diff; // Always sort dirs before files
+    struct stat info1, info2;
+    stat(f1->d_fullname, &info1);
+    stat(f2->d_fullname, &info2);
+    if (info1.st_mtimespec.tv_sec == info2.st_mtimespec.tv_sec)
+        return -(info1.st_mtimespec.tv_nsec - info2.st_mtimespec.tv_nsec)*sign;
+    else
+        return -(info1.st_mtimespec.tv_sec - info2.st_mtimespec.tv_sec)*sign;
 }
 
 static void write_selection(int fd, entry_t *firstselected)
@@ -340,6 +389,8 @@ static int term_get_event()
                         if (buf == 'm')
                             return KEY_MOUSE_RELEASE;
                         switch (buttons) {
+                            case 64: return KEY_MOUSE_WHEEL_UP;
+                            case 65: return KEY_MOUSE_WHEEL_DOWN;
                             case 0: return KEY_MOUSE_LEFT;
                             case 1: return KEY_MOUSE_RIGHT;
                             case 2: return KEY_MOUSE_MIDDLE;
@@ -442,26 +493,35 @@ static void explore(char *path, int print_dir, int print_selection)
         state.files[state.nfiles++] = entry;
       next_file:;
     }
+    closedir(dir);
     free(selecthash);
     if (state.nfiles == 0) err("No files found (not even '..')");
-    qsort(state.files, state.nfiles, sizeof(entry_t*), compare_alpha);
-    closedir(dir);
 
     state.cursor = 0;
     state.scroll = 0;
+    clock_gettime(CLOCK_MONOTONIC, &state.lastclick);
+
+    int (*cmp)(void*, const void*, const void*);
+
+  sort_files:
+    cmp = compare_alpha;
+    if (state.sortmethod == SORT_SIZE) cmp = compare_size;
+    if (state.sortmethod == SORT_DATE) cmp = compare_date;
+    if (state.sortmethod == SORT_BITS) cmp = compare_bits;
+    qsort_r(&state.files[1], state.nfiles-1, sizeof(entry_t*), &state.sort_reverse, cmp);
 
     if (to_select[0]) {
         for (int i = 0; i < state.nfiles; i++) {
             if (strcmp(to_select, state.files[i]->d_name) == 0) {
                 state.cursor = i;
+                state.scroll = MAX(0, i - MIN(SCROLLOFF, (height-4)/2));
                 break;
             }
         }
+        to_select[0] = '\0';
     }
 
-    clock_gettime(CLOCK_MONOTONIC, &state.lastclick);
     int picked, scrolloff;
-
     while (1) {
       redraw:
         render(&state);
@@ -475,7 +535,17 @@ static void explore(char *path, int print_dir, int print_selection)
                 double dt_ms = 1e3*(double)(clicktime.tv_sec - state.lastclick.tv_sec);
                 dt_ms += 1e-6*(double)(clicktime.tv_nsec - state.lastclick.tv_nsec);
                 state.lastclick = clicktime;
-                if (mouse_y > 0 && state.scroll + (mouse_y - 2) < state.nfiles) {
+                if (mouse_y == 1) {
+                    //    Size         Date           Bits  Name
+                    if (mouse_x <= 8)
+                        goto sort_size;
+                    else if (mouse_x <= 30)
+                        goto sort_date;
+                    else if (mouse_x <= 35)
+                        goto sort_bits;
+                    else
+                        goto sort_alpha;
+                } else if (mouse_y >= 2 && state.scroll + (mouse_y - 2) < state.nfiles) {
                     int clicked = state.scroll + (mouse_y - 2);
                     if (dt_ms > 200) {
                     // Single click
@@ -499,7 +569,29 @@ static void explore(char *path, int print_dir, int print_selection)
             case 'q': case 'Q': case KEY_CTRL_C:
                 goto done;
 
+            case KEY_MOUSE_WHEEL_DOWN:
+                if (state.cursor >= state.nfiles - 1)
+                    goto skip_redraw;
+                ++state.cursor;
+                if (state.nfiles <= height - 4)
+                    goto redraw;
+                ++state.scroll;
+                goto redraw;
+
+            case KEY_MOUSE_WHEEL_UP:
+                if (state.cursor <= 0)
+                    goto skip_redraw;
+                --state.cursor;
+                if (state.nfiles <= height - 4)
+                    goto redraw;
+                --state.scroll;
+                if (state.scroll < 0)
+                    state.scroll = 0;
+                goto redraw;
+
             case KEY_CTRL_D:
+                if (state.cursor == state.nfiles - 1)
+                    goto skip_redraw;
                 state.cursor = MIN(state.nfiles - 1, state.cursor + (height - 4) / 2);
                 if (state.nfiles <= height - 4)
                     goto redraw;
@@ -613,6 +705,46 @@ static void explore(char *path, int print_dir, int print_selection)
                 picked = 0;
                 goto open_file;
 
+            case 'a':
+              sort_alpha:
+                if (state.sortmethod == SORT_ALPHA)
+                    state.sort_reverse ^= 1;
+                else {
+                    state.sortmethod = SORT_ALPHA;
+                    state.sort_reverse = 0;
+                }
+                goto sort_files;
+
+            case 'b':
+              sort_bits:
+                if (state.sortmethod == SORT_BITS)
+                    state.sort_reverse ^= 1;
+                else {
+                    state.sortmethod = SORT_BITS;
+                    state.sort_reverse = 0;
+                }
+                goto sort_files;
+
+            case 's':
+              sort_size:
+                if (state.sortmethod == SORT_SIZE)
+                    state.sort_reverse ^= 1;
+                else {
+                    state.sortmethod = SORT_SIZE;
+                    state.sort_reverse = 0;
+                }
+                goto sort_files;
+
+            case 'd':
+              sort_date:
+                if (state.sortmethod == SORT_DATE)
+                    state.sort_reverse ^= 1;
+                else {
+                    state.sortmethod = SORT_DATE;
+                    state.sort_reverse = 0;
+                }
+                goto sort_files;
+
             case '.':
                 state.showhidden ^= 1;
                 goto tail_call;
@@ -661,14 +793,18 @@ static void explore(char *path, int print_dir, int print_selection)
                 }
                 break;
 
-            case 'd':
-                if (state.nselected) {
-                    int fd;
-                    run_cmd(NULL, &fd, "xargs rm -rf");
+            case 'D': {
+                int fd;
+                run_cmd(NULL, &fd, "xargs rm -rf");
+                if (state.nselected)
                     write_selection(fd, state.firstselected);
-                    close(fd);
+                else {
+                    writez(fd, state.files[state.cursor]->d_fullname);
+                    write(fd, "\n", 1);
                 }
+                close(fd);
                 break;
+            }
 
             case 'p':
                 if (state.nselected) {
