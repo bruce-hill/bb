@@ -12,8 +12,6 @@
 #define CLEAR_SELECTION (1<<3)
 #define ONSCREEN        (1<<4)
 
-#define DEVNULL " >/dev/null"
-
 struct {
     int key;
     const char *command;
@@ -21,11 +19,11 @@ struct {
 } bindings[] = {
     // User-defined custom scripts go here:
     {'L', "less"},
-    {'D', "xargs rm -rf" DEVNULL, CLEAR_SELECTION | REFRESH | ONSCREEN},
+    {'D', "xargs rm -rf", CLEAR_SELECTION | REFRESH | ONSCREEN},
     {'d', "xargs -I @ sh -c 'rm -rfi @ </dev/tty'", CLEAR_SELECTION | REFRESH | ONSCREEN},
-    {'c', "xargs -n1 -I @ cp @ @.copy" DEVNULL, REFRESH | ONSCREEN},
-    {'m', "xargs -I @ mv -i @ . </dev/tty" DEVNULL, CLEAR_SELECTION | REFRESH | ONSCREEN},
-    {'p', "xargs -I @ cp -i @ . </dev/tty" DEVNULL, CLEAR_SELECTION | REFRESH | ONSCREEN},
+    {'c', "xargs -n1 -I @ cp @ @.copy", REFRESH | ONSCREEN},
+    {'m', "xargs -I @ mv -i @ . </dev/tty", CLEAR_SELECTION | REFRESH | ONSCREEN},
+    {'p', "xargs -I @ cp -i @ . </dev/tty", CLEAR_SELECTION | REFRESH | ONSCREEN},
     {'n', "touch \"`printf '\\033[33;1mNew file:\\033[0m ' >/dev/tty && head -n1 /dev/tty`\"", ONSCREEN | REFRESH | NO_FILES},
     {'|', "sh -c \"`printf '> ' >/dev/tty && head -n1 /dev/tty`\"", REFRESH},
     {'>', "sh -c \"`printf '> ' >/dev/tty && head -n1 /dev/tty`\"", NO_FILES | REFRESH},
