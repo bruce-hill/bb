@@ -348,68 +348,6 @@ static void write_selection(int fd, entry_t *firstselected)
     }
 }
 
-static char *input(const char *prompt, const char *starter)
-{
-    size_t len = 0, capacity = MAX(100, starter ? strlen(starter)+1 : 0);
-    char *reply = calloc(capacity, 1);
-    if (!reply) err("allocation failure");
-    if (starter)
-        len = strcpy(reply, starter) - reply;
-
-    // Show cursor:
-    writez(termfd, "\e[?25h");
-
-    while (1) {
-      redraw:
-        term_move(0, height-1);
-        writez(termfd, "\e[K\e[33m");
-        writez(termfd, prompt);
-        writez(termfd, "\e[0m");
-        write(termfd, reply, len);
-
-      skip_redraw:;
-        int c = term_getkey(termfd, &mouse_x, &mouse_y);
-        switch (c) {
-            case KEY_BACKSPACE: case KEY_BACKSPACE2:
-                if (len > 0) {
-                    reply[--len] = '\0';
-                    goto redraw;
-                }
-                goto skip_redraw;
-            case KEY_CTRL_U:
-                if (len > 0) {
-                    len = 0;
-                    reply[0] = '\0';
-                    goto redraw;
-                }
-                goto skip_redraw;
-            case KEY_CTRL_C: case KEY_ESC:
-                free(reply);
-                reply = NULL;
-                goto done;
-            case '\r':
-                goto done;
-            default:
-                if (' ' <= c && c <= '~') {
-                    if (len + 1 >= capacity) {
-                        capacity += 100;
-                        reply = realloc(reply, capacity);
-                        if (!reply)
-                            err("allocation failure");
-                    }
-                    reply[len++] = c;
-                    reply[len] = '\0';
-                    goto redraw;
-                }
-                goto skip_redraw;
-        }
-    }
-  done:
-    // Hide cursor:
-    writez(termfd, "\e[?25l");
-    return reply;
-}
-
 static void clear_selection(bb_state_t *state)
 {
     entry_t **tofree = calloc(state->nselected, sizeof(entry_t*));
@@ -874,14 +812,7 @@ static void explore(char *path, int print_dir, int print_selection)
 
                         int fd;
                         pid_t child;
-                        if (bindings[i].flags & PROMPT) {
-                            char *txt = input(bindings[i].prompt, NULL);
-                            if (!txt) goto redraw;
-                            child = run_cmd(NULL, &fd, bindings[i].command, txt);
-                            free(txt);
-                        } else {
-                            child = run_cmd(NULL, &fd, bindings[i].command);
-                        }
+                        child = run_cmd(NULL, &fd, bindings[i].command);
 
                         if (!(bindings[i].flags & NO_FILES)) {
                             if (state.nselected > 0) {
