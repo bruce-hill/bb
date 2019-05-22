@@ -1,16 +1,20 @@
 PREFIX=
 CC=cc
-CFLAGS=-O0 -std=gnu99 -g
+CFLAGS=-O0 -std=gnu99
 LIBS=
 NAME=bb
+G=
 
 all: $(NAME)
 
 clean:
 	rm $(NAME)
 
+config.h:
+	cp config.def.h config.h
+
 $(NAME): $(NAME).c keys.h config.h
-	$(CC) $(NAME).c $(LIBS) $(CFLAGS) -o $(NAME)
+	$(CC) $(NAME).c $(LIBS) $(CFLAGS) $(G) -o $(NAME)
 
 test: $(NAME)
 	./$(NAME) test.xml

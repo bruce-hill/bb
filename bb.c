@@ -342,7 +342,7 @@ static int compare_date(void *r, const void *v1, const void *v2)
         return -(info1.st_mtimespec.tv_sec - info2.st_mtimespec.tv_sec)*sign;
 }
 
-static void write_selection(int fd, entry_t *firstselected)
+static void write_selection(int fd, entry_t *firstselected, char sep)
 {
     while (firstselected) {
         const char *p = firstselected->d_fullname;
@@ -350,11 +350,11 @@ static void write_selection(int fd, entry_t *firstselected)
             const char *p2 = strchr(p, '\n');
             if (!p2) p2 = p + strlen(p);
             write(fd, p, p2 - p);
-            if (*p2 == '\n')
+            if (*p2 == '\n' && sep == '\n')
                 write(fd, "\\", 1);
             p = p2;
         }
-        write(fd, "\n", 1);
+        write(fd, &sep, 1);
         firstselected = firstselected->next;
     }
 }
@@ -373,7 +373,7 @@ static void clear_selection(bb_state_t *state)
     state->nselected = 0;
 }
 
-static void explore(char *path, int print_dir, int print_selection)
+static void explore(char *path, int print_dir, int print_selection, char sep)
 {
     char *tmp = path;
     char *original_path = calloc(strlen(tmp) + 1, 1);
@@ -902,8 +902,9 @@ static void explore(char *path, int print_dir, int print_selection)
                         sig_t old_handler = signal(SIGINT, do_nothing);
                         child = run_cmd(NULL, &scriptinfd, bindings[i].command);
                         if (!(bindings[i].flags & NO_FILES)) {
+                            char sep = (bindings[i].flags & NULL_SEP) ? '\0' : '\n';
                             if (state.nselected > 0) {
-                                write_selection(scriptinfd, state.firstselected);
+                                write_selection(scriptinfd, state.firstselected, sep);
                             } else if (strcmp(state.files[state.cursor]->d_name, "..") != 0) {
                                 write(scriptinfd, state.files[state.cursor]->d_name, state.files[state.cursor]->d_namlen);
                             }
@@ -940,7 +941,7 @@ done:
     if (print_dir)
         printf("%s\n", state.path);
     if (print_selection)
-        write_selection(STDOUT_FILENO, state.firstselected);
+        write_selection(STDOUT_FILENO, state.firstselected, sep);
     return;
 }
 
@@ -948,10 +949,13 @@ int main(int argc, char *argv[])
 {
     char _realpath[MAX_PATH+1];
     char *path = ".";
+    char sep = '\n';
     int print_dir = 0, print_selection = 0;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-d") == 0) {
             print_dir = 1;
+        } else if (strcmp(argv[i], "-0") == 0) {
+            sep = '\0';
         } else if (strcmp(argv[i], "-s") == 0) {
             print_selection = 1;
         } else if (path[0]) {
@@ -962,7 +966,7 @@ int main(int argc, char *argv[])
     init_term();
     if (!realpath(path, _realpath))
         err("realpath failed");
-    explore(_realpath, print_dir, print_selection);
+    explore(_realpath, print_dir, print_selection, sep);
 done:
     return 0;
 }

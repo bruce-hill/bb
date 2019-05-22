@@ -7,7 +7,7 @@
 #define SCROLLOFF 5
 
 #define NO_FILES        (1<<0)
-#define CD_TO_RESULT    (1<<1)
+#define NULL_SEP        (1<<1)
 #define REFRESH         (1<<2)
 #define CLEAR_SELECTION (1<<3)
 #define ONSCREEN        (1<<4)
@@ -19,16 +19,17 @@ struct {
 } bindings[] = {
     // User-defined custom scripts go here:
     {'L', "less"},
-    {'D', "xargs rm -rf", CLEAR_SELECTION | REFRESH | ONSCREEN},
-    {'d', "xargs -I @ sh -c 'rm -rfi @ </dev/tty'", CLEAR_SELECTION | REFRESH | ONSCREEN},
-    {'c', "xargs -n1 -I @ cp @ @.copy", REFRESH | ONSCREEN},
-    {'m', "xargs -I @ mv -i @ . </dev/tty", CLEAR_SELECTION | REFRESH | ONSCREEN},
-    {'p', "xargs -I @ cp -i @ . </dev/tty", CLEAR_SELECTION | REFRESH | ONSCREEN},
+    {'D', "xargs -0 rm -rf", CLEAR_SELECTION | REFRESH | ONSCREEN | NULL_SEP},
+    {'d', "xargs -0 -I @ sh -c 'rm -rfi @ </dev/tty'", CLEAR_SELECTION | REFRESH | ONSCREEN | NULL_SEP},
+    {'m', "xargs -0 -I @ mv -i @ . </dev/tty", CLEAR_SELECTION | REFRESH | ONSCREEN | NULL_SEP},
+    {'c', "xargs -0 -I @ cp -i @ . </dev/tty", CLEAR_SELECTION | REFRESH | ONSCREEN | NULL_SEP},
+    {'C', "xargs -0 -n1 -I @ cp @ @.copy", REFRESH | ONSCREEN | NULL_SEP},
     {'n', "touch \"`printf '\\033[33;1mNew file:\\033[0m ' >/dev/tty && head -n1 /dev/tty`\"", ONSCREEN | REFRESH | NO_FILES},
+    {'N', "mkdir \"`printf '\\033[33;1mNew dir:\\033[0m ' >/dev/tty && head -n1 /dev/tty`\"", ONSCREEN | REFRESH | NO_FILES},
     {'|', "sh -c \"`printf '> ' >/dev/tty && head -n1 /dev/tty`\"", REFRESH},
     {'>', "sh -c \"`printf '> ' >/dev/tty && head -n1 /dev/tty`\"", NO_FILES | REFRESH},
-    {'r', "xargs -I @ -n1 sh -c 'mv \"@\" \"`printf \"\e[1mRename \e[1;33m%%s\e[0m: \" \"@\" >&2 && head -n1 </dev/tty`\"'",
-        REFRESH | CLEAR_SELECTION | ONSCREEN},
+    {'r', "xargs -0 -I @ -n1 sh -c 'mv \"@\" \"`printf \"\e[1mRename \e[1;33m%%s\e[0m: \" \"@\" >&2 && head -n1 </dev/tty`\"'",
+        REFRESH | CLEAR_SELECTION | ONSCREEN | NULL_SEP},
 
     // Hard-coded behaviors (these are just placeholders for the help):
     {-1, "?\t\e[0;34mOpen help menu\e[0m"},
