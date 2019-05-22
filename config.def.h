@@ -17,7 +17,12 @@ struct {
     const char *command;
     int flags;
 } bindings[] = {
-    // User-defined custom scripts go here:
+    ////////////////////////////////////////////////////////////////////////
+    // User-defined custom scripts go here
+    // Please note that these are sh scripts, not bash scripts, so bash-isms
+    // won't work unless you make your script use `bash -c "<your script>"`
+    ////////////////////////////////////////////////////////////////////////
+    {'e', "$EDITOR \"$@\""},
     {'L', PIPE_SELECTION_TO "less"},
     {'D', "rm -rf \"$@\"", CLEAR_SELECTION | REFRESH | ONSCREEN},
     {'d', "rm -rfi \"$@\"", CLEAR_SELECTION | REFRESH | ONSCREEN},
