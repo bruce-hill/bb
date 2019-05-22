@@ -246,7 +246,7 @@ static void render(bb_state_t *state)
                 writez(termfd, "/");
 
             if (entry->d_type == DT_LNK) {
-                char linkpath[MAX_PATH] = {0};
+                char linkpath[MAX_PATH+1] = {0};
                 ssize_t pathlen;
                 if ((pathlen = readlink(entry->d_name, linkpath, sizeof(linkpath))) < 0)
                     err("readlink() failed");
@@ -474,7 +474,7 @@ static void explore(char *path, int print_dir, int print_selection)
     path = malloc(strlen(tmp) + 1);
     strcpy(path, tmp);
     tmp = NULL;
-    char to_select[MAX_PATH] = {0};
+    char to_select[MAX_PATH+1] = {0};
     bb_state_t state = {0};
     memset(&state, 0, sizeof(bb_state_t));
 
@@ -577,7 +577,8 @@ static void explore(char *path, int print_dir, int print_selection)
         for (int i = 0; i < state.nfiles; i++) {
             if (strcmp(to_select, state.files[i]->d_name) == 0) {
                 state.cursor = i;
-                state.scroll = MAX(0, i - MIN(SCROLLOFF, (height-4)/2));
+                if (state.nfiles > height - 4)
+                    state.scroll = MAX(0, i - MIN(SCROLLOFF, (height-4)/2));
                 break;
             }
         }
@@ -843,7 +844,7 @@ static void explore(char *path, int print_dir, int print_selection)
                         else to_select[0] = '\0';
                     } else to_select[0] = '\0';
 
-                    char tmp[MAX_PATH];
+                    char tmp[MAX_PATH+1];
                     if (!realpath(state.files[picked]->d_fullname, tmp))
                         err("realpath failed");
                     free(path);
@@ -914,6 +915,44 @@ static void explore(char *path, int print_dir, int print_selection)
                 goto tail_call;
             }
 
+            case 'f': case '/': {
+                close_term();
+                int fd;
+                if (state.showhidden)
+                    run_cmd(&fd, NULL, "find | cut -d/ -f2- | fzf");
+                else
+                    run_cmd(&fd, NULL, "find -not -name '\\.*' -not -path '*/\\.*' | cut -d/ -f2- | fzf");
+                int len = 0, space = MAX_PATH, consumed;
+                while ((consumed = read(fd, &to_select[len], space)) > 0) {
+                    if (consumed < 0) err("Error reading selection");
+                    to_select[len + consumed] = '\0';
+                    char *nl = strchr(&to_select[len], '\n');
+                    if (nl) {
+                        *nl = '\0';
+                        break;
+                    }
+                    len += consumed;
+                    space -= consumed;
+                }
+                close(fd);
+                init_term();
+
+                if (to_select[0] == '\0')
+                    goto redraw;
+
+                char *pathend = strrchr(to_select, '/');
+                if (pathend) {
+                    char *newpath = calloc(strlen(path) + 1 + (pathend - to_select), 1);
+                    strcpy(newpath, path);
+                    strcat(newpath, "/");
+                    strncat(newpath, to_select, pathend - to_select);
+                    free(path);
+                    path = newpath;
+                    strcpy(to_select, pathend + 1);
+                }
+                goto tail_call;
+            }
+
             case '|': {
                 char *cmd = input("> ", NULL);
                 if (!cmd)
@@ -957,7 +996,7 @@ done:
 int main(int argc, char *argv[])
 {
     init_term();
-    char _realpath[MAX_PATH];
+    char _realpath[MAX_PATH+1];
     char *path = ".";
     int print_dir = 0, print_selection = 0;
     for (int i = 1; i < argc; i++) {
