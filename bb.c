@@ -124,6 +124,49 @@ static void err(const char *msg, ...)
     _exit(1);
 }
 
+static int run_cmd_on_selection(bb_state_t *state, const char *cmd)
+{
+    pid_t child;
+    sig_t old_handler = signal(SIGINT, do_nothing);
+
+    if ((child = fork()) == 0) {
+        // TODO: is there a max number of args? Should this be batched?
+        char **const args = calloc(MAX(1, state->nselected) + 4, sizeof(char*));
+        int i = 0;
+        args[i++] = "sh";
+        args[i++] = "-c";
+        args[i++] = (char*)cmd;
+        args[i++] = "--";
+        entry_t *first = state->firstselected ? state->firstselected : state->files[state->cursor];
+        for (entry_t *e = first; e; e = e->next) {
+            args[i++] = e->d_name;
+        }
+        args[i] = NULL;
+
+        { // Set environment variable to track shell nesting
+            char *depthstr = getenv("BB_DEPTH");
+            int depth = depthstr ? atoi(depthstr) : 0;
+            char buf[64] = {0};
+            snprintf(buf, sizeof(buf), "BB_DEPTH=%d", depth + 1);
+            putenv(buf);
+        }
+
+        execvp("sh", args);
+        free(args);
+        err("Failed to execute command: '%s'", cmd);
+        _exit(0);
+        return -1;
+    }
+
+    if (child == -1)
+        err("Failed to fork");
+    int status;
+    waitpid(child, &status, 0);
+    signal(SIGINT, old_handler);
+    return status;
+}
+
+
 static pid_t run_cmd(int *child_out, int *child_in, const char *cmd, ...)
 {
     int child_outfds[2], child_infds[2];
@@ -885,40 +928,23 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                 for (int i = 0; bindings[i].key > 0; i++) {
                     if (key == bindings[i].key) {
                         term_move(0, height-1);
+                        writez(termfd, "\e[K");
                         struct termios cur_tios;
                         if (!(bindings[i].flags & ONSCREEN)) {
                             close_term();
                         } else {
                             tcgetattr(termfd, &cur_tios);
-                            struct termios tios;
-                            memcpy(&tios, &orig_termios, sizeof(tios));
-                            tcsetattr(termfd, TCSAFLUSH, &tios);
-                            // Show cursor
-                            writez(termfd, "\e[?25h");
+                            tcsetattr(termfd, TCSAFLUSH, &orig_termios);
+                            writez(termfd, "\e[?25h"); // Show cursor
                         }
 
-                        int scriptinfd;
-                        pid_t child;
-                        sig_t old_handler = signal(SIGINT, do_nothing);
-                        child = run_cmd(NULL, &scriptinfd, bindings[i].command);
-                        if (!(bindings[i].flags & NO_FILES)) {
-                            char sep = (bindings[i].flags & NULL_SEP) ? '\0' : '\n';
-                            if (state.nselected > 0) {
-                                write_selection(scriptinfd, state.firstselected, sep);
-                            } else if (strcmp(state.files[state.cursor]->d_name, "..") != 0) {
-                                write(scriptinfd, state.files[state.cursor]->d_name, state.files[state.cursor]->d_namlen);
-                            }
-                        }
-                        close(scriptinfd);
-                        waitpid(child, NULL, 0);
-                        signal(SIGINT, old_handler);
+                        run_cmd_on_selection(&state, bindings[i].command);
 
                         if (!(bindings[i].flags & ONSCREEN)) {
                             init_term();
                         } else {
                             tcsetattr(termfd, TCSAFLUSH, &cur_tios);
-                            // hide cursor
-                            writez(termfd, "\e[?25l");
+                            writez(termfd, "\e[?25l"); // Hide cursor
                         }
 
                         if (bindings[i].flags & CLEAR_SELECTION)

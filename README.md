@@ -6,24 +6,23 @@
 - Highly interoperable with unix pipelines
 - Highly customizable and hackable
 - Without any build dependencies other than the C standard library (no ncurses)
-- A good proof-of-concept for making a TUI without using any libraries
+- A good proof-of-concept for making a TUI from scratch
 
 The core idea behind `bb` is that almost all actions are performed by piping
-selected files to external scripts, rather than hard-coding actions. Unix
-tools are very good at doing file management, the thing that `bb` adds is
-immediate visual feedback and rapid navigation.
+selected files to external scripts, rather than having the file manager itself
+try to anticipate and hard-code every possible user action. Unix tools are very
+good at doing file management, the thing that `bb` adds is immediate visual
+feedback and rapid navigation.
 
-For example, normally on the command line, if you wanted to manually delete a
-handful of files, you would first get a listing of the files with `ls`, then
-type `rm` followed by typing out the names of the files (with some tab
-autocompletion). With `bb`, you can just launch `bb`, see all the files
-immediately, select the ones you want with a few keystrokes, and press `D` to
-delete them (or `d` for deleting with confirmation). The `D` key's behavior
-is defined in a single line of code in `config.h` to pipe the selected files
-to `xargs -0 rm -rf`. That's it! If you want to add a mapping to upload files to
-your server, you can just add a binding for `xargs scp user@example.com` or,
-if you have some complicated one-time task, you can just hit `|` and type in
-any arbitrary command and have the selected files piped to it.
+For example, instead of using `ls`, then `rm` and typing out file names, you can
+just open `bb`, scroll through the list of files, select the ones you want to
+delete, and hit `D`. The `D` key's behavior is defined in a single line of code
+in `config.h` as piping the selected files to `xargs -0 rm -rf`. That's it! If
+you want to add a mapping to upload files to your server, you can just add a
+binding for `xargs -0 scp user@example.com`. Want to zip files? Add a mapping for
+`xargs -0 zip "$(printf 'Zip file: ' >/dev/tty && head -n1 /dev/tty)"` or, if
+you have some complicated one-time task, you can just hit `|` and type in any
+arbitrary command and have the selected files piped to it.
 
 ## Zero Dependencies
 
@@ -57,6 +56,9 @@ If you want to customize `bb`, you can add or change the key bindings by
 editing `config.h` and recompiling. In [suckless](https://suckless.org/) style,
 customizing means editing source code, and compilation is extremely fast.
 Key character constants are in `keys.h` and the rest of the code is in `bb.c`.
+
+If you want to get user input during a command (e.g. to get the name of a new file),
+you can use `/dev/tty` like so: `touch "$(printf 'New file: ' >/dev/tty && head -n1 /dev/tty)"`
 
 ## License
 

@@ -4,13 +4,13 @@
 #include "keys.h"
 
 #define PROG_FUZZY "fzf"
+#define PIPE_SELECTION_TO " printf '%s\\n' \"$@\" | "
+#define AND_PAUSE " && read -n1 -p '\n\e[2m...press any key to continue...\e[0m\e[?25l'"
 #define SCROLLOFF 5
 
-#define NO_FILES        (1<<0)
-#define NULL_SEP        (1<<1)
-#define REFRESH         (1<<2)
-#define CLEAR_SELECTION (1<<3)
-#define ONSCREEN        (1<<4)
+#define REFRESH         (1<<0)
+#define CLEAR_SELECTION (1<<1)
+#define ONSCREEN        (1<<2)
 
 struct {
     int key;
@@ -18,18 +18,18 @@ struct {
     int flags;
 } bindings[] = {
     // User-defined custom scripts go here:
-    {'L', "less"},
-    {'D', "xargs -0 rm -rf", CLEAR_SELECTION | REFRESH | ONSCREEN | NULL_SEP},
-    {'d', "xargs -0 -I @ sh -c 'rm -rfi @ </dev/tty'", CLEAR_SELECTION | REFRESH | ONSCREEN | NULL_SEP},
-    {'m', "xargs -0 -I @ mv -i @ . </dev/tty", CLEAR_SELECTION | REFRESH | ONSCREEN | NULL_SEP},
-    {'c', "xargs -0 -I @ cp -i @ . </dev/tty", CLEAR_SELECTION | REFRESH | ONSCREEN | NULL_SEP},
-    {'C', "xargs -0 -n1 -I @ cp @ @.copy", REFRESH | ONSCREEN | NULL_SEP},
-    {'n', "touch \"`printf '\\033[33;1mNew file:\\033[0m ' >/dev/tty && head -n1 /dev/tty`\"", ONSCREEN | REFRESH | NO_FILES},
-    {'N', "mkdir \"`printf '\\033[33;1mNew dir:\\033[0m ' >/dev/tty && head -n1 /dev/tty`\"", ONSCREEN | REFRESH | NO_FILES},
-    {'|', "sh -c \"`printf '> ' >/dev/tty && head -n1 /dev/tty`\"", REFRESH},
-    {'>', "sh -c \"`printf '> ' >/dev/tty && head -n1 /dev/tty`\"", NO_FILES | REFRESH},
-    {'r', "xargs -0 -I @ -n1 sh -c 'mv \"@\" \"`printf \"\e[1mRename \e[1;33m%%s\e[0m: \" \"@\" >&2 && head -n1 </dev/tty`\"'",
-        REFRESH | CLEAR_SELECTION | ONSCREEN | NULL_SEP},
+    {'L', PIPE_SELECTION_TO "less"},
+    {'D', "rm -rf \"$@\"", CLEAR_SELECTION | REFRESH | ONSCREEN},
+    {'d', "rm -rfi \"$@\"", CLEAR_SELECTION | REFRESH | ONSCREEN},
+    {'m', "mv -i \"$@\" .", CLEAR_SELECTION | REFRESH | ONSCREEN},
+    {'c', "cp -i \"$@\" .", CLEAR_SELECTION | REFRESH | ONSCREEN},
+    {'C', "for f; do cp \"$f\" \"$f.copy\"; done", REFRESH | ONSCREEN},
+    {'n', "read -p '\e[33;1mNew file:\e[0m ' name && touch \"$name\"", ONSCREEN | REFRESH},
+    {'N', "read -p '\e[33;1mNew dir:\e[0m ' name && mkdir \"$name\"", ONSCREEN | REFRESH},
+    {'|', "read -p \"\e[33;1m>\e[0m \" cmd && " PIPE_SELECTION_TO "$SHELL -c \"$cmd\"" AND_PAUSE, REFRESH},
+    {'>', "$SHELL", REFRESH},
+    {'r', "for f; do read -p \"Rename $f: \" renamed && mv \"$f\" \"$renamed\"; done",
+        REFRESH | CLEAR_SELECTION | ONSCREEN},
 
     // Hard-coded behaviors (these are just placeholders for the help):
     {-1, "?\t\e[0;34mOpen help menu\e[0m"},
