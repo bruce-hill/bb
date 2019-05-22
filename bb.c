@@ -427,7 +427,11 @@ static void clear_selection(bb_state_t *state)
 static void explore(char *path, int print_dir, int print_selection)
 {
     char *tmp = path;
-    path = malloc(strlen(tmp) + 1);
+    char *original_path = calloc(strlen(tmp) + 1, 1);
+    if (!original_path) err("allocation failure");
+    strcpy(original_path, path);
+    path = calloc(strlen(tmp) + 1, 1);
+    if (!path) err("allocation failure");
     strcpy(path, tmp);
     tmp = NULL;
     char to_select[MAX_PATH+1] = {0};
@@ -586,7 +590,14 @@ static void explore(char *path, int print_dir, int print_selection)
                 break;
             }
 
-            case 'q': case 'Q': case KEY_CTRL_C:
+            case KEY_CTRL_C:
+                close_term();
+                if (print_dir)
+                    printf("%s\n", original_path);
+                _exit(1);
+                return;
+
+            case 'q': case 'Q':
                 goto done;
 
             case KEY_MOUSE_WHEEL_DOWN:
@@ -609,18 +620,18 @@ static void explore(char *path, int print_dir, int print_selection)
                     state.scroll = 0;
                 goto redraw;
 
-            case KEY_CTRL_D:
+            case KEY_CTRL_D: case KEY_PGDN:
                 if (state.cursor == state.nfiles - 1)
                     goto skip_redraw;
                 state.cursor = MIN(state.nfiles - 1, state.cursor + (height - 4) / 2);
                 if (state.nfiles <= height - 4)
                     goto redraw;
                 state.scroll += (height - 4)/2;
-                if (state.scroll > state.nfiles - (height - 4))
-                    state.scroll = state.nfiles - (height - 4);
+                if (state.scroll > state.nfiles - (height - 4) - 1)
+                    state.scroll = state.nfiles - (height - 4) - 1;
                 goto redraw;
 
-            case KEY_CTRL_U:
+            case KEY_CTRL_U: case KEY_PGUP:
                 state.cursor = MAX(0, state.cursor - (height - 4) / 2);
                 if (state.nfiles <= height - 4)
                     goto redraw;
@@ -629,15 +640,15 @@ static void explore(char *path, int print_dir, int print_selection)
                     state.scroll = 0;
                 goto redraw;
 
-            case 'g':
+            case 'g': case KEY_HOME:
                 state.cursor = 0;
                 state.scroll = 0;
                 goto redraw;
 
-            case 'G':
+            case 'G': case KEY_END:
                 state.cursor = state.nfiles - 1;
                 if (state.nfiles > height - 4)
-                    state.scroll = state.nfiles - (height - 4);
+                    state.scroll = state.nfiles - (height - 4) - 1;
                 goto redraw;
 
             case ' ':
@@ -682,6 +693,10 @@ static void explore(char *path, int print_dir, int print_selection)
             case KEY_ESC:
                 clear_selection(&state);
                 goto redraw;
+
+            case KEY_F5: case KEY_CTRL_R:
+                strcpy(to_select, state.files[state.cursor]->d_name);
+                goto tail_call;
 
             case 'j': case KEY_ARROW_DOWN:
                 if (state.cursor >= state.nfiles - 1)
@@ -765,7 +780,7 @@ static void explore(char *path, int print_dir, int print_selection)
                 }
                 goto sort_files;
 
-            case 'd':
+            case 't':
               sort_date:
                 if (state.sortmethod == SORT_DATE)
                     state.sort_reverse ^= 1;
@@ -851,29 +866,6 @@ static void explore(char *path, int print_dir, int print_selection)
                 goto tail_call;
             }
 
-                                /*
-            case '|': {
-                char *cmd = input("> ", NULL);
-                if (!cmd)
-                    goto redraw;
-                // TODO: avoid having this spam the terminal history
-                close_term();
-                int fd;
-                pid_t child = run_cmd(NULL, &fd, cmd);
-                free(cmd);
-                if (state.nselected > 0) {
-                    write_selection(fd, state.firstselected);
-                } else {
-                    write(fd, state.files[state.cursor]->d_name, state.files[state.cursor]->d_namlen);
-                    write(fd, "\n", 1);
-                }
-                close(fd);
-                waitpid(child, NULL, 0);
-                init_term();
-                goto tail_call;
-            }
-            */
-
             default:
                 for (int i = 0; bindings[i].key; i++) {
                     if (key == bindings[i].key) {
@@ -908,8 +900,10 @@ static void explore(char *path, int print_dir, int print_selection)
                         if (bindings[i].flags & CLEAR_SELECTION)
                             clear_selection(&state);
 
-                        if (bindings[i].flags & REFRESH)
+                        if (bindings[i].flags & REFRESH) {
+                            strcpy(to_select, state.files[state.cursor]->d_name);
                             goto tail_call;
+                        }
 
                         goto redraw;
                     }
@@ -936,7 +930,6 @@ done:
 
 int main(int argc, char *argv[])
 {
-    init_term();
     char _realpath[MAX_PATH+1];
     char *path = ".";
     int print_dir = 0, print_selection = 0;
@@ -945,11 +938,12 @@ int main(int argc, char *argv[])
             print_dir = 1;
         } else if (strcmp(argv[i], "-s") == 0) {
             print_selection = 1;
-        } else {
+        } else if (path[0]) {
             path = argv[i];
             break;
         }
     }
+    init_term();
     if (!realpath(path, _realpath))
         err("realpath failed");
     explore(_realpath, print_dir, print_selection);

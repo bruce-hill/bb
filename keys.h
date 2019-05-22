@@ -75,38 +75,77 @@
 #define KEY_CTRL_8           0x7F /* clash with 'BACKSPACE2' */
 
 
-int term_getkey(int fd, int *mouse_x, int *mouse_y)
+static inline int nextchar(int fd)
 {
     char c;
-    if (read(fd, &c, 1) != 1)
-        return -1;
+    return read(fd, &c, 1) == 1 ? c : -1;
+}
 
+int term_getkey(int fd, int *mouse_x, int *mouse_y)
+{
+    int c = nextchar(fd);
     if (c == '\x1b')
         goto escape;
 
     return c;
 
   escape:
+    c = nextchar(fd);
     // Actual escape key:
-    if (read(fd, &c, 1) != 1)
+    if (c == -1)
         return KEY_ESC;
 
     switch (c) {
         case '[': goto CSI;
+        case 'P': goto DCS;
+        case 'O': goto SS3;
         default: return -1;
     }
 
   CSI:
-    if (read(fd, &c, 1) != 1)
+    c = nextchar(fd);
+    if (c == -1)
         return -1;
 
     switch (c) {
-        case 'H': return KEY_HOME;
-        case 'F': return KEY_END;
         case 'A': return KEY_ARROW_UP;
         case 'B': return KEY_ARROW_DOWN;
         case 'C': return KEY_ARROW_RIGHT;
         case 'D': return KEY_ARROW_LEFT;
+        case 'F': return KEY_END;
+        case 'H': return KEY_HOME;
+        case '1':
+            switch (nextchar(fd)) {
+                case '5':
+                    return nextchar(fd) == '~' ? KEY_F5 : -1;
+                case '7':
+                    return nextchar(fd) == '~' ? KEY_F6 : -1;
+                case '8':
+                    return nextchar(fd) == '~' ? KEY_F7 : -1;
+                case '9':
+                    return nextchar(fd) == '~' ? KEY_F8 : -1;
+                default: return -1;
+            }
+            break;
+        case '2':
+            switch (nextchar(fd)) {
+                case '0':
+                    return nextchar(fd) == '~' ? KEY_F9 : -1;
+                case '1':
+                    return nextchar(fd) == '~' ? KEY_F10 : -1;
+                case '3':
+                    return nextchar(fd) == '~' ? KEY_F11 : -1;
+                case '4':
+                    return nextchar(fd) == '~' ? KEY_F12 : -1;
+                default: return -1;
+            }
+            break;
+        case '3':
+            return nextchar(fd) == '~' ? KEY_DELETE : -1;
+        case '5':
+            return nextchar(fd) == '~' ? KEY_PGUP : -1;
+        case '6':
+            return nextchar(fd) == '~' ? KEY_PGDN : -1;
         case '<': { // Mouse clicks
             int buttons = 0, x = 0, y = 0;
             char buf;
@@ -135,6 +174,18 @@ int term_getkey(int fd, int *mouse_x, int *mouse_y)
             break;
         }
     }
+    return -1;
 
+  DCS:
+    return -1;
+
+  SS3:
+    switch (nextchar(fd)) {
+        case 'P': return KEY_F1;
+        case 'Q': return KEY_F2;
+        case 'R': return KEY_F3;
+        case 'S': return KEY_F4;
+        default: break;
+    }
     return -1;
 }

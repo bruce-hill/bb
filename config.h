@@ -12,7 +12,7 @@
 #define CLEAR_SELECTION (1<<4)
 #define SILENT          (1<<5)
 
-#define DEVNULL " >/dev/null 2>/dev/null"
+#define DEVNULL " >/dev/null"
 
 struct {
     int key;
@@ -24,12 +24,13 @@ struct {
     {'D', "xargs rm -rf" DEVNULL, CLEAR_SELECTION | REFRESH | SILENT},
     {'d', "xargs -I @ sh -c 'rm -rfi @ </dev/tty'", CLEAR_SELECTION | REFRESH},
     {'+', "xargs -n1 -I @ cp @ @.copy" DEVNULL, REFRESH | SILENT},
-    {'m', "xargs -I @ mv @ ." DEVNULL, CLEAR_SELECTION | REFRESH | SILENT},
-    {'p', "xargs -I @ cp @ ." DEVNULL, CLEAR_SELECTION | REFRESH | SILENT},
+    {'m', "xargs -I @ mv -i @ . </dev/tty" DEVNULL, CLEAR_SELECTION | REFRESH | SILENT},
+    {'p', "xargs -I @ cp -i @ . </dev/tty" DEVNULL, CLEAR_SELECTION | REFRESH | SILENT},
     {'n', "touch %s", SILENT | PROMPT | REFRESH | NO_FILES, "New file: "},
-    {'|', "sh -c \"`read -p '> ' </dev/tty`\"", 0},//, PROMPT, "> "},
+    {'|', "sh -c \"`printf '> ' >/dev/tty && head -n1 /dev/tty`\"", REFRESH},//, PROMPT, "> "},
     //{'|', "%s", PROMPT, "> "},
-    {'>', "%s", PROMPT | NO_FILES, "> "},
+    //{'>', "%s", PROMPT | NO_FILES, "> "},
+    {'>', "sh -c \"`printf '> ' >/dev/tty && head -n1 /dev/tty`\"", NO_FILES | REFRESH},//, PROMPT, "> "},
     {'r', "xargs -I @ -n1 sh -c 'mv \"@\" \"`printf \"\\033[1mRename \\033[0;33m%%s\\033[0m: \" \"@\" >&2 && head -n1 </dev/tty`\"'",
         REFRESH | CLEAR_SELECTION},
     {0},
