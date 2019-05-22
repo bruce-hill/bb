@@ -25,7 +25,7 @@ install: $(NAME)
 	fi; \
 	mkdir -pv $$prefix/bin $$prefix/share/man/man1 \
 	&& cp -v $(NAME) $$prefix/bin/ \
-	&& cp -v doc/$(NAME).1 $$prefix/share/man/man1/
+	&& cp -v $(NAME).1 $$prefix/share/man/man1/
 
 uninstall:
 	@prefix="$(PREFIX)"; \
