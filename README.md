@@ -1,6 +1,6 @@
-# bb - A bitty browser for command line file management
+# bb - An itty bitty browser for command line file management
 
-`bb` is a TUI console file browser that is:
+`bb` (bitty browser) is a TUI console file browser that is:
 
 - Extremely lightweight (currently around 1.2K lines of code)
 - Highly interoperable with unix pipelines

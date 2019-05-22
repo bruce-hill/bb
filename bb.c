@@ -1,5 +1,5 @@
 /*
- * Bruce's Browser (bb)
+ * Bitty Browser (bb)
  * Copyright 2019 Bruce Hill
  * Released under the MIT license
  */
