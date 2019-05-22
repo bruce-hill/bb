@@ -952,13 +952,25 @@ int main(int argc, char *argv[])
     char sep = '\n';
     int print_dir = 0, print_selection = 0;
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-d") == 0) {
-            print_dir = 1;
-        } else if (strcmp(argv[i], "-0") == 0) {
-            sep = '\0';
-        } else if (strcmp(argv[i], "-s") == 0) {
-            print_selection = 1;
-        } else if (path[0]) {
+        if (argv[i][0] == '-' && argv[i][1] == '-')
+            continue;
+        if (argv[i][0] == '-') {
+            for (char *c = &argv[i][1]; *c; c++) {
+                switch (*c) {
+                    case 'd':
+                        print_dir = 1;
+                        break;
+                    case '0':
+                        sep = '\0';
+                        break;
+                    case 's':
+                        print_selection = 1;
+                        break;
+                }
+            }
+            continue;
+        }
+        if (argv[i][0]) {
             path = argv[i];
             break;
         }
