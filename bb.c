@@ -131,7 +131,7 @@ static int run_cmd_on_selection(bb_state_t *state, const char *cmd)
 
     if ((child = fork()) == 0) {
         // TODO: is there a max number of args? Should this be batched?
-        char **const args = calloc(MAX(1, state->nselected) + 4, sizeof(char*));
+        char **const args = calloc(MAX(1, state->nselected) + 5, sizeof(char*));
         int i = 0;
         args[i++] = "sh";
         args[i++] = "-c";
