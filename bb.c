@@ -121,7 +121,7 @@ static void err(const char *msg, ...)
     if (errno)
         fprintf(stderr, "\n%s", strerror(errno));
     fprintf(stderr, "\n");
-    _exit(1);
+    exit(1);
 }
 
 static int run_cmd_on_selection(bb_state_t *state, const char *cmd)
@@ -152,9 +152,7 @@ static int run_cmd_on_selection(bb_state_t *state, const char *cmd)
         }
 
         execvp("sh", args);
-        free(args);
         err("Failed to execute command: '%s'", cmd);
-        _exit(0);
         return -1;
     }
 
@@ -203,7 +201,6 @@ static pid_t run_cmd(int *child_out, int *child_in, const char *cmd, ...)
         if (formatted_cmd)
             execlp("sh", "sh", "-c", formatted_cmd);
         err("Failed to execute command %d: '%s'", len, formatted_cmd);
-        _exit(0);
     }
     return child;
 }
@@ -590,7 +587,7 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                 close_term();
                 if (print_dir)
                     printf("%s\n", original_path);
-                _exit(1);
+                exit(1);
                 return;
 
             case KEY_CTRL_Z:
