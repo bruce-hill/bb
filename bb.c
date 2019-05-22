@@ -952,11 +952,18 @@ int main(int argc, char *argv[])
     char sep = '\n';
     int print_dir = 0, print_selection = 0;
     for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--help") == 0) {
+          usage:
+            printf("bb - an itty bitty console TUI file browser\n");
+            printf("Usage: bb [-h/--help] [-s] [-b] [-0] [path]\n");
+            return 0;
+        }
         if (argv[i][0] == '-' && argv[i][1] == '-')
             continue;
         if (argv[i][0] == '-') {
             for (char *c = &argv[i][1]; *c; c++) {
                 switch (*c) {
+                    case 'h': goto usage;
                     case 'd':
                         print_dir = 1;
                         break;
