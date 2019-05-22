@@ -1,3 +1,10 @@
+/*
+ * Definitions of some key character constants
+ */
+
+#ifndef KEYS_DEFINED
+#define KEYS_DEFINED
+
 #define KEY_F1               (0xFFFF-0)
 #define KEY_F2               (0xFFFF-1)
 #define KEY_F3               (0xFFFF-2)
@@ -189,3 +196,5 @@ int term_getkey(int fd, int *mouse_x, int *mouse_y)
     }
     return -1;
 }
+
+#endif

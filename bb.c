@@ -5,6 +5,7 @@
  */
 #include <dirent.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -69,6 +70,11 @@ static void update_term_size(void)
     ioctl(termfd, TIOCGWINSZ, &sz);
     width = sz.ws_col;
     height = sz.ws_row;
+}
+
+static void do_nothing(int _)
+{
+    // Used as SIGINT handler
 }
 
 static void init_term()
@@ -175,7 +181,7 @@ static void render(bb_state_t *state)
 
     term_move(0,1);
     { // Column labels
-        char buf[] = "\e[32m    Size         Date           Bits  Name\e[0m";
+        char buf[] = "\e[32m    Size         Date           Perm  Name\e[0m";
         buf[8] = state->sortmethod == SORT_SIZE ? (state->sort_reverse ? '-' : '+') : ' ';
         buf[21] = state->sortmethod == SORT_DATE ? (state->sort_reverse ? '-' : '+') : ' ';
         buf[36] = state->sortmethod == SORT_BITS ? (state->sort_reverse ? '-' : '+') : ' ';
@@ -260,10 +266,15 @@ static void render(bb_state_t *state)
         writez(termfd, " \e[0m"); // Reset color and attributes
     }
 
-    term_move(0, height - 1);
+    static const char *help = "Press '?' to see key bindings ";
     char buf[32] = {0};
-    int len = snprintf(buf, sizeof(buf), "%lu selected", state->nselected);
-    write(termfd, buf, len);
+    int len = snprintf(buf, sizeof(buf), " %lu selected", state->nselected);
+    if (strlen(help) + len < width + 1) {
+        term_move(0, height - 1);
+        write(termfd, buf, len);
+    }
+    term_move(MAX(0, width - strlen(help)), height - 1);
+    writez(termfd, help);
 }
 
 static int compare_alpha(void *r, const void *v1, const void *v2)
@@ -292,7 +303,7 @@ static int compare_alpha(void *r, const void *v1, const void *v2)
     return (*p1 - *p2)*sign;
 }
 
-static int compare_bits(void *r, const void *v1, const void *v2)
+static int compare_perm(void *r, const void *v1, const void *v2)
 {
     int sign = *((int *)r) ? -1 : 1;
     const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
@@ -468,8 +479,12 @@ static void explore(char *path, int print_dir, int print_selection)
     cmp = compare_alpha;
     if (state.sortmethod == SORT_SIZE) cmp = compare_size;
     if (state.sortmethod == SORT_DATE) cmp = compare_date;
-    if (state.sortmethod == SORT_BITS) cmp = compare_bits;
+    if (state.sortmethod == SORT_BITS) cmp = compare_perm;
     qsort_r(&state.files[1], state.nfiles-1, sizeof(entry_t*), &state.sort_reverse, cmp);
+
+    // Put the cursor on the first *real* file if one exists
+    if (state.nfiles > 1)
+        ++state.cursor;
 
     if (to_select[0]) {
         for (int i = 0; i < state.nfiles; i++) {
@@ -498,13 +513,13 @@ static void explore(char *path, int print_dir, int print_selection)
                 dt_ms += 1e-6*(double)(clicktime.tv_nsec - state.lastclick.tv_nsec);
                 state.lastclick = clicktime;
                 if (mouse_y == 1) {
-                    //    Size         Date           Bits  Name
+                    //    Size         Date           Perm  Name
                     if (mouse_x <= 8)
                         goto sort_size;
                     else if (mouse_x <= 30)
                         goto sort_date;
                     else if (mouse_x <= 35)
-                        goto sort_bits;
+                        goto sort_perm;
                     else
                         goto sort_alpha;
                 } else if (mouse_y >= 2 && state.scroll + (mouse_y - 2) < state.nfiles) {
@@ -694,44 +709,61 @@ static void explore(char *path, int print_dir, int print_selection)
                 picked = 0;
                 goto open_file;
 
-            case 'a':
-              sort_alpha:
-                if (state.sortmethod == SORT_ALPHA)
-                    state.sort_reverse ^= 1;
-                else {
-                    state.sortmethod = SORT_ALPHA;
-                    state.sort_reverse = 0;
-                }
-                goto sort_files;
-
-            case 'b':
-              sort_bits:
-                if (state.sortmethod == SORT_BITS)
-                    state.sort_reverse ^= 1;
-                else {
-                    state.sortmethod = SORT_BITS;
-                    state.sort_reverse = 0;
-                }
-                goto sort_files;
-
             case 's':
-              sort_size:
-                if (state.sortmethod == SORT_SIZE)
-                    state.sort_reverse ^= 1;
-                else {
-                    state.sortmethod = SORT_SIZE;
-                    state.sort_reverse = 0;
-                }
-                goto sort_files;
+                // Change sorting method:
+                term_move(0, height-1);
+                writez(termfd, "\e[K\e[1mSort by (a)lphabetic (s)ize (t)ime (p)ermissions:\e[0m \e[?25h");
+              try_sort_again:
+                switch (term_getkey(termfd, &mouse_x, &mouse_y)) {
+                    case 'a': case 'A':
+                      sort_alpha:
+                        if (state.sortmethod == SORT_ALPHA)
+                            state.sort_reverse ^= 1;
+                        else {
+                            state.sortmethod = SORT_ALPHA;
+                            state.sort_reverse = 0;
+                        }
+                        break;
 
-            case 't':
-              sort_date:
-                if (state.sortmethod == SORT_DATE)
-                    state.sort_reverse ^= 1;
-                else {
-                    state.sortmethod = SORT_DATE;
-                    state.sort_reverse = 0;
+                    case 'p': case 'P':
+                      sort_perm:
+                        if (state.sortmethod == SORT_BITS)
+                            state.sort_reverse ^= 1;
+                        else {
+                            state.sortmethod = SORT_BITS;
+                            state.sort_reverse = 0;
+                        }
+                        break;
+
+                    case 's': case 'S':
+                      sort_size:
+                        if (state.sortmethod == SORT_SIZE)
+                            state.sort_reverse ^= 1;
+                        else {
+                            state.sortmethod = SORT_SIZE;
+                            state.sort_reverse = 0;
+                        }
+                        break;
+
+                    case 't': case 'T':
+                      sort_date:
+                        if (state.sortmethod == SORT_DATE)
+                            state.sort_reverse ^= 1;
+                        else {
+                            state.sortmethod = SORT_DATE;
+                            state.sort_reverse = 0;
+                        }
+                        break;
+
+                    case -1:
+                        goto try_sort_again;
+
+                    default:
+                        writez(termfd, "\e[?25l");
+                        goto redraw;
                 }
+                // Hide cursor again
+                writez(termfd, "\e[?25l");
                 goto sort_files;
 
             case '.':
@@ -810,21 +842,64 @@ static void explore(char *path, int print_dir, int print_selection)
                 goto tail_call;
             }
 
-            default:
+            case '?': {
+                close_term();
+                int fd;
+                pid_t child = run_cmd(NULL, &fd, "less -r");
+
+                writez(fd, "\n              \e[33;1mKey Bindings:\e[0m\n");
                 for (int i = 0; bindings[i].key; i++) {
+                    if (bindings[i].key > 0) continue;
+                    writez(fd, "\e[1m");
+                    char *tab = strchr(bindings[i].command, '\t');
+                    const char *spaces = "                            ";
+                    write(fd, spaces, 16 - (tab - bindings[i].command));
+                    write(fd, bindings[i].command, tab - bindings[i].command);
+                    write(fd, " ", 1);
+                    writez(fd, tab + 1);
+                    writez(fd, "\e[0m\n");
+                }
+                writez(fd, "\n    \e[33;1mScript Key Bindings:\e[0m\n");
+                for (int i = 0; bindings[i].key; i++) {
+                    if (bindings[i].key <= 0) continue;
+                    writez(fd, "\e[1m");
+                    char buf[] = "    X \e[0m";
+                    *strchr(buf, 'X') = bindings[i].key;
+                    writez(fd, buf);
+                    writez(fd, bindings[i].command);
+                    writez(fd, "\e[0m\n");
+                }
+                writez(fd, "\n");
+
+                close(fd);
+                waitpid(child, NULL, 0);
+                init_term();
+                goto redraw;
+            }
+
+            case -1:
+                goto skip_redraw;
+
+            default:
+                // Search user-defined key bindings from config.h:
+                for (int i = 0; bindings[i].key > 0; i++) {
                     if (key == bindings[i].key) {
                         term_move(0, height-1);
-                        if (!(bindings[i].flags & ONSCREEN))
+                        struct termios cur_tios;
+                        if (!(bindings[i].flags & ONSCREEN)) {
                             close_term();
-                        else {
-                            // Show cursor:
+                        } else {
+                            tcgetattr(termfd, &cur_tios);
+                            struct termios tios;
+                            memcpy(&tios, &orig_termios, sizeof(tios));
+                            tcsetattr(termfd, TCSAFLUSH, &tios);
+                            // Show cursor
                             writez(termfd, "\e[?25h");
-                            tcsetattr(termfd, TCSAFLUSH, &orig_termios);
-                            close(termfd);
                         }
 
                         int scriptinfd;
                         pid_t child;
+                        sig_t old_handler = signal(SIGINT, do_nothing);
                         child = run_cmd(NULL, &scriptinfd, bindings[i].command);
                         if (!(bindings[i].flags & NO_FILES)) {
                             if (state.nselected > 0) {
@@ -835,7 +910,15 @@ static void explore(char *path, int print_dir, int print_selection)
                         }
                         close(scriptinfd);
                         waitpid(child, NULL, 0);
-                        init_term();
+                        signal(SIGINT, old_handler);
+
+                        if (!(bindings[i].flags & ONSCREEN)) {
+                            init_term();
+                        } else {
+                            tcsetattr(termfd, TCSAFLUSH, &cur_tios);
+                            // hide cursor
+                            writez(termfd, "\e[?25l");
+                        }
 
                         if (bindings[i].flags & CLEAR_SELECTION)
                             clear_selection(&state);
@@ -847,13 +930,6 @@ static void explore(char *path, int print_dir, int print_selection)
 
                         goto redraw;
                     }
-                }
-                if (key != -1) {
-                    term_move(0,height-1);
-                    writez(termfd, "\e[K");
-                    char buf[64] = {0};
-                    sprintf(buf, "unknown: %x", key);
-                    writez(termfd, buf);
                 }
                 goto skip_redraw;
         }
