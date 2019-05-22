@@ -979,6 +979,5 @@ int main(int argc, char *argv[])
     if (!realpath(path, _realpath))
         err("realpath failed");
     explore(_realpath, print_dir, print_selection, sep);
-done:
     return 0;
 }
