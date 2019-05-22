@@ -535,6 +535,12 @@ static void explore(char *path, int print_dir, int print_selection)
                 _exit(1);
                 return;
 
+            case KEY_CTRL_Z:
+                close_term();
+                raise(SIGTSTP);
+                init_term();
+                goto redraw;
+
             case 'q': case 'Q':
                 goto done;
 
@@ -807,26 +813,29 @@ static void explore(char *path, int print_dir, int print_selection)
             default:
                 for (int i = 0; bindings[i].key; i++) {
                     if (key == bindings[i].key) {
-                        if (!(bindings[i].flags & SILENT))
+                        term_move(0, height-1);
+                        if (!(bindings[i].flags & ONSCREEN))
                             close_term();
-
-                        int fd;
-                        pid_t child;
-                        child = run_cmd(NULL, &fd, bindings[i].command);
-
-                        if (!(bindings[i].flags & NO_FILES)) {
-                            if (state.nselected > 0) {
-                                write_selection(fd, state.firstselected);
-                            } else if (strcmp(state.files[state.cursor]->d_name, "..") != 0) {
-                                write(fd, state.files[state.cursor]->d_name, state.files[state.cursor]->d_namlen);
-                            }
+                        else {
+                            // Show cursor:
+                            writez(termfd, "\e[?25h");
+                            tcsetattr(termfd, TCSAFLUSH, &orig_termios);
+                            close(termfd);
                         }
 
-                        close(fd);
+                        int scriptinfd;
+                        pid_t child;
+                        child = run_cmd(NULL, &scriptinfd, bindings[i].command);
+                        if (!(bindings[i].flags & NO_FILES)) {
+                            if (state.nselected > 0) {
+                                write_selection(scriptinfd, state.firstselected);
+                            } else if (strcmp(state.files[state.cursor]->d_name, "..") != 0) {
+                                write(scriptinfd, state.files[state.cursor]->d_name, state.files[state.cursor]->d_namlen);
+                            }
+                        }
+                        close(scriptinfd);
                         waitpid(child, NULL, 0);
-
-                        if (!(bindings[i].flags & SILENT))
-                            init_term();
+                        init_term();
 
                         if (bindings[i].flags & CLEAR_SELECTION)
                             clear_selection(&state);
