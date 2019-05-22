@@ -73,3 +73,68 @@
 #define KEY_SPACE            0x20
 #define KEY_BACKSPACE2       0x7F
 #define KEY_CTRL_8           0x7F /* clash with 'BACKSPACE2' */
+
+
+int term_getkey(int fd, int *mouse_x, int *mouse_y)
+{
+    char c;
+    if (read(fd, &c, 1) != 1)
+        return -1;
+
+    if (c == '\x1b')
+        goto escape;
+
+    return c;
+
+  escape:
+    // Actual escape key:
+    if (read(fd, &c, 1) != 1)
+        return KEY_ESC;
+
+    switch (c) {
+        case '[': goto CSI;
+        default: return -1;
+    }
+
+  CSI:
+    if (read(fd, &c, 1) != 1)
+        return -1;
+
+    switch (c) {
+        case 'H': return KEY_HOME;
+        case 'F': return KEY_END;
+        case 'A': return KEY_ARROW_UP;
+        case 'B': return KEY_ARROW_DOWN;
+        case 'C': return KEY_ARROW_RIGHT;
+        case 'D': return KEY_ARROW_LEFT;
+        case '<': { // Mouse clicks
+            int buttons = 0, x = 0, y = 0;
+            char buf;
+            while (read(fd, &buf, 1) == 1 && '0' <= buf && buf <= '9')
+                buttons = buttons * 10 + (buf - '0');
+            if (buf != ';') return -1;
+            while (read(fd, &buf, 1) == 1 && '0' <= buf && buf <= '9')
+                x = x * 10 + (buf - '0');
+            if (buf != ';') return -1;
+            while (read(fd, &buf, 1) == 1 && '0' <= buf && buf <= '9')
+                y = y * 10 + (buf - '0');
+            if (buf != 'm' && buf != 'M') return -1;
+
+            *mouse_x = x - 1, *mouse_y = y - 1;
+
+            if (buf == 'm')
+                return KEY_MOUSE_RELEASE;
+            switch (buttons) {
+                case 64: return KEY_MOUSE_WHEEL_UP;
+                case 65: return KEY_MOUSE_WHEEL_DOWN;
+                case 0: return KEY_MOUSE_LEFT;
+                case 1: return KEY_MOUSE_RIGHT;
+                case 2: return KEY_MOUSE_MIDDLE;
+                default: return -1;
+            }
+            break;
+        }
+    }
+
+    return -1;
+}

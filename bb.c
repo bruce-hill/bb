@@ -18,6 +18,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "config.h"
 #include "keys.h"
 
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
@@ -26,7 +27,6 @@
 #define writez(fd, str) write(fd, str, strlen(str))
 #define IS_SELECTED(p) ((p)->atme)
 
-static const int SCROLLOFF = 5;
 
 static struct termios orig_termios;
 static int termfd;
@@ -348,64 +348,6 @@ static void write_selection(int fd, entry_t *firstselected)
     }
 }
 
-static int term_get_event()
-{
-    char c;
-    if (read(termfd, &c, 1) != 1)
-        return -1;
-
-    if (c != '\x1b')
-        return c;
-
-    // Actual escape key:
-    if (read(termfd, &c, 1) != 1)
-        return KEY_ESC;
-
-    switch (c) {
-        case '[':
-            if (read(termfd, &c, 1) != 1)
-                return -1;
-            switch (c) {
-                case 'H': return KEY_HOME;
-                case 'F': return KEY_END;
-                case '<': // Mouse clicks
-                    {
-                        int buttons = 0, x = 0, y = 0;
-                        char buf;
-                        while (read(termfd, &buf, 1) == 1 && '0' <= buf && buf <= '9')
-                            buttons = buttons * 10 + (buf - '0');
-                        if (buf != ';') return -1;
-                        while (read(termfd, &buf, 1) == 1 && '0' <= buf && buf <= '9')
-                            x = x * 10 + (buf - '0');
-                        if (buf != ';') return -1;
-                        while (read(termfd, &buf, 1) == 1 && '0' <= buf && buf <= '9')
-                            y = y * 10 + (buf - '0');
-                        if (buf != 'm' && buf != 'M') return -1;
-
-                        mouse_x = x - 1, mouse_y = y - 1;
-
-                        if (buf == 'm')
-                            return KEY_MOUSE_RELEASE;
-                        switch (buttons) {
-                            case 64: return KEY_MOUSE_WHEEL_UP;
-                            case 65: return KEY_MOUSE_WHEEL_DOWN;
-                            case 0: return KEY_MOUSE_LEFT;
-                            case 1: return KEY_MOUSE_RIGHT;
-                            case 2: return KEY_MOUSE_MIDDLE;
-                            default: return -1;
-                        }
-                    }
-                    break;
-                default:
-                    break;
-            }
-            return -1;
-        default:
-            return -1;
-    }
-    return -1;
-}
-
 static char *input(const char *prompt, const char *starter)
 {
     size_t len = 0, capacity = MAX(100, starter ? strlen(starter)+1 : 0);
@@ -426,7 +368,7 @@ static char *input(const char *prompt, const char *starter)
         write(termfd, reply, len);
 
       skip_redraw:;
-        int c = term_get_event();
+        int c = term_getkey(termfd, &mouse_x, &mouse_y);
         switch (c) {
             case KEY_BACKSPACE: case KEY_BACKSPACE2:
                 if (len > 0) {
@@ -466,6 +408,20 @@ static char *input(const char *prompt, const char *starter)
     // Hide cursor:
     writez(termfd, "\e[?25l");
     return reply;
+}
+
+static void clear_selection(bb_state_t *state)
+{
+    entry_t **tofree = calloc(state->nselected, sizeof(entry_t*));
+    int i = 0;
+    for (entry_t *e = state->firstselected; e; e = e->next) {
+        if (!e->visible) tofree[i++] = e;
+        *e->atme = NULL;
+        e->atme = NULL;
+    }
+    while (i) free(tofree[--i]);
+    free(tofree);
+    state->nselected = 0;
 }
 
 static void explore(char *path, int print_dir, int print_selection)
@@ -591,7 +547,7 @@ static void explore(char *path, int print_dir, int print_selection)
         render(&state);
       skip_redraw:
         scrolloff = MIN(SCROLLOFF, (height-4)/2);
-        int key = term_get_event();
+        int key = term_getkey(termfd, &mouse_x, &mouse_y);
         switch (key) {
             case KEY_MOUSE_LEFT: {
                 struct timespec clicktime;
@@ -723,22 +679,11 @@ static void explore(char *path, int print_dir, int print_selection)
                 }
                 goto redraw;
 
-            case KEY_ESC: {
-                entry_t **tofree = calloc(state.nselected, sizeof(entry_t*));
-                int i = 0;
-                for (entry_t *e = state.firstselected; e; e = e->next) {
-                    if (!e->visible) tofree[i++] = e;
-                    *e->atme = NULL;
-                    e->atme = NULL;
-                }
-                if (state.firstselected) err("???");
-                while (i) free(tofree[--i]);
-                free(tofree);
-                state.nselected = 0;
+            case KEY_ESC:
+                clear_selection(&state);
                 goto redraw;
-            }
 
-            case 'j':
+            case 'j': case KEY_ARROW_DOWN:
                 if (state.cursor >= state.nfiles - 1)
                     goto skip_redraw;
                 ++state.cursor;
@@ -747,7 +692,7 @@ static void explore(char *path, int print_dir, int print_selection)
                 }
                 goto redraw;
 
-            case 'k':
+            case 'k': case KEY_ARROW_UP:
                 if (state.cursor <= 0)
                     goto skip_redraw;
                 --state.cursor;
@@ -786,7 +731,7 @@ static void explore(char *path, int print_dir, int print_selection)
                 }
                 goto skip_redraw;
 
-            case 'h':
+            case 'h': case KEY_ARROW_LEFT:
                 picked = 0;
                 goto open_file;
 
@@ -834,7 +779,7 @@ static void explore(char *path, int print_dir, int print_selection)
                 state.showhidden ^= 1;
                 goto tail_call;
 
-            case 'l': case '\r':
+            case 'l': case '\r': case KEY_ARROW_RIGHT:
                 picked = state.cursor;
               open_file: {
                 if (state.files[picked]->d_isdir) {
@@ -868,60 +813,13 @@ static void explore(char *path, int print_dir, int print_selection)
                 break;
             }
 
-            case 'm':
-                if (state.nselected) {
-                    int fd;
-                    run_cmd(NULL, &fd, "xargs -I {} mv {} .");
-                    write_selection(fd, state.firstselected);
-                    close(fd);
-                }
-                break;
-
-            case 'D': {
-                int fd;
-                run_cmd(NULL, &fd, "xargs rm -rf");
-                if (state.nselected > 0) {
-                    write_selection(fd, state.firstselected);
-                    for (entry_t *e = state.firstselected; e; e = e->next) {
-                        e->next = NULL;
-                        *(e->atme) = NULL;
-                        e->atme = NULL;
-                        if (!e->visible) free(e);
-                    }
-                    state.nselected = 0;
-                } else {
-                    writez(fd, state.files[state.cursor]->d_fullname);
-                    write(fd, "\n", 1);
-                }
-                close(fd);
-                goto tail_call;
-            }
-
-            case 'p':
-                if (state.nselected) {
-                    int fd;
-                    run_cmd(NULL, &fd, "xargs -I {} cp {} .");
-                    write_selection(fd, state.firstselected);
-                    close(fd);
-                } else if (strcmp(state.files[state.cursor]->d_name, "..") != 0) {
-                    run_cmd(NULL, NULL, "cp %s %s.copy", state.files[state.cursor]->d_name);
-                }
-                goto tail_call;
-
-            case 'n': {
-                char *name = input("new file: ", "foo");
-                if (!name) goto redraw;
-                run_cmd(NULL, NULL, "touch %s", name);
-                goto tail_call;
-            }
-
             case 'f': case '/': {
                 close_term();
                 int fd;
                 if (state.showhidden)
-                    run_cmd(&fd, NULL, "find | cut -d/ -f2- | fzf");
+                    run_cmd(&fd, NULL, "find | cut -d/ -f2- | " PROG_FUZZY);
                 else
-                    run_cmd(&fd, NULL, "find -not -name '\\.*' -not -path '*/\\.*' | cut -d/ -f2- | fzf");
+                    run_cmd(&fd, NULL, "find -not -name '\\.*' -not -path '*/\\.*' | cut -d/ -f2- | " PROG_FUZZY);
                 int len = 0, space = MAX_PATH, consumed;
                 while ((consumed = read(fd, &to_select[len], space)) > 0) {
                     if (consumed < 0) err("Error reading selection");
@@ -953,6 +851,7 @@ static void explore(char *path, int print_dir, int print_selection)
                 goto tail_call;
             }
 
+                                /*
             case '|': {
                 char *cmd = input("> ", NULL);
                 if (!cmd)
@@ -970,16 +869,58 @@ static void explore(char *path, int print_dir, int print_selection)
                 }
                 close(fd);
                 waitpid(child, NULL, 0);
-
-                printf("\npress any key to continue...\n");
-                fflush(stdout);
-                getchar();
-
                 init_term();
                 goto tail_call;
             }
+            */
 
             default:
+                for (int i = 0; bindings[i].key; i++) {
+                    if (key == bindings[i].key) {
+                        if (!(bindings[i].flags & SILENT))
+                            close_term();
+
+                        int fd;
+                        pid_t child;
+                        if (bindings[i].flags & PROMPT) {
+                            char *txt = input(bindings[i].prompt, NULL);
+                            if (!txt) goto redraw;
+                            child = run_cmd(NULL, &fd, bindings[i].command, txt);
+                            free(txt);
+                        } else {
+                            child = run_cmd(NULL, &fd, bindings[i].command);
+                        }
+
+                        if (!(bindings[i].flags & NO_FILES)) {
+                            if (state.nselected > 0) {
+                                write_selection(fd, state.firstselected);
+                            } else if (strcmp(state.files[state.cursor]->d_name, "..") != 0) {
+                                write(fd, state.files[state.cursor]->d_name, state.files[state.cursor]->d_namlen);
+                            }
+                        }
+
+                        close(fd);
+                        waitpid(child, NULL, 0);
+
+                        if (!(bindings[i].flags & SILENT))
+                            init_term();
+
+                        if (bindings[i].flags & CLEAR_SELECTION)
+                            clear_selection(&state);
+
+                        if (bindings[i].flags & REFRESH)
+                            goto tail_call;
+
+                        goto redraw;
+                    }
+                }
+                if (key != -1) {
+                    term_move(0,height-1);
+                    writez(termfd, "\e[K");
+                    char buf[64] = {0};
+                    sprintf(buf, "unknown: %x", key);
+                    writez(termfd, buf);
+                }
                 goto skip_redraw;
         }
         goto skip_redraw;

@@ -9,7 +9,7 @@ all: $(NAME)
 clean:
 	rm $(NAME)
 
-$(NAME): $(NAME).c
+$(NAME): $(NAME).c keys.h config.h
 	$(CC) $(NAME).c $(LIBS) $(CFLAGS) -o $(NAME)
 
 test: $(NAME)
