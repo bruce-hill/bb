@@ -17,12 +17,13 @@ feedback and rapid navigation.
 For example, instead of using `ls`, then `rm` and typing out file names, you can
 just open `bb`, scroll through the list of files, select the ones you want to
 delete, and hit `D`. The `D` key's behavior is defined in a single line of code
-in `config.h` as piping the selected files to `xargs -0 rm -rf`. That's it! If
-you want to add a mapping to upload files to your server, you can just add a
-binding for `xargs -0 scp user@example.com`. Want to zip files? Add a mapping for
-`xargs -0 zip "$(printf 'Zip file: ' >/dev/tty && head -n1 /dev/tty)"` or, if
-you have some complicated one-time task, you can just hit `|` and type in any
-arbitrary command and have the selected files piped to it.
+in `config.h` as passing the selected files as arguments to `rm -rf "$@"`.
+That's it! If you want to add a mapping to upload files to your server, you can
+just add a binding for `scp user@example.com:~/ "$@"`. Want to zip files? Add
+a mapping for `read -p "Archive: " name && zip "$name" "$@"` or, if you have
+some complicated one-time task, you can just hit `>` to drop to a shell and run
+commands with the selected files available in `$@` (or use `|` to run a quick
+one-liner command that gets the selected files piped as input).
 
 ## Zero Dependencies
 
@@ -56,9 +57,6 @@ If you want to customize `bb`, you can add or change the key bindings by
 editing `config.h` and recompiling. In [suckless](https://suckless.org/) style,
 customizing means editing source code, and compilation is extremely fast.
 Key character constants are in `keys.h` and the rest of the code is in `bb.c`.
-
-If you want to get user input during a command (e.g. to get the name of a new file),
-you can use `/dev/tty` like so: `touch "$(printf 'New file: ' >/dev/tty && head -n1 /dev/tty)"`
 
 ## License
 
