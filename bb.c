@@ -28,6 +28,7 @@
 #define writez(fd, str) write(fd, str, strlen(str))
 #define IS_SELECTED(p) ((p)->atme)
 
+#define KEY_DELAY -1
 
 static struct termios orig_termios;
 static int termfd;
@@ -544,7 +545,7 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
         render(&state);
       skip_redraw:
         scrolloff = MIN(SCROLLOFF, (height-4)/2);
-        int key = term_getkey(termfd, &mouse_x, &mouse_y);
+        int key = term_getkey(termfd, &mouse_x, &mouse_y, KEY_DELAY);
         switch (key) {
             case KEY_MOUSE_LEFT: {
                 struct timespec clicktime;
@@ -754,7 +755,7 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                 term_move(0, height-1);
                 writez(termfd, "\e[K\e[1mSort by (a)lphabetic (s)ize (t)ime (p)ermissions:\e[0m \e[?25h");
               try_sort_again:
-                switch (term_getkey(termfd, &mouse_x, &mouse_y)) {
+                switch (term_getkey(termfd, &mouse_x, &mouse_y, -1)) {
                     case 'a': case 'A':
                       sort_alpha:
                         if (state.sortmethod == SORT_ALPHA)

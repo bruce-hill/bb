@@ -2,8 +2,10 @@
  * Definitions of some key character constants
  */
 
-#ifndef KEYS_DEFINED
-#define KEYS_DEFINED
+#ifndef _KEYS_DEFINED
+#define _KEYS_DEFINED
+
+#include <poll.h>
 
 #define KEY_F1               (0xFFFF-0)
 #define KEY_F2               (0xFFFF-1)
@@ -82,22 +84,27 @@
 #define KEY_CTRL_8           0x7F /* clash with 'BACKSPACE2' */
 
 
-static inline int nextchar(int fd)
+#define ESC_DELAY 10
+
+static inline int nextchar(int fd, int timeout)
 {
     char c;
-    return read(fd, &c, 1) == 1 ? c : -1;
+    struct pollfd pfd = {fd, POLLIN, 0};
+    if (poll(&pfd, 1, timeout) > 0)
+        return read(fd, &c, 1) == 1 ? c : -1;
+    return -1;
 }
 
-int term_getkey(int fd, int *mouse_x, int *mouse_y)
+int term_getkey(int fd, int *mouse_x, int *mouse_y, int timeout)
 {
-    int c = nextchar(fd);
+    int c = nextchar(fd, timeout);
     if (c == '\x1b')
         goto escape;
 
     return c;
 
   escape:
-    c = nextchar(fd);
+    c = nextchar(fd, ESC_DELAY);
     // Actual escape key:
     if (c == -1)
         return KEY_ESC;
@@ -110,7 +117,7 @@ int term_getkey(int fd, int *mouse_x, int *mouse_y)
     }
 
   CSI:
-    c = nextchar(fd);
+    c = nextchar(fd, ESC_DELAY);
     if (c == -1)
         return -1;
 
@@ -122,37 +129,37 @@ int term_getkey(int fd, int *mouse_x, int *mouse_y)
         case 'F': return KEY_END;
         case 'H': return KEY_HOME;
         case '1':
-            switch (nextchar(fd)) {
+            switch (nextchar(fd, ESC_DELAY)) {
                 case '5':
-                    return nextchar(fd) == '~' ? KEY_F5 : -1;
+                    return nextchar(fd, ESC_DELAY) == '~' ? KEY_F5 : -1;
                 case '7':
-                    return nextchar(fd) == '~' ? KEY_F6 : -1;
+                    return nextchar(fd, ESC_DELAY) == '~' ? KEY_F6 : -1;
                 case '8':
-                    return nextchar(fd) == '~' ? KEY_F7 : -1;
+                    return nextchar(fd, ESC_DELAY) == '~' ? KEY_F7 : -1;
                 case '9':
-                    return nextchar(fd) == '~' ? KEY_F8 : -1;
+                    return nextchar(fd, ESC_DELAY) == '~' ? KEY_F8 : -1;
                 default: return -1;
             }
             break;
         case '2':
-            switch (nextchar(fd)) {
+            switch (nextchar(fd, ESC_DELAY)) {
                 case '0':
-                    return nextchar(fd) == '~' ? KEY_F9 : -1;
+                    return nextchar(fd, ESC_DELAY) == '~' ? KEY_F9 : -1;
                 case '1':
-                    return nextchar(fd) == '~' ? KEY_F10 : -1;
+                    return nextchar(fd, ESC_DELAY) == '~' ? KEY_F10 : -1;
                 case '3':
-                    return nextchar(fd) == '~' ? KEY_F11 : -1;
+                    return nextchar(fd, ESC_DELAY) == '~' ? KEY_F11 : -1;
                 case '4':
-                    return nextchar(fd) == '~' ? KEY_F12 : -1;
+                    return nextchar(fd, ESC_DELAY) == '~' ? KEY_F12 : -1;
                 default: return -1;
             }
             break;
         case '3':
-            return nextchar(fd) == '~' ? KEY_DELETE : -1;
+            return nextchar(fd, ESC_DELAY) == '~' ? KEY_DELETE : -1;
         case '5':
-            return nextchar(fd) == '~' ? KEY_PGUP : -1;
+            return nextchar(fd, ESC_DELAY) == '~' ? KEY_PGUP : -1;
         case '6':
-            return nextchar(fd) == '~' ? KEY_PGDN : -1;
+            return nextchar(fd, ESC_DELAY) == '~' ? KEY_PGDN : -1;
         case '<': { // Mouse clicks
             int buttons = 0, x = 0, y = 0;
             char buf;
@@ -187,7 +194,7 @@ int term_getkey(int fd, int *mouse_x, int *mouse_y)
     return -1;
 
   SS3:
-    switch (nextchar(fd)) {
+    switch (nextchar(fd, ESC_DELAY)) {
         case 'P': return KEY_F1;
         case 'Q': return KEY_F2;
         case 'R': return KEY_F3;
