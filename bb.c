@@ -39,7 +39,7 @@ static int mouse_x, mouse_y;
 typedef enum {
     SORT_ALPHA = 0,
     SORT_SIZE,
-    SORT_BITS,
+    SORT_PERM,
     SORT_TIME
 } sortmethod_t;
 
@@ -253,7 +253,7 @@ static void render(bb_state_t *state, int lazy)
             char buf[] = " \e[42;30m   Size |       Date         | Perm| Name       \e[0m";
             buf[11] = state->sortmethod == SORT_SIZE ? (state->sort_reverse ? '-' : '+') : ' ';
             buf[24] = state->sortmethod == SORT_TIME ? (state->sort_reverse ? '-' : '+') : ' ';
-            buf[39] = state->sortmethod == SORT_BITS ? (state->sort_reverse ? '-' : '+') : ' ';
+            buf[39] = state->sortmethod == SORT_PERM ? (state->sort_reverse ? '-' : '+') : ' ';
             buf[45] = state->sortmethod == SORT_ALPHA ? (state->sort_reverse ? '-' : '+') : ' ';
             writez(termfd, buf);
             writez(termfd, "\e[K");
@@ -610,7 +610,7 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
     cmp = compare_alpha;
     if (state.sortmethod == SORT_SIZE) cmp = compare_size;
     if (state.sortmethod == SORT_TIME) cmp = compare_date;
-    if (state.sortmethod == SORT_BITS) cmp = compare_perm;
+    if (state.sortmethod == SORT_PERM) cmp = compare_perm;
     qsort_r(&state.files[1], state.nfiles-1, sizeof(entry_t*), &state.sort_reverse, cmp);
 
     // Put the cursor on the first *real* file if one exists
@@ -646,14 +646,17 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                 state.lastclick = clicktime;
                 if (mouse_y == 1) {
                     //    Size         Date           Perm  Name
+                    sortmethod_t oldsort = state.sortmethod;
                     if (mouse_x <= 8)
-                        goto sort_size;
+                        state.sortmethod = SORT_SIZE;
                     else if (mouse_x <= 30)
-                        goto sort_date;
+                        state.sortmethod = SORT_TIME;
                     else if (mouse_x <= 35)
-                        goto sort_perm;
+                        state.sortmethod = SORT_PERM;
                     else
-                        goto sort_alpha;
+                        state.sortmethod = SORT_ALPHA;
+                    state.sort_reverse ^= state.sortmethod == oldsort;
+                    goto sort_files;
                 } else if (mouse_y >= 2 && state.scroll + (mouse_y - 2) < state.nfiles) {
                     int clicked = state.scroll + (mouse_y - 2);
                     if (dt_ms > 200) {
@@ -692,63 +695,6 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                 raise(SIGTSTP);
                 init_term();
                 goto redraw;
-
-            case 's':
-                // Change sorting method:
-                term_move(0, height-1);
-                writez(termfd, "\e[K\e[1mSort by (a)lphabetic (s)ize (t)ime (p)ermissions:\e[0m \e[?25h");
-              try_sort_again:
-                switch (term_getkey(termfd, &mouse_x, &mouse_y, -1)) {
-                    case 'a': case 'A':
-                      sort_alpha:
-                        if (state.sortmethod == SORT_ALPHA)
-                            state.sort_reverse ^= 1;
-                        else {
-                            state.sortmethod = SORT_ALPHA;
-                            state.sort_reverse = 0;
-                        }
-                        break;
-
-                    case 'p': case 'P':
-                      sort_perm:
-                        if (state.sortmethod == SORT_BITS)
-                            state.sort_reverse ^= 1;
-                        else {
-                            state.sortmethod = SORT_BITS;
-                            state.sort_reverse = 0;
-                        }
-                        break;
-
-                    case 's': case 'S':
-                      sort_size:
-                        if (state.sortmethod == SORT_SIZE)
-                            state.sort_reverse ^= 1;
-                        else {
-                            state.sortmethod = SORT_SIZE;
-                            state.sort_reverse = 0;
-                        }
-                        break;
-
-                    case 't': case 'T':
-                      sort_date:
-                        if (state.sortmethod == SORT_TIME)
-                            state.sort_reverse ^= 1;
-                        else {
-                            state.sortmethod = SORT_TIME;
-                            state.sort_reverse = 0;
-                        }
-                        break;
-
-                    case -1:
-                        goto try_sort_again;
-
-                    default:
-                        writez(termfd, "\e[?25l");
-                        goto redraw;
-                }
-                // Hide cursor again
-                writez(termfd, "\e[?25l");
-                goto sort_files;
 
             case '.':
                 state.showhidden ^= 1;
@@ -813,11 +759,9 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                         if (bindings[i].flags & NORMAL_TERM) {
                             close_term();
                         } else {
-                            /*
                             tcgetattr(termfd, &cur_tios);
                             tcsetattr(termfd, TCSAFLUSH, &orig_termios);
-                            writez(termfd, "\e[?25h"); // Show cursor
-                            */
+                            //writez(termfd, "\e[?25h"); // Show cursor
                         }
 
                         run_cmd_on_selection(&state, bindings[i].command);
@@ -827,15 +771,12 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                             init_term();
                         } else {
                             lazy = 1;
-                            /*
                             tcsetattr(termfd, TCSAFLUSH, &cur_tios);
                             writez(termfd, "\e[?25l"); // Hide cursor
-                            */
                         }
 
                         // Scan for IPC requests
                         int needs_full_refresh = 0;
-                        char newsort[3] = "";
                         FILE *tmpfile;
                         if ((tmpfile = fopen(bb_tmpfile, "r"))) {
                             char *line = NULL;
@@ -843,13 +784,30 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                             ssize_t len;
                             while ((len = getline(&line, &capacity, tmpfile)) >= 0) {
                                 if (len > 0 && line[len-1] == '\n') line[--len] = '\0';
+                                char *value = strchr(line, ':');
+                                if (value) ++value;
                                 if (strcmp(line, "refresh") == 0) {
                                     needs_full_refresh = 1;
                                 } else if (strcmp(line, "quit") == 0) {
                                     goto done;
-                                } else if (startswith(line, "sort:") && len >= 7) {
-                                    newsort[0] = line[strlen("sort:")];
-                                    newsort[1] = line[strlen("sort:") + 1];
+                                } else if (startswith(line, "sort:")) {
+                                    sortmethod_t oldsort = state.sortmethod;
+                                    switch (value[0]) {
+                                        case '\0': continue;
+                                        case 'a': state.sortmethod = SORT_ALPHA; break;
+                                        case 's': state.sortmethod = SORT_SIZE; break;
+                                        case 't': state.sortmethod = SORT_TIME; break;
+                                        case 'p': state.sortmethod = SORT_PERM; break;
+                                        default: break;
+                                    }
+                                    if (value[1] == '+')
+                                        state.sort_reverse = 0;
+                                    else if (value[1] == '-')
+                                        state.sort_reverse = 1;
+                                    else if (state.sortmethod == oldsort)
+                                        state.sort_reverse ^= 1;
+                                    strcpy(to_select, state.files[state.cursor]->d_name);
+                                    goto sort_files;
                                 } else if (startswith(line, "cd:")) {
                                     free(path);
                                     path = calloc(strlen(line+strlen("cd:")) + 1, sizeof(char));
@@ -863,45 +821,41 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                                         else select_file(&state, e);
                                     }
                                 } else if (startswith(line, "select:")) {
-                                    char *name = line + strlen("select:");
                                     lazy = 0;
-                                    if (strcmp(name, "*") == 0) {
+                                    if (strcmp(value, "*") == 0) {
                                         for (int i = 0; i < state.nfiles; i++)
                                             select_file(&state, state.files[i]);
                                     } else {
-                                        entry_t *e = find_file(&state, name);
+                                        entry_t *e = find_file(&state, value);
                                         if (e) select_file(&state, e);
                                     }
                                 } else if (startswith(line, "deselect:")) {
-                                    char *name = line + strlen("deselect:");
                                     lazy = 0;
-                                    if (strcmp(name, "*") == 0) {
+                                    if (strcmp(value, "*") == 0) {
                                         clear_selection(&state);
                                     } else {
-                                        entry_t *e = find_file(&state, name);
+                                        entry_t *e = find_file(&state, value);
                                         if (e) select_file(&state, e);
                                     }
                                 } else if (startswith(line, "cursor:")) {
-                                    char *name = line + strlen("cursor:");
                                     for (int i = 0; i < state.nfiles; i++) {
-                                        if (strcmp(name[0] == '/' ?
+                                        if (strcmp(value[0] == '/' ?
                                                     state.files[i]->d_fullname : state.files[i]->d_name,
-                                                    name) == 0) {
+                                                    value) == 0) {
                                             state.cursor = i;
                                             goto found_it;
                                         }
                                     }
                                     free(path);
-                                    char *lastslash = strrchr(name, '/');
+                                    char *lastslash = strrchr(value, '/');
                                     if (!lastslash) goto found_it;
-                                    size_t len = lastslash - name;
+                                    size_t len = lastslash - value;
                                     path = calloc(len + 1, sizeof(char));
-                                    memcpy(path, name, len);
+                                    memcpy(path, value, len);
                                     strcpy(to_select, lastslash+1);
                                     goto tail_call;
                                   found_it:;
                                 } else if (startswith(line, "move:")) {
-                                    char *value = line + strlen("move:");
                                     int expand_sel = 0;
                                     if (*value == 'x') {
                                         expand_sel = 1;
@@ -942,7 +896,6 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                                         lazy &= abs(oldcur - state.cursor) <= 1;
                                     }
                                 } else if (startswith(line, "scroll:")) {
-                                    char *value = line + strlen("scroll:");
                                     int oldscroll = state.scroll;
                                     int isabs = value[0] != '-' && value[0] != '+';
                                     long delta = strtol(value, &value, 10);
@@ -962,27 +915,10 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                             unlink(bb_tmpfile);
                         }
 
-                        sortmethod_t oldmethod = state.sortmethod;
-                        int oldreverse = state.sort_reverse;
-                        if (newsort[0] == '+')
-                            state.sort_reverse = 0;
-                        else if (newsort[0] == '+')
-                            state.sort_reverse = 1;
-                        switch (newsort[1]) {
-                            case 'a': state.sortmethod = SORT_ALPHA; break;
-                            case 's': state.sortmethod = SORT_SIZE; break;
-                            case 't': state.sortmethod = SORT_TIME; break;
-                            case 'p': state.sortmethod = SORT_BITS; break;
-                            default: break;
-                        }
-
                         if (needs_full_refresh) {
                             strcpy(to_select, state.files[state.cursor]->d_name);
                             goto tail_call;
                         }
-
-                        if (state.sortmethod != oldmethod || oldreverse != state.sort_reverse)
-                            goto sort_files;
 
                         goto redraw;
                     }

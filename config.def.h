@@ -34,12 +34,12 @@ struct {
     {'m', "mv -i \"$@\" .; bb -c 'deselect:*' refresh"},
     {'c', "cp -i \"$@\" .; bb -c refresh"},
     {'C', "for f; do cp \"$f\" \"$f.copy\"; done; bb -c refresh"},
-    {'n', "read -p '\e[33;1mNew file:\e[0m \e[K' name && touch \"$name\"; bb -c refresh"},
-    {'N', "read -p '\e[33;1mNew dir:\e[0m \e[K' name && mkdir \"$name\"; bb -c refresh"},
-    {'|', "read -p '\e[33;1m|>\e[0m \e[K' cmd && " PIPE_SELECTION_TO "$SHELL -c \"$cmd\"" AND_PAUSE},
-    {':', "read -p '\e[33;1m:>\e[0m \e[K' cmd && $SHELL -c \"$cmd\" -- \"$@\"" AND_PAUSE},
+    {'n', "read -p '\e[33;1mNew file:\e[0m \e[K\e[?25h' name && touch \"$name\"; bb -c refresh"},
+    {'N', "read -p '\e[33;1mNew dir:\e[0m \e[K\e[?25h' name && mkdir \"$name\"; bb -c refresh"},
+    {'|', "read -p '\e[33;1m|>\e[0m \e[K\e[?25h' cmd && " PIPE_SELECTION_TO "$SHELL -c \"$cmd\"" AND_PAUSE},
+    {':', "read -p '\e[33;1m:>\e[0m \e[K\e[?25h' cmd && $SHELL -c \"$cmd\" -- \"$@\"" AND_PAUSE},
     {'>', "$SHELL", NORMAL_TERM},
-    {'r', "for f; do read -p \"Rename $f: \e[K\" renamed && mv \"$f\" \"$renamed\"; done;"
+    {'r', "for f; do read -p \"Rename $f: \e[K\e[?25h\" renamed && mv \"$f\" \"$renamed\"; done;"
           " bb -c 'deselect:*' refresh"},
     {'h', "bb -c \"cd:..\""},
     {KEY_ARROW_LEFT, "bb -c 'cd:..'"},
@@ -63,6 +63,8 @@ struct {
            "else xdg-open \"$BBCURSOR\"; fi"},
 #endif
     {' ', "bb -c \"toggle:$BBCURSOR\""},
+    {'s', "read -n1 -p '\e[33mSort \e[1m(a)\e[22mlphabetic \e[1m(s)\e[22mize \e[1m(t)\e[22mime \e[1m(p)\e[22mermissions:\e[0m \e[K\e[?25h' sort "
+          "&& bb -c \"sort:$sort\""},
     {'q', "bb -c quit"},
     {'Q', "bb -c quit"},
     {'g', "bb -c move:0"},
