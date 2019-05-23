@@ -35,6 +35,7 @@ static struct termios orig_termios;
 static int termfd;
 static int width, height;
 static int mouse_x, mouse_y;
+static int force_redraw = 0;
 
 typedef enum {
     SORT_ALPHA = 0,
@@ -71,12 +72,13 @@ typedef struct {
 } while (0)
 static void _err();
 
-static void update_term_size(void)
+static void update_term_size(int _)
 {
     struct winsize sz = {0};
     ioctl(termfd, TIOCGWINSZ, &sz);
     width = sz.ws_col;
     height = sz.ws_row;
+    force_redraw = 1;
 }
 
 static inline int clamped(int x, int low, int high)
@@ -84,11 +86,6 @@ static inline int clamped(int x, int low, int high)
     if (x < low) return low;
     if (x > high) return high;
     return x;
-}
-
-static void do_nothing(int _)
-{
-    // Used as SIGINT handler
 }
 
 static void init_term()
@@ -108,7 +105,8 @@ static void init_term()
     tcsetattr(termfd, TCSAFLUSH, &tios);
     // xterm-specific:
     writez(termfd, "\e[?1049h");
-    update_term_size();
+    update_term_size(0);
+    signal(SIGWINCH, update_term_size);
     // Initiate mouse tracking:
     writez(termfd, "\e[?1000h\e[?1002h\e[?1015h\e[?1006h");
     // hide cursor
@@ -117,6 +115,7 @@ static void init_term()
 
 static void close_term()
 {
+    signal(SIGWINCH, SIG_IGN);
     // xterm-specific:
     writez(termfd, "\e[?1049l");
     // Show cursor:
@@ -141,7 +140,7 @@ static char bb_tmpfile[] = "/tmp/bb.XXXXXX";
 static int run_cmd_on_selection(bb_state_t *state, const char *cmd)
 {
     pid_t child;
-    sig_t old_handler = signal(SIGINT, do_nothing);
+    sig_t old_handler = signal(SIGINT, SIG_IGN);
 
     strcpy(bb_tmpfile, "/tmp/bb.XXXXXX");
     if (!mktemp(bb_tmpfile))
@@ -632,10 +631,12 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
     int picked, scrolloff, lazy = 0;
     while (1) {
       redraw:
-        render(&state, lazy);
+        render(&state, lazy && !force_redraw);
+        force_redraw = 0;
         lazy = 0;
       skip_redraw:
         scrolloff = MIN(SCROLLOFF, (height-4)/2);
+        if (force_redraw) goto redraw;
         int key = term_getkey(termfd, &mouse_x, &mouse_y, KEY_DELAY);
         switch (key) {
             case KEY_MOUSE_LEFT: {

@@ -3,9 +3,9 @@
  */
 #include "keys.h"
 
-#define PROG_FUZZY "fzf"
 #define PIPE_SELECTION_TO " printf '%s\\n' \"$@\" | "
 #define AND_PAUSE " && read -n1 -p '\n\e[2m...press any key to continue...\e[0m\e[?25l'"
+
 #define SCROLLOFF 5
 
 #define NORMAL_TERM     (1<<0)
