@@ -8,6 +8,7 @@ bb \- A bitty browser for command line file management
 [\fI-d\fR]
 [\fI-s\fR]
 [\fI-0\fR]
+[\fI-c commands... \fR]
 [\fIdirectory\fR]
 .SH DESCRIPTION
 \fBbb\fR is a tiny TUI console application for browsing and managing files.
@@ -21,6 +22,10 @@ Print the selected files on exit.
 .B \-s
 If printing the selected files on exit, use NULL-terminated strings instead of
 newline-separated.
+
+.B \-c commands...
+From within \fBbb\fR, running \fBbb -c ...\fR will execute an internal bb
+command for modifying bb's state.
 
 .B directory
 Open to this directory.

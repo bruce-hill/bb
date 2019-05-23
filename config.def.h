@@ -8,9 +8,7 @@
 #define AND_PAUSE " && read -n1 -p '\n\e[2m...press any key to continue...\e[0m\e[?25l'"
 #define SCROLLOFF 5
 
-#define REFRESH         (1<<0)
-#define CLEAR_SELECTION (1<<1)
-#define ONSCREEN        (1<<2)
+#define NORMAL_TERM     (1<<0)
 
 struct {
     int key;
@@ -22,19 +20,65 @@ struct {
     // Please note that these are sh scripts, not bash scripts, so bash-isms
     // won't work unless you make your script use `bash -c "<your script>"`
     ////////////////////////////////////////////////////////////////////////
-    {'e', "$EDITOR \"$@\""},
-    {'L', PIPE_SELECTION_TO "less"},
-    {'D', "rm -rf \"$@\"", CLEAR_SELECTION | REFRESH | ONSCREEN},
-    {'d', "rm -rfi \"$@\"", CLEAR_SELECTION | REFRESH | ONSCREEN},
-    {'m', "mv -i \"$@\" .", CLEAR_SELECTION | REFRESH | ONSCREEN},
-    {'c', "cp -i \"$@\" .", CLEAR_SELECTION | REFRESH | ONSCREEN},
-    {'C', "for f; do cp \"$f\" \"$f.copy\"; done", REFRESH | ONSCREEN},
-    {'n', "read -p '\e[33;1mNew file:\e[0m ' name && touch \"$name\"", ONSCREEN | REFRESH},
-    {'N', "read -p '\e[33;1mNew dir:\e[0m ' name && mkdir \"$name\"", ONSCREEN | REFRESH},
-    {'|', "read -p \"\e[33;1m>\e[0m \" cmd && " PIPE_SELECTION_TO "$SHELL -c \"$cmd\"" AND_PAUSE, REFRESH},
-    {'>', "$SHELL", REFRESH},
-    {'r', "for f; do read -p \"Rename $f: \" renamed && mv \"$f\" \"$renamed\"; done",
-        REFRESH | CLEAR_SELECTION | ONSCREEN},
+    {'e', "$EDITOR \"$@\"", NORMAL_TERM},
+    {'L', PIPE_SELECTION_TO "less", NORMAL_TERM},
+    {'D', "rm -rf \"$@\"; bb -c 'deselect:*' refresh"},
+    {'d', "rm -rfi \"$@\"; bb -c 'deselect:*' refresh"},
+    {'m', "mv -i \"$@\" .; bb -c 'deselect:*' refresh"},
+    {'c', "cp -i \"$@\" .; bb -c refresh"},
+    {'C', "for f; do cp \"$f\" \"$f.copy\"; done; bb -c refresh"},
+    {'n', "read -p '\e[33;1mNew file:\e[0m \e[K' name && touch \"$name\"; bb -c refresh"},
+    {'N', "read -p '\e[33;1mNew dir:\e[0m \e[K' name && mkdir \"$name\"; bb -c refresh"},
+    {'|', "read -p '\e[33;1m|>\e[0m \e[K' cmd && " PIPE_SELECTION_TO "$SHELL -c \"$cmd\"" AND_PAUSE},
+    {':', "read -p '\e[33;1m:>\e[0m \e[K' cmd && $SHELL -c \"$cmd\" -- \"$@\"" AND_PAUSE},
+    {'>', "$SHELL", NORMAL_TERM},
+    {'r', "for f; do read -p \"Rename $f: \e[K\" renamed && mv \"$f\" \"$renamed\"; done;"
+          " bb -c 'deselect:*' refresh"},
+
+
+    {'h', "bb -c \"cd:..\""},
+    {KEY_ARROW_LEFT, "bb -c 'cd:..'"},
+    {'j', "bb -c 'move:+1'"},
+    {KEY_ARROW_DOWN, "bb -c 'move:+1'"},
+    {'k', "bb -c 'move:-1'"},
+    {KEY_ARROW_UP, "bb -c 'move:-1'"},
+
+    {'l', "bb -c \"cd:$BBFULLCURSOR\""},
+    {KEY_ARROW_RIGHT, "bb -c \"cd:$BBFULLCURSOR\""},
+#ifdef __APPLE__
+    {'\r', "if test -x \"$BBCURSOR\"; then \"$BBCURSOR\"; "
+           "elif test -d \"$BBCURSOR\"; then bb -c \"cd:$BBFULLCURSOR\"; "
+           "elif file -bI \"$BBCURSOR\" | grep '^text/' >/dev/null; then $EDITOR \"$BBCURSOR\"; "
+           "else open \"$BBCURSOR\"; fi"},
+#else
+    {'\r', "if test -x \"$BBCURSOR\"; then \"$BBCURSOR\"; "
+           "elif test -d \"$BBCURSOR\"; then bb -c \"cd:$BBFULLCURSOR\"; "
+           "elif file -bi \"$BBCURSOR\" | grep '^text/' >/dev/null; then $EDITOR \"$BBCURSOR\"; "
+           "else xdg-open \"$BBCURSOR\"; fi"},
+#endif
+    {' ', "bb -c \"toggle:$BBCURSOR\""},
+    //{-1, "J\t\e[0;34mMove selection state down\e[0m"},
+    //{-1, "K\t\e[0;34mMove selection state up\e[0m"},
+    {'q', "bb -c quit"},
+    {'Q', "bb -c quit"},
+    {'g', "bb -c move:0"},
+    {KEY_HOME, "bb -c move:0"},
+    {'G', "bb -c move:9999999999"},
+    {KEY_END, "bb -c move:999999999"},
+    {'f', "bb -c \"cursor:`fzf`\"", NORMAL_TERM},
+    {'/', "bb -c \"cursor:`ls -a|fzf`\"", NORMAL_TERM},
+    {KEY_ESC, "bb -c 'deselect:*'"},
+    {KEY_F5, "bb -c refresh"},
+    {KEY_CTRL_R, "bb -c refresh"},
+    {KEY_CTRL_A, "bb -c 'select:*'"},
+    //{-1, "Ctrl-C\t\e[0;34mAbort and exit\e[0m"},
+    {KEY_PGDN, "bb -c 'scroll:+100%'"},
+    {KEY_CTRL_D, "bb -c 'scroll:+50%'"},
+    {KEY_PGUP, "bb -c 'scroll:-100%'"},
+    {KEY_CTRL_U, "bb -c 'scroll:-50%'"},
+    //{-1, "Ctrl-Z\t\e[0;34mSuspend\e[0m"},
+
+
 
     // Hard-coded behaviors (these are just placeholders for the help):
     {-1, "?\t\e[0;34mOpen help menu\e[0m"},
