@@ -20,6 +20,13 @@ struct {
     // Please note that these are sh scripts, not bash scripts, so bash-isms
     // won't work unless you make your script use `bash -c "<your script>"`
     ////////////////////////////////////////////////////////////////////////
+
+
+    {'1', "bb -c 'move:x+1'"},
+    {'2', "bb -c 'move:x-1'"},
+    {'3', "bb -c 'move:x+10'"},
+    {'4', "bb -c 'move:x-10'"},
+
     {'e', "$EDITOR \"$@\"", NORMAL_TERM},
     {'L', PIPE_SELECTION_TO "less", NORMAL_TERM},
     {'D', "rm -rf \"$@\"; bb -c 'deselect:*' refresh"},
@@ -34,15 +41,14 @@ struct {
     {'>', "$SHELL", NORMAL_TERM},
     {'r', "for f; do read -p \"Rename $f: \e[K\" renamed && mv \"$f\" \"$renamed\"; done;"
           " bb -c 'deselect:*' refresh"},
-
-
     {'h', "bb -c \"cd:..\""},
     {KEY_ARROW_LEFT, "bb -c 'cd:..'"},
     {'j', "bb -c 'move:+1'"},
+    {'J', "bb -c 'move:x+1'"},
     {KEY_ARROW_DOWN, "bb -c 'move:+1'"},
     {'k', "bb -c 'move:-1'"},
+    {'K', "bb -c 'move:x-1'"},
     {KEY_ARROW_UP, "bb -c 'move:-1'"},
-
     {'l', "bb -c \"cd:$BBFULLCURSOR\""},
     {KEY_ARROW_RIGHT, "bb -c \"cd:$BBFULLCURSOR\""},
 #ifdef __APPLE__
@@ -57,8 +63,6 @@ struct {
            "else xdg-open \"$BBCURSOR\"; fi"},
 #endif
     {' ', "bb -c \"toggle:$BBCURSOR\""},
-    //{-1, "J\t\e[0;34mMove selection state down\e[0m"},
-    //{-1, "K\t\e[0;34mMove selection state up\e[0m"},
     {'q', "bb -c quit"},
     {'Q', "bb -c quit"},
     {'g', "bb -c move:0"},
@@ -71,13 +75,12 @@ struct {
     {KEY_F5, "bb -c refresh"},
     {KEY_CTRL_R, "bb -c refresh"},
     {KEY_CTRL_A, "bb -c 'select:*'"},
-    //{-1, "Ctrl-C\t\e[0;34mAbort and exit\e[0m"},
     {KEY_PGDN, "bb -c 'scroll:+100%'"},
     {KEY_CTRL_D, "bb -c 'scroll:+50%'"},
     {KEY_PGUP, "bb -c 'scroll:-100%'"},
     {KEY_CTRL_U, "bb -c 'scroll:-50%'"},
-    //{-1, "Ctrl-Z\t\e[0;34mSuspend\e[0m"},
-
+    {KEY_MOUSE_WHEEL_DOWN, "bb -c 'scroll:+3'"},
+    {KEY_MOUSE_WHEEL_UP, "bb -c 'scroll:-3'"},
 
 
     // Hard-coded behaviors (these are just placeholders for the help):

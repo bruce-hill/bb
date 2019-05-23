@@ -27,7 +27,7 @@
 #define MAX_PATH 4096
 #define startswith(str, start) (strncmp(str, start, strlen(start)) == 0)
 #define writez(fd, str) write(fd, str, strlen(str))
-#define IS_SELECTED(p) ((p)->atme)
+#define IS_SELECTED(p) (((p)->atme) != NULL)
 
 #define KEY_DELAY 50
 
@@ -113,10 +113,6 @@ static void init_term()
     writez(termfd, "\e[?1000h\e[?1002h\e[?1015h\e[?1006h");
     // hide cursor
     writez(termfd, "\e[?25l");
-    // Set the scrolling region
-    char buf[16];
-    sprintf(buf, "\e[3;%dr", height-1);
-    writez(termfd, buf);
 }
 
 static void close_term()
@@ -125,10 +121,8 @@ static void close_term()
     writez(termfd, "\e[?1049l");
     // Show cursor:
     writez(termfd, "\e[?25h");
-    // Restore scrollable region
-    char buf[16];
-    sprintf(buf, "\e[1;%dr", height);
-    writez(termfd, buf);
+    // Disable mouse tracking:
+    writez(termfd, "\e[?1000l\e[?1002l\e[?1015l\e[?1006l");
 
     tcsetattr(termfd, TCSAFLUSH, &orig_termios);
     close(termfd);
@@ -234,6 +228,19 @@ static int write_escaped(int fd, const char *str, size_t n, const char *reset_co
 static void render(bb_state_t *state, int lazy)
 {
     static int lastcursor = -1, lastscroll = -1;
+    if (lastcursor == -1 || lastscroll == -1)
+        lazy = 0;
+
+    if (lazy) {
+        char buf[32];
+        if (lastscroll > state->scroll) {
+            int n = sprintf(buf, "\e[3;%dr\e[%dT\e[1;%dr", height-1, lastscroll - state->scroll, height);
+            write(termfd, buf, n);
+        } else if (lastscroll < state->scroll) {
+            int n = sprintf(buf, "\e[3;%dr\e[%dS\e[1;%dr", height-1, state->scroll - lastscroll, height);
+            write(termfd, buf, n);
+        }
+    }
 
     if (!lazy) {
         term_move(0,0);
@@ -243,24 +250,13 @@ static void render(bb_state_t *state, int lazy)
 
         term_move(0,1);
         { // Column labels
-            char buf[] = "\e[32m    Size         Date           Perm  Name\e[0m";
-            buf[8] = state->sortmethod == SORT_SIZE ? (state->sort_reverse ? '-' : '+') : ' ';
-            buf[21] = state->sortmethod == SORT_TIME ? (state->sort_reverse ? '-' : '+') : ' ';
-            buf[36] = state->sortmethod == SORT_BITS ? (state->sort_reverse ? '-' : '+') : ' ';
-            buf[42] = state->sortmethod == SORT_ALPHA ? (state->sort_reverse ? '-' : '+') : ' ';
+            char buf[] = " \e[42;30m   Size |       Date         | Perm| Name       \e[0m";
+            buf[11] = state->sortmethod == SORT_SIZE ? (state->sort_reverse ? '-' : '+') : ' ';
+            buf[24] = state->sortmethod == SORT_TIME ? (state->sort_reverse ? '-' : '+') : ' ';
+            buf[39] = state->sortmethod == SORT_BITS ? (state->sort_reverse ? '-' : '+') : ' ';
+            buf[45] = state->sortmethod == SORT_ALPHA ? (state->sort_reverse ? '-' : '+') : ' ';
             writez(termfd, buf);
             writez(termfd, "\e[K");
-        }
-    }
-
-    if (lazy) {
-        char buf[16];
-        if (lastscroll > state->scroll) {
-            int n = sprintf(buf, "\e[%dT", lastscroll - state->scroll);
-            write(termfd, buf, n);
-        } else if (lastscroll < state->scroll) {
-            int n = sprintf(buf, "\e[%dS", state->scroll - lastscroll);
-            write(termfd, buf, n);
         }
     }
 
@@ -697,46 +693,6 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                 init_term();
                 goto redraw;
 
-            case KEY_MOUSE_WHEEL_DOWN:
-                if (state.cursor >= state.nfiles - 1)
-                    goto skip_redraw;
-                ++state.cursor;
-                lazy = 1;
-                if (state.nfiles > height - 4)
-                    ++state.scroll;
-                goto redraw;
-
-            case KEY_MOUSE_WHEEL_UP:
-                if (state.cursor <= 0)
-                    goto skip_redraw;
-                --state.cursor;
-                lazy = 1;
-                if (state.nfiles > height - 4 && state.scroll > 0)
-                    --state.scroll;
-                goto redraw;
-
-            case 'J':
-                if (state.cursor < state.nfiles - 1) {
-                    lazy = 1;
-                    if (IS_SELECTED(state.files[state.cursor]))
-                        select_file(&state, state.files[++state.cursor]);
-                    else
-                        deselect_file(&state, state.files[++state.cursor]);
-                    goto redraw;
-                }
-                goto skip_redraw;
-
-            case 'K':
-                if (state.cursor > 0) {
-                    lazy = 1;
-                    if (IS_SELECTED(state.files[state.cursor]))
-                        select_file(&state, state.files[--state.cursor]);
-                    else
-                        deselect_file(&state, state.files[--state.cursor]);
-                    goto redraw;
-                }
-                goto skip_redraw;
-
             case 's':
                 // Change sorting method:
                 term_move(0, height-1);
@@ -857,11 +813,6 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                         if (bindings[i].flags & NORMAL_TERM) {
                             close_term();
                         } else {
-                            { // Restore scrolling region
-                                char buf[16];
-                                sprintf(buf, "\e[1;%dr", height);
-                                writez(termfd, buf);
-                            }
                             /*
                             tcgetattr(termfd, &cur_tios);
                             tcsetattr(termfd, TCSAFLUSH, &orig_termios);
@@ -880,11 +831,6 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                             tcsetattr(termfd, TCSAFLUSH, &cur_tios);
                             writez(termfd, "\e[?25l"); // Hide cursor
                             */
-                            { // Restore scrolling region
-                                char buf[16];
-                                sprintf(buf, "\e[3;%dr", height-1);
-                                writez(termfd, buf);
-                            }
                         }
 
                         // Scan for IPC requests
@@ -956,6 +902,11 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                                   found_it:;
                                 } else if (startswith(line, "move:")) {
                                     char *value = line + strlen("move:");
+                                    int expand_sel = 0;
+                                    if (*value == 'x') {
+                                        expand_sel = 1;
+                                        ++value;
+                                    }
                                     int oldcur = state.cursor;
                                     int isabs = value[0] != '-' && value[0] != '+';
                                     long delta = strtol(value, &value, 10);
@@ -979,6 +930,16 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                                         //state.scroll = target;
                                         state.scroll = clamped(state.scroll, state.cursor - (height-4) + 1, state.cursor);
                                         state.scroll = clamped(state.scroll, 0, state.nfiles-1 - (height-4));
+                                    }
+                                    if (expand_sel) {
+                                        int sel = IS_SELECTED(state.files[oldcur]);
+                                        for (int i = state.cursor; i != oldcur; i += (oldcur > i ? 1 : -1)) {
+                                            if (sel && !IS_SELECTED(state.files[i]))
+                                                select_file(&state, state.files[i]);
+                                            else if (!sel && IS_SELECTED(state.files[i]))
+                                                deselect_file(&state, state.files[i]);
+                                        }
+                                        lazy &= abs(oldcur - state.cursor) <= 1;
                                     }
                                 } else if (startswith(line, "scroll:")) {
                                     char *value = line + strlen("scroll:");
