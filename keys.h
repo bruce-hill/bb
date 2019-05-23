@@ -204,4 +204,32 @@ int term_getkey(int fd, int *mouse_x, int *mouse_y, int timeout)
     return -1;
 }
 
+const char *keyname(key)
+{
+    // TODO: currently only the keys I'm using are named
+    switch (key) {
+        case ' ': return "Space";
+        case '\r': return "Enter";
+        case KEY_ARROW_UP: return "Up";
+        case KEY_ARROW_DOWN: return "Down";
+        case KEY_ARROW_LEFT: return "Left";
+        case KEY_ARROW_RIGHT: return "Right";
+        case KEY_HOME: return "Home";
+        case KEY_END: return "End";
+        case KEY_DELETE: return "Delete";
+        case KEY_ESC: return "Escape";
+        case KEY_F5: return "F5";
+        case KEY_CTRL_A: return "Ctrl-a";
+        case KEY_CTRL_D: return "Ctrl-d";
+        case KEY_CTRL_H: return "Ctrl-h";
+        case KEY_CTRL_R: return "Ctrl-r";
+        case KEY_CTRL_U: return "Ctrl-u";
+        case KEY_PGDN: return "PgDn";
+        case KEY_PGUP: return "PgUp";
+        case KEY_MOUSE_WHEEL_DOWN: return "Scroll down";
+        case KEY_MOUSE_WHEEL_UP: return "Scroll up";
+    }
+    return NULL;
+}
+
 #endif
