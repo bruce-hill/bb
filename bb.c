@@ -100,6 +100,10 @@ static void init_term()
     writez(termfd, "\e[?1000h\e[?1002h\e[?1015h\e[?1006h");
     // hide cursor
     writez(termfd, "\e[?25l");
+    // Set the scrolling region
+    char buf[16];
+    sprintf(buf, "\e[3;%dr", height-1);
+    writez(termfd, buf);
 }
 
 static void close_term()
@@ -214,47 +218,116 @@ static void term_move(int x, int y)
         write(termfd, buf, len);
 }
 
-static void render(bb_state_t *state)
+static int write_escaped(int fd, const char *str, size_t n, const char *reset_color)
 {
-    writez(termfd, "\e[2J\e[0;1m"); // Clear, reset color + bold
-    term_move(0,0);
-    writez(termfd, state->path);
+    // escapes['\n'] == 'n', etc.
+    static const char *escapes = "       abtnvfr             e";
+    char buf[5];
+    int ret = 0;
+    int backlog = 0;
+    for (int i = 0; i < n; i++) {
+        int escapelen = 0;
+        if (str[i] <= '\x1b' && escapes[str[i]] != ' ')
+            escapelen = sprintf(buf, "\\%c", escapes[str[i]]);
+        else if (!(' ' <= str[i] && str[i] <= '~'))
+            escapelen = sprintf(buf, "\\x%02X", str[i]);
+        else {
+            ++backlog;
+            continue;
+        }
 
-    term_move(0,1);
-    { // Column labels
-        char buf[] = "\e[32m    Size         Date           Perm  Name\e[0m";
-        buf[8] = state->sortmethod == SORT_SIZE ? (state->sort_reverse ? '-' : '+') : ' ';
-        buf[21] = state->sortmethod == SORT_DATE ? (state->sort_reverse ? '-' : '+') : ' ';
-        buf[36] = state->sortmethod == SORT_BITS ? (state->sort_reverse ? '-' : '+') : ' ';
-        buf[42] = state->sortmethod == SORT_ALPHA ? (state->sort_reverse ? '-' : '+') : ' ';
-        writez(termfd, buf);
+        if (backlog > 0) {
+            ret += write(fd, &str[i-backlog], backlog);
+            backlog = 0;
+        }
+        ret += writez(fd, "\e[31m");
+        ret += write(fd, buf, escapelen);
+        ret += writez(fd, reset_color);
+    }
+    if (backlog > 0)
+        ret += write(fd, &str[n-backlog], backlog);
+    return ret;
+}
+
+static void render(bb_state_t *state, int lazy)
+{
+    static int lastcursor = -1, lastscroll = -1;
+
+    if (!lazy) {
+        term_move(0,0);
+        writez(termfd, "\e[0;1m"); // reset color + bold
+        write_escaped(termfd, state->path, strlen(state->path), "\e[0;1m");
+        writez(termfd, "\e[K");
+
+        term_move(0,1);
+        { // Column labels
+            char buf[] = "\e[32m    Size         Date           Perm  Name\e[0m";
+            buf[8] = state->sortmethod == SORT_SIZE ? (state->sort_reverse ? '-' : '+') : ' ';
+            buf[21] = state->sortmethod == SORT_DATE ? (state->sort_reverse ? '-' : '+') : ' ';
+            buf[36] = state->sortmethod == SORT_BITS ? (state->sort_reverse ? '-' : '+') : ' ';
+            buf[42] = state->sortmethod == SORT_ALPHA ? (state->sort_reverse ? '-' : '+') : ' ';
+            writez(termfd, buf);
+            writez(termfd, "\e[K");
+        }
+    }
+
+    if (lazy) {
+        char buf[16];
+        if (lastscroll > state->scroll) {
+            int n = sprintf(buf, "\e[%dT", lastscroll - state->scroll);
+            write(termfd, buf, n);
+        } else if (lastscroll < state->scroll) {
+            int n = sprintf(buf, "\e[%dS", state->scroll - lastscroll);
+            write(termfd, buf, n);
+        }
     }
 
     entry_t **files = state->files;
-    for (int i = state->scroll; i < state->scroll + height - 3 && i < state->nfiles; i++) {
+    static const char *NORMAL_COLOR = "\e[0m";
+    static const char *CURSOR_COLOR = "\e[0;30;47m";
+    static const char *LINKDIR_COLOR = "\e[0;36m";
+    static const char *DIR_COLOR = "\e[0;34m";
+    static const char *LINK_COLOR = "\e[0;33m";
+    for (int i = state->scroll; i < state->scroll + height - 3; i++) {
+        if (lazy) {
+            if (i == state->cursor || i == lastcursor)
+                goto do_render;
+            if (i < lastscroll || i >= lastscroll + height - 3)
+                goto do_render;
+            continue;
+        }
+
+      do_render:;
+        int y = i - state->scroll + 2;
+        term_move(0, y);
+        if (i >= state->nfiles) {
+            writez(termfd, "\e[K");
+            continue;
+        }
+
         entry_t *entry = files[i];
         struct stat info = {0};
         lstat(entry->d_fullname, &info);
-
-        int x = 0;
-        int y = i - state->scroll + 2;
-        term_move(x, y);
 
         { // Selection box:
             if (IS_SELECTED(entry))
                 writez(termfd, "\e[43m \e[0m");
             else
                 writez(termfd, " ");
-
-            if (i == state->cursor)
-                writez(termfd, "\e[30;47m");
-            else if (entry->d_isdir && entry->d_type == DT_LNK)
-                writez(termfd, "\e[36m");
-            else if (entry->d_isdir)
-                writez(termfd, "\e[34m");
-            else if (entry->d_type == DT_LNK)
-                writez(termfd, "\e[33m");
         }
+
+        const char *color;
+        if (i == state->cursor)
+            color = CURSOR_COLOR;
+        else if (entry->d_isdir && entry->d_type == DT_LNK)
+            color = LINKDIR_COLOR;
+        else if (entry->d_isdir)
+            color = DIR_COLOR;
+        else if (entry->d_type == DT_LNK)
+            color = LINK_COLOR;
+        else
+            color = NORMAL_COLOR;
+        writez(termfd, color);
 
         { // Filesize:
             int j = 0;
@@ -288,7 +361,7 @@ static void render(bb_state_t *state)
         }
 
         { // Name:
-            write(termfd, entry->d_name, entry->d_namlen);
+            write_escaped(termfd, entry->d_name, entry->d_namlen, color);
             if (entry->d_isdir)
                 writez(termfd, "/");
 
@@ -297,25 +370,29 @@ static void render(bb_state_t *state)
                 ssize_t pathlen;
                 if ((pathlen = readlink(entry->d_name, linkpath, sizeof(linkpath))) < 0)
                     err("readlink() failed");
-                //writez(termfd, "\e[36m -> "); // Cyan FG
                 writez(termfd, " -> ");
-                write(termfd, linkpath, pathlen);
+                write_escaped(termfd, linkpath, pathlen, color);
                 if (entry->d_isdir)
                     writez(termfd, "/");
             }
         }
-        writez(termfd, " \e[0m"); // Reset color and attributes
+        writez(termfd, " \e[0m\e[K"); // Reset color and attributes
     }
 
     static const char *help = "Press '?' to see key bindings ";
-    char buf[32] = {0};
-    int len = snprintf(buf, sizeof(buf), " %lu selected", state->nselected);
-    if (strlen(help) + len < width + 1) {
-        term_move(0, height - 1);
-        write(termfd, buf, len);
+    term_move(0, height - 1);
+    if (state->nselected > 0) {
+        char buf[32] = {0};
+        int len = snprintf(buf, sizeof(buf), " %lu selected", state->nselected);
+        if (strlen(help) + len < width + 1) {
+            write(termfd, buf, len);
+        }
     }
+    writez(termfd, "\e[K");
     term_move(MAX(0, width - strlen(help)), height - 1);
     writez(termfd, help);
+    lastcursor = state->cursor;
+    lastscroll = state->scroll;
 }
 
 static int compare_alpha(void *r, const void *v1, const void *v2)
@@ -539,10 +616,11 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
         to_select[0] = '\0';
     }
 
-    int picked, scrolloff;
+    int picked, scrolloff, lazy = 0;
     while (1) {
       redraw:
-        render(&state);
+        render(&state, lazy);
+        lazy = 0;
       skip_redraw:
         scrolloff = MIN(SCROLLOFF, (height-4)/2);
         int key = term_getkey(termfd, &mouse_x, &mouse_y, KEY_DELAY);
@@ -566,13 +644,14 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                 } else if (mouse_y >= 2 && state.scroll + (mouse_y - 2) < state.nfiles) {
                     int clicked = state.scroll + (mouse_y - 2);
                     if (dt_ms > 200) {
-                    // Single click
+                        // Single click
                         if (mouse_x == 0) {
                             // Toggle
                             picked = clicked;
                             goto toggle;
                         } else {
                             state.cursor = clicked;
+                            lazy = 1;
                             goto redraw;
                         }
                     } else {
@@ -604,28 +683,28 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                 if (state.cursor >= state.nfiles - 1)
                     goto skip_redraw;
                 ++state.cursor;
-                if (state.nfiles <= height - 4)
-                    goto redraw;
-                ++state.scroll;
+                lazy = 1;
+                if (state.nfiles > height - 4)
+                    ++state.scroll;
                 goto redraw;
 
             case KEY_MOUSE_WHEEL_UP:
                 if (state.cursor <= 0)
                     goto skip_redraw;
                 --state.cursor;
-                if (state.nfiles <= height - 4)
-                    goto redraw;
-                --state.scroll;
-                if (state.scroll < 0)
-                    state.scroll = 0;
+                lazy = 1;
+                if (state.nfiles > height - 4 && state.scroll > 0)
+                    --state.scroll;
                 goto redraw;
 
             case KEY_CTRL_D: case KEY_PGDN:
                 if (state.cursor == state.nfiles - 1)
                     goto skip_redraw;
+                lazy = 1;
                 state.cursor = MIN(state.nfiles - 1, state.cursor + (height - 4) / 2);
                 if (state.nfiles <= height - 4)
                     goto redraw;
+
                 state.scroll += (height - 4)/2;
                 if (state.scroll > state.nfiles - (height - 4) - 1)
                     state.scroll = state.nfiles - (height - 4) - 1;
@@ -635,17 +714,20 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                 state.cursor = MAX(0, state.cursor - (height - 4) / 2);
                 if (state.nfiles <= height - 4)
                     goto redraw;
+                lazy = 1;
                 state.scroll -= (height - 4)/2;
                 if (state.scroll < 0)
                     state.scroll = 0;
                 goto redraw;
 
             case 'g': case KEY_HOME:
+                lazy = 1;
                 state.cursor = 0;
                 state.scroll = 0;
                 goto redraw;
 
             case 'G': case KEY_END:
+                lazy = 1;
                 state.cursor = state.nfiles - 1;
                 if (state.nfiles > height - 4)
                     state.scroll = state.nfiles - (height - 4) - 1;
@@ -654,6 +736,7 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
             case ' ':
                 picked = state.cursor;
               toggle:
+                lazy = 1;
                 if (strcmp(state.files[picked]->d_name, "..") == 0)
                     goto skip_redraw;
                 if (IS_SELECTED(state.files[picked])) {
@@ -701,19 +784,20 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
             case 'j': case KEY_ARROW_DOWN:
                 if (state.cursor >= state.nfiles - 1)
                     goto skip_redraw;
+                lazy = 1;
                 ++state.cursor;
-                if (state.cursor > state.scroll + height - 4 - 1 - scrolloff && state.scroll < state.nfiles - (height - 4)) {
+                if (state.cursor > state.scroll + (height - 4) - 1 - scrolloff
+                        && state.scroll < state.nfiles - (height - 4) - 1)
                     ++state.scroll;
-                }
                 goto redraw;
 
             case 'k': case KEY_ARROW_UP:
                 if (state.cursor <= 0)
                     goto skip_redraw;
+                lazy = 1;
                 --state.cursor;
-                if (state.cursor < state.scroll + scrolloff && state.scroll > 0) {
+                if (state.cursor < state.scroll + scrolloff && state.scroll > 0)
                     --state.scroll;
-                }
                 goto redraw;
 
             case 'J':
@@ -727,6 +811,7 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                         if (IS_SELECTED(state.files[picked]))
                             goto toggle_off;
                     }
+                    lazy = 1;
                     goto redraw;
                 }
                 goto skip_redraw;
@@ -742,11 +827,13 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                         if (IS_SELECTED(state.files[picked]))
                             goto toggle_off;
                     }
+                    lazy = 1;
                     goto redraw;
                 }
                 goto skip_redraw;
 
             case 'h': case KEY_ARROW_LEFT:
+                // TODO: slightly hacky, depends on ".." being at 0 (currently always true)
                 picked = 0;
                 goto open_file;
 
