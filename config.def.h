@@ -10,9 +10,12 @@
 
 #define NORMAL_TERM     (1<<0)
 
+#define MAX_REBINDINGS 8
+
 struct {
-    int key;
+    int keys[MAX_REBINDINGS];
     const char *command;
+    const char *description;
     int flags;
 } bindings[] = {
     ////////////////////////////////////////////////////////////////////////
@@ -21,90 +24,63 @@ struct {
     // won't work unless you make your script use `bash -c "<your script>"`
     ////////////////////////////////////////////////////////////////////////
 
-
-    {'1', "bb -c 'move:x+1'"},
-    {'2', "bb -c 'move:x-1'"},
-    {'3', "bb -c 'move:x+10'"},
-    {'4', "bb -c 'move:x-10'"},
-
-    {'e', "$EDITOR \"$@\"", NORMAL_TERM},
-    {'L', PIPE_SELECTION_TO "less", NORMAL_TERM},
-    {'D', "rm -rf \"$@\"; bb -c 'deselect:*' refresh"},
-    {'d', "rm -rfi \"$@\"; bb -c 'deselect:*' refresh"},
-    {'m', "mv -i \"$@\" .; bb -c 'deselect:*' refresh"},
-    {'c', "cp -i \"$@\" .; bb -c refresh"},
-    {'C', "for f; do cp \"$f\" \"$f.copy\"; done; bb -c refresh"},
-    {'n', "read -p '\e[33;1mNew file:\e[0m \e[K\e[?25h' name && touch \"$name\"; bb -c refresh"},
-    {'N', "read -p '\e[33;1mNew dir:\e[0m \e[K\e[?25h' name && mkdir \"$name\"; bb -c refresh"},
-    {'|', "read -p '\e[33;1m|>\e[0m \e[K\e[?25h' cmd && " PIPE_SELECTION_TO "$SHELL -c \"$cmd\"" AND_PAUSE},
-    {':', "read -p '\e[33;1m:>\e[0m \e[K\e[?25h' cmd && $SHELL -c \"$cmd\" -- \"$@\"" AND_PAUSE},
-    {'>', "$SHELL", NORMAL_TERM},
-    {'r', "for f; do read -p \"Rename $f: \e[K\e[?25h\" renamed && mv \"$f\" \"$renamed\"; done;"
-          " bb -c 'deselect:*' refresh"},
-    {'h', "bb -c \"cd:..\""},
-    {KEY_ARROW_LEFT, "bb -c 'cd:..'"},
-    {'j', "bb -c 'move:+1'"},
-    {'J', "bb -c 'move:x+1'"},
-    {KEY_ARROW_DOWN, "bb -c 'move:+1'"},
-    {'k', "bb -c 'move:-1'"},
-    {'K', "bb -c 'move:x-1'"},
-    {KEY_ARROW_UP, "bb -c 'move:-1'"},
-    {'l', "bb -c \"cd:$BBFULLCURSOR\""},
-    {KEY_ARROW_RIGHT, "bb -c \"cd:$BBFULLCURSOR\""},
+    {{'?'},                  "bb -b | less -r", "Show the help menu", NORMAL_TERM},
+    {{'M'},                  "man bb", "Show the bb manpage", NORMAL_TERM},
+    {{'q', 'Q'},             "bb -c quit", "Quit"},
+    {{'k', KEY_ARROW_UP},    "bb -c 'move:-1'", "Move up"},
+    {{'j', KEY_ARROW_DOWN},  "bb -c 'move:+1'", "Move down"},
+    {{'h', KEY_ARROW_LEFT},  "bb -c \"cd:..\"", "Go up a folder"},
+    {{'l', KEY_ARROW_RIGHT}, "test -d \"$BBCURSOR\" && bb -c \"cd:$BBCURSOR\"", "Enter a folder"},
+    {{' '},                  "bb -c \"toggle:$BBCURSOR\"", "Toggle selection"},
+    {{'e'},                  "$EDITOR \"$@\"", "Edit file in $EDITOR", NORMAL_TERM},
+    {{'\r'},
 #ifdef __APPLE__
-    {'\r', "if test -x \"$BBCURSOR\"; then \"$BBCURSOR\"; "
-           "elif test -d \"$BBCURSOR\"; then bb -c \"cd:$BBFULLCURSOR\"; "
-           "elif file -bI \"$BBCURSOR\" | grep '^text/' >/dev/null; then $EDITOR \"$BBCURSOR\"; "
-           "else open \"$BBCURSOR\"; fi"},
+"if test -d \"$BBCURSOR\"; then bb -c \"cd:$BBCURSOR\";\n\
+elif test -x \"$BBCURSOR\"; then \"$BBCURSOR\";\n\
+    read -n1 -p '\n\e[2m...press any key to continue...\e[0m\e[?25l';\n\
+elif file -bI \"$BBCURSOR\" | grep '^text/' >/dev/null; then $EDITOR \"$BBCURSOR\";\n\
+else open \"$BBCURSOR\"; fi",
 #else
-    {'\r', "if test -x \"$BBCURSOR\"; then \"$BBCURSOR\"; "
-           "elif test -d \"$BBCURSOR\"; then bb -c \"cd:$BBFULLCURSOR\"; "
-           "elif file -bi \"$BBCURSOR\" | grep '^text/' >/dev/null; then $EDITOR \"$BBCURSOR\"; "
-           "else xdg-open \"$BBCURSOR\"; fi"},
+"if test -d \"$BBCURSOR\"; then bb -c \"cd:$BBCURSOR\";\n\
+elif test -x \"$BBCURSOR\"; then \"$BBCURSOR\";\n\
+    read -n1 -p '\n\e[2m...press any key to continue...\e[0m\e[?25l';\n\
+elif file -bi \"$BBCURSOR\" | grep '^text/' >/dev/null; then $EDITOR \"$BBCURSOR\";\n\
+else xdg-open \"$BBCURSOR\"; fi",
 #endif
-    {' ', "bb -c \"toggle:$BBCURSOR\""},
-    {'s', "read -n1 -p '\e[33mSort \e[1m(a)\e[22mlphabetic \e[1m(s)\e[22mize \e[1m(t)\e[22mime \e[1m(p)\e[22mermissions:\e[0m \e[K\e[?25h' sort "
-          "&& bb -c \"sort:$sort\""},
-    {'q', "bb -c quit"},
-    {'Q', "bb -c quit"},
-    {'g', "bb -c move:0"},
-    {KEY_HOME, "bb -c move:0"},
-    {'G', "bb -c move:9999999999"},
-    {KEY_END, "bb -c move:999999999"},
-    {'f', "bb -c \"cursor:`fzf`\"", NORMAL_TERM},
-    {'/', "bb -c \"cursor:`ls -a|fzf`\"", NORMAL_TERM},
-    {KEY_ESC, "bb -c 'deselect:*'"},
-    {KEY_F5, "bb -c refresh"},
-    {KEY_CTRL_R, "bb -c refresh"},
-    {KEY_CTRL_A, "bb -c 'select:*'"},
-    {KEY_PGDN, "bb -c 'scroll:+100%'"},
-    {KEY_CTRL_D, "bb -c 'scroll:+50%'"},
-    {KEY_PGUP, "bb -c 'scroll:-100%'"},
-    {KEY_CTRL_U, "bb -c 'scroll:-50%'"},
-    {KEY_MOUSE_WHEEL_DOWN, "bb -c 'scroll:+3'"},
-    {KEY_MOUSE_WHEEL_UP, "bb -c 'scroll:-3'"},
-
-
-    // Hard-coded behaviors (these are just placeholders for the help):
-    {-1, "?\t\e[0;34mOpen help menu\e[0m"},
-    {-1, "h,Left\t\e[0;34mNavigate up a directory\e[0m"},
-    {-1, "j,Down\t\e[0;34mMove cursor down\e[0m"},
-    {-1, "k,Up\t\e[0;34mMove cursor up\e[0m"},
-    {-1, "l,Right,Enter\t\e[0;34mOpen file/dir\e[0m"},
-    {-1, "Space\t\e[0;34mToggle selection\e[0m"},
-    {-1, "J\t\e[0;34mMove selection state down\e[0m"},
-    {-1, "K\t\e[0;34mMove selection state up\e[0m"},
-    {-1, "q,Q\t\e[0;34mQuit\e[0m"},
-    {-1, "g,Home\t\e[0;34mGo to first item\e[0m"},
-    {-1, "G,End\t\e[0;34mGo to last item\e[0m"},
-    {-1, "s\t\e[0;34mChange sorting\e[0m"},
-    {-1, "f,/\t\e[0;34mFuzzy find\e[0m"},
-    {-1, "Escape\t\e[0;34mClear selection\e[0m"},
-    {-1, "F5,Ctrl-R\t\e[0;34mRefresh\e[0m"},
-    {-1, "Ctrl-A\t\e[0;34mSelect all\e[0m"},
-    {-1, "Ctrl-C\t\e[0;34mAbort and exit\e[0m"},
-    {-1, "PgDn,Ctrl-D\t\e[0;34mPage down\e[0m"},
-    {-1, "PgUp,Ctrl-U\t\e[0;34mPage up\e[0m"},
-    {-1, "Ctrl-Z\t\e[0;34mSuspend\e[0m"},
+        "Open file", NORMAL_TERM},
+    {{'f'},                  "bb -c \"cursor:`fzf`\"", "Fuzzy search for file", NORMAL_TERM},
+    {{'/'},                  "bb -c \"cursor:`ls -a|fzf`\"", "Fuzzy select file", NORMAL_TERM},
+    {{'L'}, PIPE_SELECTION_TO "less", "List all selected files", NORMAL_TERM},
+    {{'d'},                  "rm -rfi \"$@\"; bb -c 'deselect:*' refresh", "Delete files"},
+    {{'D'},                  "rm -rf \"$@\"; bb -c 'deselect:*' refresh", "Delete files without confirmation"},
+    {{'m'},                  "mv -i \"$@\" .; bb -c 'deselect:*' refresh", "Move files to current folder"},
+    {{'c'},                  "cp -i \"$@\" .; bb -c refresh", "Copy files to current folder"},
+    {{'C'},                  "for f; do cp \"$f\" \"$f.copy\"; done; bb -c refresh", "Clone files"},
+    {{'n'},                  "read -p '\e[33;1mNew file:\e[0m \e[K\e[?25h' name && touch \"$name\"; bb -c refresh", "New file"},
+    {{'N'},                  "read -p '\e[33;1mNew dir:\e[0m \e[K\e[?25h' name && mkdir \"$name\"; bb -c refresh", "New folder"},
+    {{'|'},                  "read -p '\e[33;1m|>\e[0m \e[K\e[?25h' cmd && " PIPE_SELECTION_TO "$SHELL -c \"$cmd\"" AND_PAUSE " && bb -c refresh",
+                             "Pipe selected files to a command"},
+    {{':'},                  "read -p '\e[33;1m:>\e[0m \e[K\e[?25h' cmd && $SHELL -c \"$cmd\" -- \"$@\"" AND_PAUSE "&& bb -c refresh",
+                             "Run a command"},
+    {{'>'},                  "$SHELL", "Open a shell", NORMAL_TERM},
+    {{'r'},                  "for f; do read -p \"Rename $f: \e[K\e[?25h\" renamed && mv \"$f\" \"$renamed\"; done; "
+                             "bb -c 'deselect:*' refresh",
+                             "Rename files"},
+    {{'J'},                  "bb -c 'move:x+1'", "Spread selection down"},
+    {{'K'},                  "bb -c 'move:x-1'", "Spread selection up"},
+    {{'s'}, "read -n1 -p '\e[33mSort \e[1m(a)\e[22mlphabetic \e[1m(s)\e[22mize \e[1m(t)\e[22mime "
+            "\e[1m(p)\e[22mermissions:\e[0m \e[K\e[?25h' sort "
+            "&& bb -c \"sort:$sort\"", "Sort by..."},
+    {{'g', KEY_HOME},        "bb -c move:0", "Go to first file"},
+    {{'G', KEY_END},         "bb -c move:999999999", "Go to last file"},
+    {{KEY_ESC},              "bb -c 'deselect:*'", "Clear selection"},
+    {{KEY_F5, KEY_CTRL_R},   "bb -c refresh", "Refresh"},
+    {{KEY_CTRL_A},           "bb -c 'select:*'", "Select all files in current folder"},
+    {{KEY_PGDN},             "bb -c 'scroll:+100%'", "Page down"},
+    {{KEY_PGUP},             "bb -c 'scroll:-100%'", "Page up"},
+    {{KEY_CTRL_D},           "bb -c 'scroll:+50%'", "Half page down"},
+    {{KEY_CTRL_U},           "bb -c 'scroll:-50%'", "Half page up"},
+    {{KEY_MOUSE_WHEEL_DOWN}, "bb -c 'scroll:+3'", "Scroll down"},
+    {{KEY_MOUSE_WHEEL_UP},   "bb -c 'scroll:-3'", "Scroll up"},
     {0},
 };

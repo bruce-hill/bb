@@ -660,7 +660,6 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                 } else if (mouse_y >= 2 && state.scroll + (mouse_y - 2) < state.nfiles) {
                     int clicked = state.scroll + (mouse_y - 2);
                     if (dt_ms > 200) {
-                        lazy = 1;
                         // Single click
                         if (mouse_x == 0) {
                             if (IS_SELECTED(state.files[clicked]))
@@ -676,7 +675,7 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                         // Double click
                         // TODO: hacky
                         state.cursor = clicked;
-                        key = '\n';
+                        key = '\r';
                         goto user_bindings;
                     }
                 }
@@ -701,57 +700,15 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                 strcpy(to_select, state.files[state.cursor]->d_name);
                 goto tail_call;
 
-            case '?': {
-                char tmpname[] = "/tmp/bb_help.XXXXXX";
-                int fd = mkstemp(tmpname);
-                writez(fd, "\n              \e[33;1mKey Bindings:\e[0m\n");
-                for (int i = 0; bindings[i].key; i++) {
-                    if (bindings[i].key > 0) continue;
-                    writez(fd, "\e[1m");
-                    char *tab = strchr(bindings[i].command, '\t');
-                    const char *spaces = "                            ";
-                    write(fd, spaces, 16 - (tab - bindings[i].command));
-                    write(fd, bindings[i].command, tab - bindings[i].command);
-                    write(fd, " ", 1);
-                    writez(fd, tab + 1);
-                    writez(fd, "\e[0m\n");
-                }
-                writez(fd, "\n    \e[33;1mScript Key Bindings:\e[0m\n");
-                for (int i = 0; bindings[i].key; i++) {
-                    if (bindings[i].key <= 0) continue;
-                    writez(fd, "\e[1m    ");
-                    char buf[16];
-                    buf[0] = bindings[i].key;
-                    if (' ' <= buf[0] && buf[0] <= '~')
-                        write(fd, buf, 1);
-                    else {
-                        sprintf(buf, "\e[31m%04X", bindings[i].key);
-                        writez(fd, buf);
-                    }
-                    writez(fd, "    \e[0m\t");
-                    write_escaped(fd, bindings[i].command, strlen(bindings[i].command), "\e[0m");
-                    writez(fd, "\e[0m\n");
-                }
-                writez(fd, "\n");
-                close(fd);
-
-                close_term();
-                char cmd[256];
-                sprintf(cmd, "less -r %s", tmpname);
-                system(cmd);
-                unlink(tmpname);
-                init_term();
-                goto redraw;
-            }
-
             case -1:
                 goto skip_redraw;
 
             default:
                 // Search user-defined key bindings from config.h:
               user_bindings:
-                for (int i = 0; bindings[i].key > 0; i++) {
-                    if (key == bindings[i].key) {
+                for (int i = 0; bindings[i].keys[0] > 0; i++) {
+                    for (int j = 0; bindings[i].keys[j]; j++) {
+                    if (key == bindings[i].keys[j]) {
                         term_move(0, height-1);
                         //writez(termfd, "\e[K");
 
@@ -922,6 +879,7 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
 
                         goto redraw;
                     }
+                    }
                 }
                 goto skip_redraw;
         }
@@ -934,6 +892,61 @@ done:
     if (print_selection)
         write_selection(STDOUT_FILENO, state.firstselected, sep);
     return;
+}
+
+static void print_bindings(int verbose)
+{
+    struct winsize sz = {0};
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &sz);
+    int width = sz.ws_col;
+    int height = sz.ws_row;
+    if (width == 0) width = 80;
+
+    char buf[1024];
+    char *kb = "Key Bindings";
+    printf("\n\e[33;1;4m\e[%dG%s\e[0m\n\n", (width-(int)strlen(kb))/2, kb);
+    for (int i = 0; bindings[i].keys[0]; i++) {
+        char *p = buf;
+        for (int j = 0; bindings[i].keys[j]; j++) {
+            if (j > 0) *(p++) = ',';
+            int key = bindings[i].keys[j];
+            switch (key) {
+                case ' ': p += sprintf(p, "Space"); break;
+                case '\r': p += sprintf(p, "Enter"); break;
+                case KEY_ARROW_UP: p += sprintf(p, "Up"); break;
+                case KEY_ARROW_DOWN: p += sprintf(p, "Down"); break;
+                case KEY_ARROW_LEFT: p += sprintf(p, "Left"); break;
+                case KEY_ARROW_RIGHT: p += sprintf(p, "Right"); break;
+                case KEY_HOME: p += sprintf(p, "Home"); break;
+                case KEY_END: p += sprintf(p, "End"); break;
+                case KEY_ESC: p += sprintf(p, "Escape"); break;
+                case KEY_F5: p += sprintf(p, "F5"); break;
+                case KEY_CTRL_R: p += sprintf(p, "Ctrl-r"); break;
+                case KEY_CTRL_A: p += sprintf(p, "Ctrl-a"); break;
+                case KEY_CTRL_D: p += sprintf(p, "Ctrl-d"); break;
+                case KEY_CTRL_U: p += sprintf(p, "Ctrl-u"); break;
+                case KEY_PGDN: p += sprintf(p, "PgDn"); break;
+                case KEY_PGUP: p += sprintf(p, "PgUp"); break;
+                case KEY_MOUSE_WHEEL_DOWN: p += sprintf(p, "Scroll down"); break;
+                case KEY_MOUSE_WHEEL_UP: p += sprintf(p, "Scroll up"); break;
+                default:
+                    if (' ' <= key && key <= '~')
+                        p += sprintf(p, "%c", (char)key);
+                    else
+                        p += sprintf(p, "\e[31m\\x%02X", key);
+            }
+        }
+        *p = '\0';
+        printf("\e[1m\e[%dG%s\e[0m", width/2 - 1 - (int)strlen(buf), buf);
+        printf("\e[0m\e[%dG\e[34;1m%s\e[0m", width/2 + 1, bindings[i].description);
+        if (verbose) {
+            printf("\n\e[%dG\e[0;32m", MAX(1, (width - (int)strlen(bindings[i].command))/2));
+            fflush(stdout);
+            write_escaped(STDOUT_FILENO, bindings[i].command, strlen(bindings[i].command), "\e[0;32m");
+        }
+        printf("\e[0m\n");
+    }
+    printf("\n");
 }
 
 int main(int argc, char *argv[])
@@ -973,6 +986,14 @@ int main(int argc, char *argv[])
                         break;
                     case 's':
                         print_selection = 1;
+                        break;
+                    case 'b':
+                        print_bindings(0);
+                        exit(0);
+                        break;
+                    case 'B':
+                        print_bindings(1);
+                        exit(0);
                         break;
                 }
             }
