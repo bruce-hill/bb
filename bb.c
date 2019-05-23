@@ -788,7 +788,7 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                 }
 
                 // Scan for IPC requests
-                int needs_full_refresh = 0;
+                int needs_quit = 0, needs_refresh = 0, needs_sort = 0;
                 FILE *tmpfile;
                 if (!(tmpfile = fopen(bb_tmpfile, "r")))
                     goto redraw;
@@ -801,9 +801,9 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                     char *value = strchr(line, ':');
                     if (value) ++value;
                     if (strcmp(line, "refresh") == 0) {
-                        needs_full_refresh = 1;
+                        needs_refresh = 1;
                     } else if (strcmp(line, "quit") == 0) {
-                        goto done;
+                        needs_quit = 1;
                     } else if (startswith(line, "sort:")) {
                         sortmethod_t oldsort = state.sortmethod;
                         switch (value[0]) {
@@ -821,12 +821,12 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                         else if (state.sortmethod == oldsort)
                             state.sort_reverse ^= 1;
                         strcpy(to_select, state.files[state.cursor]->d_name);
-                        goto sort_files;
+                        needs_sort = 1;
                     } else if (startswith(line, "cd:")) {
                         free(path);
                         path = calloc(strlen(line+strlen("cd:")) + 1, sizeof(char));
                         strcpy(path, line+strlen("cd:"));
-                        goto tail_call;
+                        needs_refresh = 1;
                     } else if (startswith(line, "toggle:")) {
                         lazy = 0;
                         entry_t *e = find_file(&state, line + strlen("select:"));
@@ -867,7 +867,7 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                         path = calloc(len + 1, sizeof(char));
                         memcpy(path, value, len);
                         strcpy(to_select, lastslash+1);
-                        goto tail_call;
+                        needs_refresh = 1;
                       found_it:;
                     } else if (startswith(line, "move:")) {
                         int expand_sel = 0;
@@ -926,12 +926,20 @@ static void explore(char *path, int print_dir, int print_selection, char sep)
                 }
                 if (line) free(line);
                 fclose(tmpfile);
-                unlink(bb_tmpfile);
+                if (unlink(bb_tmpfile))
+                    err("Failed to delete tmpfile %s", bb_tmpfile);
 
-                if (needs_full_refresh) {
+                if (needs_quit)
+                    goto done;
+
+                if (needs_refresh) {
                     strcpy(to_select, state.files[state.cursor]->d_name);
                     goto tail_call;
                 }
+
+                if (needs_sort)
+                    goto sort_files;
+
 
                 goto redraw;
         }
