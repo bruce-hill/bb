@@ -1,6 +1,6 @@
 PREFIX=
 CC=cc
-CFLAGS=-O0 -std=gnu99
+CFLAGS=-O0 -std=gnu99 -Wall
 LIBS=
 NAME=bb
 G=
