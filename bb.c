@@ -22,28 +22,62 @@
 #include "config.h"
 #include "keys.h"
 
+#define MAX_PATH 4096
+#define KEY_DELAY 50
+#define CMDFILE_FORMAT "/tmp/bb.XXXXXX"
+
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
-#define MAX_PATH 4096
 #define startswith(str, start) (strncmp(str, start, strlen(start)) == 0)
 #define writez(fd, str) write(fd, str, strlen(str))
 #define IS_SELECTED(p) (((p)->atme) != NULL)
 
-#define KEY_DELAY 50
+#define alt_screen() writez(termfd, "\e[?1049h")
+#define default_screen() writez(termfd, "\e[?1049l")
+#define hide_cursor() writez(termfd, "\e[?25l");
+#define show_cursor() writez(termfd, "\e[?25h");
+#define queue_select(state, name) do {\
+    if ((state)->to_select) free(state->to_select); \
+    (state)->to_select = memcheck(strdup(name)); \
+} while (0)
+
+#define err(...) do { \
+    default_screen(); \
+    show_cursor(); \
+    close_term(); \
+    fprintf(stderr, __VA_ARGS__); \
+    if (errno) \
+        fprintf(stderr, "\n%s", strerror(errno)); \
+    fprintf(stderr, "\n"); \
+    exit(1); \
+} while (0)
 
 static struct termios orig_termios;
 static int termfd;
 static int width, height;
 static int mouse_x, mouse_y;
-static int force_redraw = 0;
-static int display_permissions = 1, display_times = 1, display_sizes = 1;
 
 typedef enum {
-    SORT_ALPHA = 0,
-    SORT_SIZE,
-    SORT_PERM,
-    SORT_TIME
+    SORT_NONE = 0,
+    SORT_NAME = 'n',
+    SORT_SIZE = 's',
+    SORT_PERM = 'p',
+    SORT_MTIME = 'm',
+    SORT_CTIME = 'c',
+    SORT_ATIME = 'a',
+
+    RSORT_NAME = 'N',
+    RSORT_SIZE = 'S',
+    RSORT_PERM = 'P',
+    RSORT_MTIME = 'M',
+    RSORT_CTIME = 'C',
+    RSORT_ATIME = 'A',
 } sortmethod_t;
+
+// This bit toggles 'A' (0) vs 'a' (1)
+#define SORT_DESCENDING 32
+#define IS_REVERSED(method) (!((method) & SORT_DESCENDING))
+#define COLUMN(method) ((method) & ~SORT_DESCENDING)
 
 typedef struct entry_s {
     struct entry_s *next, **atme;
@@ -57,21 +91,17 @@ typedef struct entry_s {
 } entry_t;
 
 typedef struct {
-    char *path;
+    char path[MAX_PATH];
+    char *to_select;
     entry_t *firstselected, **files;
     size_t nselected, nfiles;
     int scroll, cursor;
+    int showhidden;
     struct timespec lastclick;
-    int showhidden, sort_reverse;
-    sortmethod_t sortmethod;
+    char cmdfilename[sizeof(CMDFILE_FORMAT)];
+    char columns[16];
+    char sort;
 } bb_state_t;
-
-#define err(...) do { \
-    close_term(); \
-    fprintf(stderr, __VA_ARGS__); \
-    _err(); \
-} while (0)
-static void _err();
 
 static void update_term_size(int _)
 {
@@ -79,7 +109,6 @@ static void update_term_size(int _)
     ioctl(termfd, TIOCGWINSZ, &sz);
     width = sz.ws_col;
     height = sz.ws_row;
-    force_redraw = 1;
 }
 
 static inline int clamped(int x, int low, int high)
@@ -104,23 +133,16 @@ static void init_term()
     tios.c_cc[VMIN] = 0;
     tios.c_cc[VTIME] = 0;
     tcsetattr(termfd, TCSAFLUSH, &tios);
-    // xterm-specific:
-    writez(termfd, "\e[?1049h");
     update_term_size(0);
     signal(SIGWINCH, update_term_size);
     // Initiate mouse tracking:
     writez(termfd, "\e[?1000h\e[?1002h\e[?1015h\e[?1006h");
-    // hide cursor
-    writez(termfd, "\e[?25l");
 }
 
 static void close_term()
 {
     signal(SIGWINCH, SIG_IGN);
-    // xterm-specific:
-    writez(termfd, "\e[?1049l");
-    // Show cursor:
-    writez(termfd, "\e[?25h");
+
     // Disable mouse tracking:
     writez(termfd, "\e[?1000l\e[?1002l\e[?1015l\e[?1006l");
 
@@ -128,28 +150,26 @@ static void close_term()
     close(termfd);
 }
 
-static void _err()
+static void* memcheck(void *p)
 {
-    if (errno)
-        fprintf(stderr, "\n%s", strerror(errno));
-    fprintf(stderr, "\n");
-    exit(1);
+    if (!p) err("Allocation failure");
+    return p;
 }
-
-static char bb_tmpfile[] = "/tmp/bb.XXXXXX";
 
 static int run_cmd_on_selection(bb_state_t *state, const char *cmd)
 {
     pid_t child;
     sig_t old_handler = signal(SIGINT, SIG_IGN);
 
-    strcpy(bb_tmpfile, "/tmp/bb.XXXXXX");
-    if (!mktemp(bb_tmpfile))
+    if (!state->cmdfilename[0])
+        strcpy(state->cmdfilename, CMDFILE_FORMAT);
+    if (!mktemp(state->cmdfilename))
         err("Could not create temp file");
 
     if ((child = fork()) == 0) {
+        signal(SIGINT, SIG_DFL);
         // TODO: is there a max number of args? Should this be batched?
-        char **const args = calloc(MAX(1, state->nselected) + 5, sizeof(char*));
+        char **const args = memcheck(calloc(MAX(1, state->nselected) + 5, sizeof(char*)));
         int i = 0;
         args[i++] = "sh";
         args[i++] = "-c";
@@ -167,7 +187,7 @@ static int run_cmd_on_selection(bb_state_t *state, const char *cmd)
             int depth = depthstr ? atoi(depthstr) : 0;
             snprintf(bb_depth_str, sizeof(bb_depth_str), "%d", depth + 1);
             setenv("BB_DEPTH", bb_depth_str, 1);
-            setenv("BBCMD", bb_tmpfile, 1);
+            setenv("BBCMD", state->cmdfilename, 1);
             setenv("BBCURSOR", state->files[state->cursor]->d_name, 1);
             setenv("BBFULLCURSOR", state->files[state->cursor]->d_fullname, 1);
         }
@@ -196,6 +216,7 @@ static void term_move(int x, int y)
 
 static int write_escaped(int fd, const char *str, size_t n, const char *reset_color)
 {
+    // Returns number of *visible* characters written, not including coloring
     // escapes['\n'] == 'n', etc.
     static const char *escapes = "       abtnvfr             e";
     char buf[5];
@@ -209,30 +230,35 @@ static int write_escaped(int fd, const char *str, size_t n, const char *reset_co
             escapelen = sprintf(buf, "\\x%02X", str[i]);
         else {
             ++backlog;
+            ++ret;
             continue;
         }
+        ret += escapelen;
 
         if (backlog > 0) {
-            ret += write(fd, &str[i-backlog], backlog);
+            write(fd, &str[i-backlog], backlog);
             backlog = 0;
         }
-        ret += writez(fd, "\e[31m");
-        ret += write(fd, buf, escapelen);
-        ret += writez(fd, reset_color);
+        writez(fd, "\e[31m");
+        write(fd, buf, escapelen);
+        writez(fd, reset_color);
     }
     if (backlog > 0)
-        ret += write(fd, &str[n-backlog], backlog);
+        write(fd, &str[n-backlog], backlog);
     return ret;
 }
 
+static const int sizewidth = 7, datewidth = 19, permwidth = 4;
+static int namewidth;
 static void render(bb_state_t *state, int lazy)
 {
     static int lastcursor = -1, lastscroll = -1;
+    char buf[64];
     if (lastcursor == -1 || lastscroll == -1)
         lazy = 0;
 
     if (lazy) {
-        char buf[32];
+        // Use terminal scrolling:
         if (lastscroll > state->scroll) {
             int n = sprintf(buf, "\e[3;%dr\e[%dT\e[1;%dr", height-1, lastscroll - state->scroll, height);
             write(termfd, buf, n);
@@ -241,42 +267,69 @@ static void render(bb_state_t *state, int lazy)
             write(termfd, buf, n);
         }
     }
-    if (!lazy) {
+    namewidth = width - 1;
+    for (char *col = state->columns; *col; ++col) {
+        switch (*col) {
+            case 's':
+                namewidth -= sizewidth + 2;
+                break;
+            case 'm': case 'c': case 'a':
+                namewidth -= datewidth + 2;
+                break;
+            case 'p':
+                namewidth -= permwidth + 2;
+                break;
+        }
+    }
 
+    if (!lazy) {
+        // Path
         term_move(0,0);
         writez(termfd, "\e[0;1;30;47m ");
         write_escaped(termfd, state->path, strlen(state->path), "\e[0;1;30;47m");
         writez(termfd, "\e[K\e[0m");
 
         term_move(0,1);
-        { // Column labels
-            writez(termfd, "\e[44;30m ");
-            if (display_sizes) {
-                writez(termfd, "  ");
-                writez(termfd, state->sortmethod == SORT_SIZE ? (state->sort_reverse ? "▲" : "▼") : " ");
-                writez(termfd, "Size |");
+        writez(termfd, " ");
+        for (char *col = state->columns; *col; ++col) {
+            if (col != state->columns) writez(termfd, " │");
+            writez(termfd, COLUMN(state->sort) == *col ? (IS_REVERSED(state->sort) ? "▲" : "▼") : " ");
+            switch (*col) {
+                case 's':
+                    for (int i = writez(termfd, " Size"); i < sizewidth-1; i++)
+                        write(termfd, " ", 1);
+                    break;
+                case 'p':
+                    for (int i = writez(termfd, "Per"); i < permwidth-1; i++)
+                        write(termfd, " ", 1);
+                    break;
+                case 'm':
+                    for (int i = writez(termfd, "Modified"); i < datewidth-1; i++)
+                        write(termfd, " ", 1);
+                    break;
+                case 'a':
+                    for (int i = writez(termfd, "Accessed"); i < datewidth-1; i++)
+                        write(termfd, " ", 1);
+                    break;
+                case 'c':
+                    for (int i = writez(termfd, "Created"); i < datewidth-1; i++)
+                        write(termfd, " ", 1);
+                    break;
+                case 'n':
+                    for (int i = writez(termfd, "Name"); i < namewidth; i++)
+                        write(termfd, " ", 1);
+                    break;
             }
-            if (display_times) {
-                writez(termfd, "      ");
-                writez(termfd, state->sortmethod == SORT_TIME ? (state->sort_reverse ? "▲" : "▼") : " ");
-                writez(termfd, "Date         |");
-            }
-            if (display_permissions) {
-                writez(termfd, state->sortmethod == SORT_PERM ? (state->sort_reverse ? "▲" : "▼") : " ");
-                writez(termfd, "Perm|");
-            }
-            writez(termfd, state->sortmethod == SORT_ALPHA ? (state->sort_reverse ? "▲" : "▼") : " ");
-            writez(termfd, "Name\e[K\e[0m");
         }
     }
 
     if (state->nselected > 0) {
-        char buf[64] = {0};
-        int len = snprintf(buf, sizeof(buf), "%lu selected", state->nselected);
-        term_move(width-len, 0);
-        writez(termfd, "\e[0m");
-        write(termfd, buf, len);
-        if (strlen(state->path) + len < width + 1) {
+        int len = snprintf(buf, sizeof(buf), "%lu selected ", state->nselected);
+        if (strlen(state->path) + 1 + len < width) {
+            term_move(width-len, 0);
+            writez(termfd, "\e[0;1;30;47m");
+            write(termfd, buf, len);
+            writez(termfd, "\e[0m");
         }
     }
 
@@ -327,51 +380,70 @@ static void render(bb_state_t *state, int lazy)
             color = NORMAL_COLOR;
         writez(termfd, color);
 
-        if (display_sizes) {
-            int j = 0;
-            const char* units = "BKMGTPEZY";
-            double bytes = (double)info.st_size;
-            while (bytes > 1024) {
-                bytes /= 1024;
-                j++;
-            }
-            char buf[16] = {0};
-            sprintf(buf, "%6.*f%c │", j > 0 ? 1 : 0, bytes, units[j]);
-            writez(termfd, buf);
-        }
+        int first = 1;
+        for (char *col = state->columns; *col; ++col) {
+            if (col != state->columns) writez(termfd, " │");
+            switch (*col) {
+                case 's': {
+                    int j = 0;
+                    const char* units = "BKMGTPEZY";
+                    double bytes = (double)info.st_size;
+                    while (bytes > 1024) {
+                        bytes /= 1024;
+                        j++;
+                    }
+                    sprintf(buf, "%6.*f%c", j > 0 ? 1 : 0, bytes, units[j]);
+                    writez(termfd, buf);
+                    break;
+                }
 
-        if (display_times) {
-            char buf[64];
-            strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(info.st_mtime)));
-            writez(termfd, buf);
-            //writez(termfd, "  ");
-            writez(termfd, " │ ");
-        }
+                case 'm':
+                    strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(info.st_mtime)));
+                    writez(termfd, buf);
+                    break;
 
-        if (display_permissions) { // Permissions:
-            char buf[] = {
-                '0' + ((info.st_mode >> 6) & 7),
-                '0' + ((info.st_mode >> 3) & 7),
-                '0' + ((info.st_mode >> 0) & 7),
-            };
-            write(termfd, buf, 5);
-            writez(termfd, " │ ");
-        }
+                case 'c':
+                    strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(info.st_ctime)));
+                    writez(termfd, buf);
+                    break;
 
-        { // Name:
-            write_escaped(termfd, entry->d_name, entry->d_namlen, color);
-            if (entry->d_isdir)
-                writez(termfd, "/");
+                case 'a':
+                    strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(info.st_atime)));
+                    writez(termfd, buf);
+                    break;
 
-            if (entry->d_type == DT_LNK) {
-                char linkpath[MAX_PATH+1] = {0};
-                ssize_t pathlen;
-                if ((pathlen = readlink(entry->d_name, linkpath, sizeof(linkpath))) < 0)
-                    err("readlink() failed");
-                writez(termfd, "\e[2m -> ");
-                write_escaped(termfd, linkpath, pathlen, color);
-                if (entry->d_isdir)
-                    writez(termfd, "/");
+                case 'p':
+                    buf[0] = ' ';
+                    buf[1] = '0' + ((info.st_mode >> 6) & 7);
+                    buf[2] = '0' + ((info.st_mode >> 3) & 7);
+                    buf[3] = '0' + ((info.st_mode >> 0) & 7);
+                    write(termfd, buf, 4);
+                    break;
+
+                case 'n': {
+                    int wrote = write_escaped(termfd, entry->d_name, entry->d_namlen, color);
+                    if (entry->d_isdir) {
+                        writez(termfd, "/");
+                        ++wrote;
+                    }
+
+                    if (entry->d_type == DT_LNK) {
+                        char linkpath[MAX_PATH+1] = {0};
+                        ssize_t pathlen;
+                        if ((pathlen = readlink(entry->d_name, linkpath, sizeof(linkpath))) < 0)
+                            err("readlink() failed");
+                        writez(termfd, "\e[2m -> ");
+                        wrote += 4;
+                        wrote += write_escaped(termfd, linkpath, pathlen, color);
+                        if (entry->d_isdir) {
+                            writez(termfd, "/");
+                            ++wrote;
+                        }
+                    }
+                    for (int i = wrote; i < namewidth-1; i++)
+                        write(termfd, " ", 1);
+                    break;
+                }
             }
         }
         writez(termfd, " \e[0m\e[K"); // Reset color and attributes
@@ -386,69 +458,59 @@ static void render(bb_state_t *state, int lazy)
     lastscroll = state->scroll;
 }
 
-static int compare_alpha(void *r, const void *v1, const void *v2)
+static int compare_files(void *r, const void *v1, const void *v2)
 {
-    int sign = *((int *)r) ? -1 : 1;
+    char sort = *((char *)r);
+    int sign = IS_REVERSED(sort) ? -1 : 1;
     const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
     int diff = -(f1->d_isdir - f2->d_isdir);
     if (diff) return -diff; // Always sort dirs before files
-    const char *p1 = f1->d_name, *p2 = f2->d_name;
-    while (*p1 && *p2) {
-        char c1 = *p1, c2 = *p2;
-        if ('A' <= c1 && 'Z' <= c1) c1 = c1 - 'A' + 'a';
-        if ('A' <= c2 && 'Z' <= c2) c2 = c2 - 'A' + 'a';
-        int diff = (c1 - c2);
-        if ('0' <= c1 && c1 <= '9' && '0' <= c2 && c2 <= '9') {
-            long n1 = strtol(p1, (char**)&p1, 10);
-            long n2 = strtol(p2, (char**)&p2, 10);
-            diff = ((p1 - f1->d_name) - (p2 - f2->d_name)) || (n1 - n2);
-            if (diff) return diff*sign;
-        } else if (diff) {
-            return diff*sign;
-        } else {
-            ++p1, ++p2;
+    if (sort == SORT_NONE) return 0;
+    if (COLUMN(sort) == SORT_NAME) {
+        const char *p1 = f1->d_name, *p2 = f2->d_name;
+        while (*p1 && *p2) {
+            char c1 = *p1, c2 = *p2;
+            if ('A' <= c1 && 'Z' <= c1) c1 = c1 - 'A' + 'a';
+            if ('A' <= c2 && 'Z' <= c2) c2 = c2 - 'A' + 'a';
+            int diff = (c1 - c2);
+            if ('0' <= c1 && c1 <= '9' && '0' <= c2 && c2 <= '9') {
+                long n1 = strtol(p1, (char**)&p1, 10);
+                long n2 = strtol(p2, (char**)&p2, 10);
+                diff = ((p1 - f1->d_name) - (p2 - f2->d_name)) || (n1 - n2);
+                if (diff) return diff*sign;
+            } else if (diff) {
+                return diff*sign;
+            } else {
+                ++p1, ++p2;
+            }
         }
+        return (*p1 - *p2)*sign;
     }
-    return (*p1 - *p2)*sign;
-}
-
-static int compare_perm(void *r, const void *v1, const void *v2)
-{
-    int sign = *((int *)r) ? -1 : 1;
-    const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
-    int diff = -(f1->d_isdir - f2->d_isdir);
-    if (diff) return -diff; // Always sort dirs before files
     struct stat info1, info2;
     lstat(f1->d_fullname, &info1);
     lstat(f2->d_fullname, &info2);
-    return -((info1.st_mode & 0x3FF) - (info2.st_mode & 0x3FF))*sign;
-}
-
-static int compare_size(void *r, const void *v1, const void *v2)
-{
-    int sign = *((int *)r) ? -1 : 1;
-    const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
-    int diff = -(f1->d_isdir - f2->d_isdir);
-    if (diff) return -diff; // Always sort dirs before files
-    struct stat info1, info2;
-    lstat(f1->d_fullname, &info1);
-    lstat(f2->d_fullname, &info2);
-    return -(info1.st_size - info2.st_size)*sign;
-}
-
-static int compare_date(void *r, const void *v1, const void *v2)
-{
-    int sign = *((int *)r) ? -1 : 1;
-    const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
-    int diff = -(f1->d_isdir - f2->d_isdir);
-    if (diff) return -diff; // Always sort dirs before files
-    struct stat info1, info2;
-    lstat(f1->d_fullname, &info1);
-    lstat(f2->d_fullname, &info2);
-    if (info1.st_mtimespec.tv_sec == info2.st_mtimespec.tv_sec)
-        return -(info1.st_mtimespec.tv_nsec - info2.st_mtimespec.tv_nsec)*sign;
-    else
-        return -(info1.st_mtimespec.tv_sec - info2.st_mtimespec.tv_sec)*sign;
+    switch (COLUMN(sort)) {
+        case SORT_PERM:
+            return -((info1.st_mode & 0x3FF) - (info2.st_mode & 0x3FF))*sign;
+        case SORT_SIZE:
+            return -(info1.st_size - info2.st_size)*sign;
+        case SORT_MTIME:
+            if (info1.st_mtimespec.tv_sec == info2.st_mtimespec.tv_sec)
+                return -(info1.st_mtimespec.tv_nsec - info2.st_mtimespec.tv_nsec)*sign;
+            else
+                return -(info1.st_mtimespec.tv_sec - info2.st_mtimespec.tv_sec)*sign;
+        case SORT_CTIME:
+            if (info1.st_ctimespec.tv_sec == info2.st_ctimespec.tv_sec)
+                return -(info1.st_ctimespec.tv_nsec - info2.st_ctimespec.tv_nsec)*sign;
+            else
+                return -(info1.st_ctimespec.tv_sec - info2.st_ctimespec.tv_sec)*sign;
+        case SORT_ATIME:
+            if (info1.st_atimespec.tv_sec == info2.st_atimespec.tv_sec)
+                return -(info1.st_atimespec.tv_nsec - info2.st_atimespec.tv_nsec)*sign;
+            else
+                return -(info1.st_atimespec.tv_sec - info2.st_atimespec.tv_sec)*sign;
+    }
+    return 0;
 }
 
 static entry_t *find_file(bb_state_t *state, const char *name)
@@ -480,7 +542,7 @@ static void write_selection(int fd, entry_t *firstselected, char sep)
 
 static void clear_selection(bb_state_t *state)
 {
-    entry_t **tofree = calloc(state->nselected, sizeof(entry_t*));
+    entry_t **tofree = memcheck(calloc(state->nselected, sizeof(entry_t*)));
     int i = 0;
     for (entry_t *e = state->firstselected; e; e = e->next) {
         if (!e->visible) tofree[i++] = e;
@@ -515,443 +577,416 @@ static int deselect_file(bb_state_t *state, entry_t *e)
     return 1;
 }
 
-static void explore(char *path, int print_dir, int print_selection, char sep)
+static void populate_files(bb_state_t *state)
 {
-    char realpath_buf[MAX_PATH+1];
-    path = strdup(path);
-    if (!path) err("allocation failure");
-    char *original_path = strdup(path);
-    if (!original_path) err("allocation failure");
-
-    char to_select[MAX_PATH+1] = {0};
-    bb_state_t state = {0};
-    memset(&state, 0, sizeof(bb_state_t));
-
-  tail_call:
-    if (!realpath(path, realpath_buf))
-        err("realpath failed on %s", path);
-    path = realloc(path, strlen(realpath_buf));
-    strcpy(path, realpath_buf);
-
-    if (state.files) {
-        for (int i = 0; i < state.nfiles; i++) {
-            entry_t *e = state.files[i];
+    // Clear old files (if any)
+    if (state->files) {
+        for (int i = 0; i < state->nfiles; i++) {
+            entry_t *e = state->files[i];
             e->visible = 0;
             if (!IS_SELECTED(e))
                 free(e);
         }
-        free(state.files);
-        state.files = NULL;
+        free(state->files);
     }
-    state.nfiles = 0;
-    state.path = path;
+    state->files = NULL;
+    state->nfiles = 0;
 
-    { // Populate the file list:
-        // Hash inode -> entry_t with linear probing
-        size_t hashsize = 2 * state.nselected;
-        entry_t **selecthash = calloc(hashsize, sizeof(entry_t*));
-        if (!selecthash)
-            err("Failed to allocate %ld spaces for selecthash", hashsize);
-        for (entry_t *p = state.firstselected; p; p = p->next) {
-            int probe = ((int)p->d_ino) % hashsize;
-            while (selecthash[probe])
-                probe = (probe + 1) % hashsize;
-            selecthash[probe] = p;
-        }
+    // Hash inode -> entry_t with linear probing
+    size_t hashsize = 2 * state->nselected;
+    entry_t **selecthash = memcheck(calloc(hashsize, sizeof(entry_t*)));
+    for (entry_t *p = state->firstselected; p; p = p->next) {
+        int probe = ((int)p->d_ino) % hashsize;
+        while (selecthash[probe])
+            probe = (probe + 1) % hashsize;
+        selecthash[probe] = p;
+    }
 
-        DIR *dir = opendir(state.path);
-        if (!dir)
-            err("Couldn't open dir: %s", state.path);
-        if (chdir(state.path) != 0)
-            err("Couldn't chdir into %s", state.path);
-        struct dirent *dp;
-        size_t pathlen = strlen(state.path);
-        size_t filecap = 0;
-        while ((dp = readdir(dir)) != NULL) {
-            if (dp->d_name[0] == '.' && dp->d_name[1] == '\0')
-                continue;
-            if (!state.showhidden && dp->d_name[0] == '.' && !(dp->d_name[1] == '.' && dp->d_name[2] == '\0'))
-                continue;
-            // Hashed lookup from selected:
-            if (state.nselected > 0) {
-                for (int probe = ((int)dp->d_ino) % hashsize; selecthash[probe]; probe = (probe + 1) % hashsize) {
-                    if (selecthash[probe]->d_ino == dp->d_ino) {
-                        selecthash[probe]->visible = 1;
-                        state.files[state.nfiles++] = selecthash[probe];
-                        goto next_file;
-                    }
+    DIR *dir = opendir(state->path);
+    if (!dir)
+        err("Couldn't open dir: %s", state->path);
+    struct dirent *dp;
+    size_t pathlen = strlen(state->path);
+    size_t filecap = 0;
+    while ((dp = readdir(dir)) != NULL) {
+        if (dp->d_name[0] == '.' && dp->d_name[1] == '\0')
+            continue;
+        if (!state->showhidden && dp->d_name[0] == '.' && !(dp->d_name[1] == '.' && dp->d_name[2] == '\0'))
+            continue;
+        // Hashed lookup from selected:
+        if (state->nselected > 0) {
+            for (int probe = ((int)dp->d_ino) % hashsize; selecthash[probe]; probe = (probe + 1) % hashsize) {
+                if (selecthash[probe]->d_ino == dp->d_ino) {
+                    selecthash[probe]->visible = 1;
+                    state->files[state->nfiles++] = selecthash[probe];
+                    goto next_file;
                 }
             }
-            entry_t *entry = malloc(sizeof(entry_t) + pathlen + dp->d_namlen + 2);
-            strncpy(entry->d_fullname, state.path, pathlen);
-            entry->d_fullname[pathlen] = '/';
-            entry->d_name = &entry->d_fullname[pathlen + 1];
-            strncpy(entry->d_name, dp->d_name, dp->d_namlen + 1);
-            entry->d_ino = dp->d_ino;
-            entry->d_reclen = dp->d_reclen;
-            entry->d_type = dp->d_type;
-            entry->d_isdir = dp->d_type == DT_DIR;
-            entry->visible = 1;
-            if (!entry->d_isdir && entry->d_type == DT_LNK) {
-                struct stat statbuf;
-                if (stat(entry->d_fullname, &statbuf) == 0)
-                    entry->d_isdir = S_ISDIR(statbuf.st_mode);
-            }
-            entry->d_namlen = dp->d_namlen;
-            entry->next = NULL, entry->atme = NULL;
-
-            if (state.nfiles >= filecap) {
-                filecap += 100;
-                state.files = realloc(state.files, filecap*sizeof(entry_t*));
-                if (!state.files) err("allocation failure");
-            }
-            state.files[state.nfiles++] = entry;
-          next_file:;
         }
-        closedir(dir);
-        free(selecthash);
-        if (state.nfiles == 0) err("No files found (not even '..')");
+        entry_t *entry = memcheck(malloc(sizeof(entry_t) + pathlen + dp->d_namlen + 2));
+        strncpy(entry->d_fullname, state->path, pathlen);
+        entry->d_fullname[pathlen] = '/';
+        entry->d_name = &entry->d_fullname[pathlen + 1];
+        strncpy(entry->d_name, dp->d_name, dp->d_namlen + 1);
+        entry->d_ino = dp->d_ino;
+        entry->d_reclen = dp->d_reclen;
+        entry->d_type = dp->d_type;
+        entry->d_isdir = dp->d_type == DT_DIR;
+        entry->visible = 1;
+        if (!entry->d_isdir && entry->d_type == DT_LNK) {
+            struct stat statbuf;
+            if (stat(entry->d_fullname, &statbuf) == 0)
+                entry->d_isdir = S_ISDIR(statbuf.st_mode);
+        }
+        entry->d_namlen = dp->d_namlen;
+        entry->next = NULL, entry->atme = NULL;
+
+        if (state->nfiles >= filecap) {
+            filecap += 100;
+            state->files = memcheck(realloc(state->files, filecap*sizeof(entry_t*)));
+        }
+        state->files[state->nfiles++] = entry;
+      next_file:;
     }
+    closedir(dir);
+    free(selecthash);
+    if (state->nfiles == 0) err("No files found (not even '..')");
+}
 
-    state.cursor = 0;
-    state.scroll = 0;
-    clock_gettime(CLOCK_MONOTONIC, &state.lastclick);
+static int explore(bb_state_t *state)
+{
+    if (chdir(state->path) != 0)
+        err("Couldn't chdir into '%s'", state->path);
+  refresh:
+    if (!getwd(state->path))
+        err("Couldn't get working directory");
 
-    int (*cmp)(void*, const void*, const void*);
+    populate_files(state);
+    
+    state->cursor = 0;
+    state->scroll = 0;
 
   sort_files:
-    cmp = compare_alpha;
-    if (state.sortmethod == SORT_SIZE) cmp = compare_size;
-    if (state.sortmethod == SORT_TIME) cmp = compare_date;
-    if (state.sortmethod == SORT_PERM) cmp = compare_perm;
-    qsort_r(&state.files[1], state.nfiles-1, sizeof(entry_t*), &state.sort_reverse, cmp);
+    qsort_r(&state->files[1], state->nfiles-1, sizeof(entry_t*), &state->sort, compare_files);
 
     // Put the cursor on the first *real* file if one exists
-    if (state.nfiles > 1)
-        ++state.cursor;
+    if (state->cursor == 0 && state->nfiles > 1)
+        ++state->cursor;
 
-    if (to_select[0]) {
-        for (int i = 0; i < state.nfiles; i++) {
-            if (strcmp(to_select, state.files[i]->d_name) == 0) {
-                state.cursor = i;
-                if (state.nfiles > height - 4)
-                    state.scroll = MAX(0, i - MIN(SCROLLOFF, (height-4)/2));
+    if (state->to_select) {
+        for (int i = 0; i < state->nfiles; i++) {
+            if (strcmp(state->to_select, state->files[i]->d_name) == 0) {
+                state->cursor = i;
+                if (state->nfiles > height - 4)
+                    state->scroll = MAX(0, i - MIN(SCROLLOFF, (height-4)/2));
                 break;
             }
         }
-        to_select[0] = '\0';
+        free(state->to_select);
+        state->to_select = NULL;
     }
 
-    int picked, scrolloff, lazy = 0;
-    while (1) {
-      redraw:
-        render(&state, lazy && !force_redraw);
-        force_redraw = 0;
-        lazy = 0;
-      skip_redraw:
+    int lastwidth = width, lastheight = height;
+    int scrolloff = MIN(SCROLLOFF, (height-4)/2);
+    int lazy = 0;
+
+  redraw:
+    render(state, lazy);
+    lazy = 1;
+
+  next_input:
+    if (width != lastwidth || height != lastheight) {
         scrolloff = MIN(SCROLLOFF, (height-4)/2);
-        if (force_redraw) goto redraw;
-        int key = term_getkey(termfd, &mouse_x, &mouse_y, KEY_DELAY);
-        switch (key) {
-            case KEY_MOUSE_LEFT: {
-                struct timespec clicktime;
-                clock_gettime(CLOCK_MONOTONIC, &clicktime);
-                double dt_ms = 1e3*(double)(clicktime.tv_sec - state.lastclick.tv_sec);
-                dt_ms += 1e-6*(double)(clicktime.tv_nsec - state.lastclick.tv_nsec);
-                state.lastclick = clicktime;
-                if (mouse_y == 1) {
-                    //    Size         Date           Perm  Name
-                    sortmethod_t oldsort = state.sortmethod;
-                    if (mouse_x <= 8)
-                        state.sortmethod = SORT_SIZE;
-                    else if (mouse_x <= 30)
-                        state.sortmethod = SORT_TIME;
-                    else if (mouse_x <= 35)
-                        state.sortmethod = SORT_PERM;
-                    else
-                        state.sortmethod = SORT_ALPHA;
-                    state.sort_reverse ^= state.sortmethod == oldsort;
-                    goto sort_files;
-                } else if (mouse_y >= 2 && state.scroll + (mouse_y - 2) < state.nfiles) {
-                    int clicked = state.scroll + (mouse_y - 2);
-                    if (dt_ms > 200) {
-                        // Single click
-                        if (mouse_x == 0) {
-                            if (IS_SELECTED(state.files[clicked]))
-                                deselect_file(&state, state.files[clicked]);
-                            else
-                                select_file(&state, state.files[clicked]);
-                            goto redraw;
-                        } else {
-                            state.cursor = clicked;
-                            goto redraw;
-                        }
-                    } else {
-                        // Double click
-                        // TODO: hacky
-                        state.cursor = clicked;
-                        key = '\r';
-                        goto user_bindings;
-                    }
-                }
-                break;
-            }
-
-            case KEY_CTRL_C:
-                close_term();
-                if (print_dir)
-                    printf("%s\n", original_path);
-                exit(1);
-                return;
-
-            case KEY_CTRL_Z:
-                close_term();
-                raise(SIGTSTP);
-                init_term();
-                goto redraw;
-
-            case '.':
-                state.showhidden ^= 1;
-                strcpy(to_select, state.files[state.cursor]->d_name);
-                goto tail_call;
-
-            case KEY_CTRL_H: {
-                term_move(0,height-1);
-                writez(termfd, "\e[K\e[33;1mPress any key...\e[0m");
-                while ((key = term_getkey(termfd, &mouse_x, &mouse_y, 1000)) == -1)
-                    ;
-                term_move(0,height-1);
-                writez(termfd, "\e[K\e[1m<\e[33m");
-                const char *name = keyname(key);
-                char buf[32] = {key};
-                if (name) writez(termfd, name);
-                else if (' ' <= key && key <= '~')
-                    write(termfd, buf, 1);
-                else {
-                    sprintf(buf, "\e[31m\\x%02X", key);
-                    writez(termfd, buf);
-                }
-
-                writez(termfd, "\e[0;1m> is bound to: \e[34;1m");
-                for (int i = 0; bindings[i].keys[0] > 0; i++) {
-                    for (int j = 0; bindings[i].keys[j]; j++) {
-                        if (key == bindings[i].keys[j]) {
-                            writez(termfd, bindings[i].description);
-                            writez(termfd, "\e[0m");
-                            goto skip_redraw;
-                        }
-                    }
-                }
-                writez(termfd, "--- nothing ---\e[0m");
-                goto skip_redraw;
-            }
-
-            case -1:
-                goto skip_redraw;
-
-            default:
-                // Search user-defined key bindings from config.h:
-              user_bindings:;
-                binding_t *binding;
-                for (int i = 0; bindings[i].keys[0] > 0; i++) {
-                    for (int j = 0; bindings[i].keys[j]; j++) {
-                        if (key == bindings[i].keys[j]) {
-                            binding = &bindings[i];
-                            goto run_binding;
-                        }
-                    }
-                }
-                goto skip_redraw;
-
-              run_binding:
-                term_move(0, height-1);
-                //writez(termfd, "\e[K");
-
-                struct termios cur_tios;
-                if (binding->flags & NORMAL_TERM) {
-                    close_term();
-                } else {
-                    tcgetattr(termfd, &cur_tios);
-                    tcsetattr(termfd, TCSAFLUSH, &orig_termios);
-                    //writez(termfd, "\e[?25h"); // Show cursor
-                }
-
-                run_cmd_on_selection(&state, binding->command);
-
-                if (binding->flags & NORMAL_TERM) {
-                    lazy = 0;
-                    init_term();
-                } else {
-                    lazy = 1;
-                    tcsetattr(termfd, TCSAFLUSH, &cur_tios);
-                    writez(termfd, "\e[?25l"); // Hide cursor
-                }
-
-                // Scan for IPC requests
-                int needs_quit = 0, needs_refresh = 0, needs_sort = 0;
-                FILE *tmpfile;
-                if (!(tmpfile = fopen(bb_tmpfile, "r")))
-                    goto redraw;
-
-                char *line = NULL;
-                size_t capacity = 0;
-                ssize_t len;
-                while ((len = getline(&line, &capacity, tmpfile)) >= 0) {
-                    if (len > 0 && line[len-1] == '\n') line[--len] = '\0';
-                    char *value = strchr(line, ':');
-                    if (value) ++value;
-                    if (strcmp(line, "refresh") == 0) {
-                        needs_refresh = 1;
-                    } else if (strcmp(line, "quit") == 0) {
-                        needs_quit = 1;
-                    } else if (startswith(line, "sort:")) {
-                        sortmethod_t oldsort = state.sortmethod;
-                        switch (value[0]) {
-                            case '\0': continue;
-                            case 'a': state.sortmethod = SORT_ALPHA; break;
-                            case 's': state.sortmethod = SORT_SIZE; break;
-                            case 't': state.sortmethod = SORT_TIME; break;
-                            case 'p': state.sortmethod = SORT_PERM; break;
-                            default: break;
-                        }
-                        if (value[1] == '+')
-                            state.sort_reverse = 0;
-                        else if (value[1] == '-')
-                            state.sort_reverse = 1;
-                        else if (state.sortmethod == oldsort)
-                            state.sort_reverse ^= 1;
-                        strcpy(to_select, state.files[state.cursor]->d_name);
-                        needs_sort = 1;
-                    } else if (startswith(line, "cd:")) {
-                        free(path);
-                        path = calloc(strlen(line+strlen("cd:")) + 1, sizeof(char));
-                        strcpy(path, line+strlen("cd:"));
-                        needs_refresh = 1;
-                    } else if (startswith(line, "toggle:")) {
-                        lazy = 0;
-                        entry_t *e = find_file(&state, line + strlen("select:"));
-                        if (e) {
-                            if (IS_SELECTED(e)) deselect_file(&state, e);
-                            else select_file(&state, e);
-                        }
-                    } else if (startswith(line, "select:")) {
-                        lazy = 0;
-                        if (strcmp(value, "*") == 0) {
-                            for (int i = 0; i < state.nfiles; i++)
-                                select_file(&state, state.files[i]);
-                        } else {
-                            entry_t *e = find_file(&state, value);
-                            if (e) select_file(&state, e);
-                        }
-                    } else if (startswith(line, "deselect:")) {
-                        lazy = 0;
-                        if (strcmp(value, "*") == 0) {
-                            clear_selection(&state);
-                        } else {
-                            entry_t *e = find_file(&state, value);
-                            if (e) select_file(&state, e);
-                        }
-                    } else if (startswith(line, "cursor:")) {
-                        for (int i = 0; i < state.nfiles; i++) {
-                            if (strcmp(value[0] == '/' ?
-                                        state.files[i]->d_fullname : state.files[i]->d_name,
-                                        value) == 0) {
-                                state.cursor = i;
-                                goto found_it;
-                            }
-                        }
-                        free(path);
-                        char *lastslash = strrchr(value, '/');
-                        if (!lastslash) goto found_it;
-                        size_t len = lastslash - value;
-                        path = calloc(len + 1, sizeof(char));
-                        memcpy(path, value, len);
-                        strcpy(to_select, lastslash+1);
-                        needs_refresh = 1;
-                      found_it:;
-                    } else if (startswith(line, "move:")) {
-                        int expand_sel = 0;
-                        if (*value == 'x') {
-                            expand_sel = 1;
-                            ++value;
-                        }
-                        int oldcur = state.cursor;
-                        int isabs = value[0] != '-' && value[0] != '+';
-                        long delta = strtol(value, &value, 10);
-                        if (*value == '%') delta = (delta * height)/100;
-                        if (isabs) state.cursor = delta;
-                        else state.cursor += delta;
-
-                        state.cursor = clamped(state.cursor, 0, state.nfiles-1);
-                        delta = state.cursor - oldcur;
-
-                        if (state.nfiles > height-4) {
-                            if (delta > 0) {
-                                if (state.cursor >= state.scroll + (height-4) - scrolloff)
-                                    state.scroll += delta;
-                            } else if (delta < 0) {
-                                if (state.cursor <= state.scroll + scrolloff)
-                                    state.scroll += delta;
-                            }
-                            //int target = clamped(state.scroll, state.cursor - (height-4) + scrolloff, state.cursor - scrolloff);
-                            //state.scroll += (delta > 0 ? 1 : -1)*MIN(abs(target-state.scroll), abs((int)delta));
-                            //state.scroll = target;
-                            state.scroll = clamped(state.scroll, state.cursor - (height-4) + 1, state.cursor);
-                            state.scroll = clamped(state.scroll, 0, state.nfiles-1 - (height-4));
-                        }
-                        if (expand_sel) {
-                            int sel = IS_SELECTED(state.files[oldcur]);
-                            for (int i = state.cursor; i != oldcur; i += (oldcur > i ? 1 : -1)) {
-                                if (sel && !IS_SELECTED(state.files[i]))
-                                    select_file(&state, state.files[i]);
-                                else if (!sel && IS_SELECTED(state.files[i]))
-                                    deselect_file(&state, state.files[i]);
-                            }
-                            lazy &= abs(oldcur - state.cursor) <= 1;
-                        }
-                    } else if (startswith(line, "scroll:")) {
-                        int oldscroll = state.scroll;
-                        int isabs = value[0] != '-' && value[0] != '+';
-                        long delta = strtol(value, &value, 10);
-                        if (*value == '%') delta = (delta * height)/100;
-
-                        if (state.nfiles > height-4) {
-                            if (isabs) state.scroll = delta;
-                            else state.scroll += delta;
-                            state.scroll = clamped(state.scroll, 0, state.nfiles-1 - (height-4));
-                        }
-
-                        state.cursor = clamped(state.cursor + delta, 0, state.nfiles-1);
-                    }
-                }
-                if (line) free(line);
-                fclose(tmpfile);
-                if (unlink(bb_tmpfile))
-                    err("Failed to delete tmpfile %s", bb_tmpfile);
-
-                if (needs_quit)
-                    goto done;
-
-                if (needs_refresh) {
-                    strcpy(to_select, state.files[state.cursor]->d_name);
-                    goto tail_call;
-                }
-
-                if (needs_sort)
-                    goto sort_files;
-
-
-                goto redraw;
-        }
-        goto skip_redraw;
+        lastwidth = width, lastheight = height;
+        lazy = 0;
+        goto redraw;
     }
-done:
-    close_term();
-    if (print_dir)
-        printf("%s\n", state.path);
-    if (print_selection)
-        write_selection(STDOUT_FILENO, state.firstselected, sep);
-    return;
+
+  scan_cmdfile:
+    if (state->cmdfilename[0]) {
+        // Scan for IPC requests
+        FILE *cmdfile;
+        if (!(cmdfile = fopen(state->cmdfilename, "r")))
+            goto redraw;
+
+        char *line = NULL;
+        size_t capacity = 0;
+        ssize_t len;
+#define cleanup_cmdfile() do { fclose(cmdfile); if (line) free(line); } while (0)
+        while ((len = getdelim(&line, &capacity, '\0', cmdfile)) >= 0) {
+            if (!line[0]) continue;
+            char *value = strchr(line, ':');
+            if (value) ++value;
+            if (strcmp(line, "refresh") == 0) {
+                cleanup_cmdfile();
+                queue_select(state, state->files[state->cursor]->d_name);
+                goto refresh;
+            } else if (strcmp(line, "quit") == 0) {
+                cleanup_cmdfile();
+                return 1;
+            } else if (startswith(line, "sort:")) {
+                state->sort = *value;
+                queue_select(state, state->files[state->cursor]->d_name);
+                cleanup_cmdfile();
+                goto sort_files;
+            } else if (startswith(line, "cd:")) {
+                if (chdir(value) == 0) {
+                    strcpy(state->path, value);
+                    getwd(state->path);
+                    queue_select(state, state->files[state->cursor]->d_name);
+                    cleanup_cmdfile();
+                    goto refresh;
+                }
+            } else if (startswith(line, "toggle:")) {
+                lazy = 0;
+                entry_t *e = find_file(state, line + strlen("select:"));
+                if (e) {
+                    if (IS_SELECTED(e)) deselect_file(state, e);
+                    else select_file(state, e);
+                }
+            } else if (startswith(line, "select:")) {
+                lazy = 0;
+                if (strcmp(value, "*") == 0) {
+                    for (int i = 0; i < state->nfiles; i++)
+                        select_file(state, state->files[i]);
+                } else {
+                    entry_t *e = find_file(state, value);
+                    if (e) select_file(state, e);
+                }
+            } else if (startswith(line, "deselect:")) {
+                lazy = 0;
+                if (strcmp(value, "*") == 0) {
+                    clear_selection(state);
+                } else {
+                    entry_t *e = find_file(state, value);
+                    if (e) select_file(state, e);
+                }
+            } else if (startswith(line, "cursor:")) {
+                for (int i = 0; i < state->nfiles; i++) {
+                    if (strcmp(value[0] == '/' ?
+                                state->files[i]->d_fullname : state->files[i]->d_name,
+                                value) == 0) {
+                        state->cursor = i;
+                        goto next_line;
+                    }
+                }
+                char *lastslash = strrchr(value, '/');
+                if (!lastslash) goto next_line;
+                *lastslash = '\0'; // Split in two
+                if (chdir(value) != 0) goto next_line;
+                strcpy(state->path, value);
+                if (lastslash[1])
+                    queue_select(state, lastslash+1);
+                cleanup_cmdfile();
+                goto refresh;
+            } else if (startswith(line, "move:")) {
+                int expand_sel = 0;
+                if (*value == 'x') {
+                    expand_sel = 1;
+                    ++value;
+                }
+                int oldcur = state->cursor;
+                int isabs = value[0] != '-' && value[0] != '+';
+                long delta = strtol(value, &value, 10);
+                if (*value == '%') delta = (delta * height)/100;
+                if (isabs) state->cursor = delta;
+                else state->cursor += delta;
+
+                state->cursor = clamped(state->cursor, 0, state->nfiles-1);
+                delta = state->cursor - oldcur;
+
+                if (state->nfiles > height-4) {
+                    if (delta > 0) {
+                        if (state->cursor >= state->scroll + (height-4) - scrolloff)
+                            state->scroll += delta;
+                    } else if (delta < 0) {
+                        if (state->cursor <= state->scroll + scrolloff)
+                            state->scroll += delta;
+                    }
+                    //int target = clamped(state->scroll, state->cursor - (height-4) + scrolloff, state->cursor - scrolloff);
+                    //state->scroll += (delta > 0 ? 1 : -1)*MIN(abs(target-state->scroll), abs((int)delta));
+                    //state->scroll = target;
+                    state->scroll = clamped(state->scroll, state->cursor - (height-4) + 1, state->cursor);
+                    state->scroll = clamped(state->scroll, 0, state->nfiles-1 - (height-4));
+                }
+                if (expand_sel) {
+                    int sel = IS_SELECTED(state->files[oldcur]);
+                    for (int i = state->cursor; i != oldcur; i += (oldcur > i ? 1 : -1)) {
+                        if (sel && !IS_SELECTED(state->files[i]))
+                            select_file(state, state->files[i]);
+                        else if (!sel && IS_SELECTED(state->files[i]))
+                            deselect_file(state, state->files[i]);
+                    }
+                    lazy &= abs(oldcur - state->cursor) <= 1;
+                }
+            } else if (startswith(line, "scroll:")) {
+                int oldscroll = state->scroll;
+                int isabs = value[0] != '-' && value[0] != '+';
+                long delta = strtol(value, &value, 10);
+                if (*value == '%') delta = (delta * height)/100;
+
+                int fudge = state->cursor - clamped(state->cursor, state->scroll + scrolloff, state->scroll + (height-4) - scrolloff);
+                if (state->nfiles > height-4) {
+                    if (isabs) state->scroll = delta;
+                    else state->scroll += delta;
+                    state->scroll = clamped(state->scroll, 0, state->nfiles-1 - (height-4));
+                }
+
+                state->cursor = clamped(state->cursor, state->scroll, state->scroll + (height-4));
+                /*
+                //if (!isabs && abs(state->scroll - oldscroll) == abs(delta)) {
+                state->cursor = clamped(state->cursor, state->scroll + scrolloff, state->scroll + (height-4) - scrolloff);
+                if (fudge && fudge < 0 != delta < 0)
+                    state->cursor += fudge;
+                    */
+                state->cursor = clamped(state->cursor, 0, state->nfiles-1);
+            }
+          next_line:;
+        }
+
+        cleanup_cmdfile();
+        if (unlink(state->cmdfilename))
+            err("Failed to delete cmdfile %s", state->cmdfilename);
+        state->cmdfilename[0] = '\0';
+        goto redraw;
+    }
+
+
+    int key = term_getkey(termfd, &mouse_x, &mouse_y, KEY_DELAY);
+    switch (key) {
+        case KEY_MOUSE_LEFT: {
+            struct timespec clicktime;
+            clock_gettime(CLOCK_MONOTONIC, &clicktime);
+            double dt_ms = 1e3*(double)(clicktime.tv_sec - state->lastclick.tv_sec);
+            dt_ms += 1e-6*(double)(clicktime.tv_nsec - state->lastclick.tv_nsec);
+            state->lastclick = clicktime;
+            if (mouse_y == 1) {
+                // Sort column:
+                int x = 1;
+                for (char *col = state->columns; *col; ++col) {
+                    if (col != state->columns) x += 3;
+                    switch (*col) {
+                        case 's': x += sizewidth; break;
+                        case 'p': x += permwidth; break;
+                        case 'm': case 'a': case 'c':
+                            x += datewidth; break;
+                        case 'n': x += namewidth; break;
+                    }
+                    if (x >= mouse_x) {
+                        if (COLUMN(state->sort) == *col)
+                            state->sort ^= SORT_DESCENDING;
+                        else
+                            state->sort = *col;
+                        goto sort_files;
+                    }
+                }
+                goto next_input;
+            } else if (mouse_y >= 2 && state->scroll + (mouse_y - 2) < state->nfiles) {
+                int clicked = state->scroll + (mouse_y - 2);
+                if (mouse_x == 0) {
+                    if (IS_SELECTED(state->files[clicked]))
+                        deselect_file(state, state->files[clicked]);
+                    else
+                        select_file(state, state->files[clicked]);
+                    goto redraw;
+                }
+                state->cursor = clicked;
+                if (dt_ms <= 200)
+                    key = KEY_MOUSE_DOUBLE_LEFT;
+                goto user_bindings;
+            }
+            break;
+        }
+
+        case KEY_CTRL_C:
+            default_screen();
+            show_cursor();
+            close_term();
+            return 1;
+
+        case KEY_CTRL_Z:
+            default_screen();
+            show_cursor();
+            close_term();
+            raise(SIGTSTP);
+            init_term();
+            alt_screen();
+            hide_cursor();
+            goto redraw;
+
+        case '.':
+            state->showhidden ^= 1;
+            queue_select(state, state->files[state->cursor]->d_name);
+            goto refresh;
+
+        case KEY_CTRL_H: {
+            term_move(0,height-1);
+            writez(termfd, "\e[K\e[33;1mPress any key...\e[0m");
+            while ((key = term_getkey(termfd, &mouse_x, &mouse_y, 1000)) == -1)
+                ;
+            term_move(0,height-1);
+            writez(termfd, "\e[K\e[1m<\e[33m");
+            const char *name = keyname(key);
+            char buf[32] = {key};
+            if (name) writez(termfd, name);
+            else if (' ' <= key && key <= '~')
+                write(termfd, buf, 1);
+            else {
+                sprintf(buf, "\e[31m\\x%02X", key);
+                writez(termfd, buf);
+            }
+
+            writez(termfd, "\e[0;1m> is bound to: \e[34;1m");
+            for (int i = 0; bindings[i].keys[0] > 0; i++) {
+                for (int j = 0; bindings[i].keys[j]; j++) {
+                    if (key == bindings[i].keys[j]) {
+                        writez(termfd, bindings[i].description);
+                        writez(termfd, "\e[0m");
+                        goto next_input;
+                    }
+                }
+            }
+            writez(termfd, "--- nothing ---\e[0m");
+            goto next_input;
+        }
+
+        case -1:
+            goto next_input;
+
+        default:
+            // Search user-defined key bindings from config.h:
+          user_bindings:;
+            binding_t *binding;
+            for (int i = 0; bindings[i].keys[0] > 0; i++) {
+                for (int j = 0; bindings[i].keys[j]; j++) {
+                    if (key == bindings[i].keys[j]) {
+                        binding = &bindings[i];
+                        goto run_binding;
+                    }
+                }
+            }
+            goto redraw;
+
+          run_binding:
+            term_move(0, height-1);
+            //writez(termfd, "\e[K");
+            if (binding->flags & NORMAL_TERM) {
+                default_screen();
+                show_cursor();
+            }
+            close_term();
+            run_cmd_on_selection(state, binding->command);
+            init_term();
+            if (binding->flags & NORMAL_TERM) {
+                lazy = 0;
+                alt_screen();
+            }
+            hide_cursor();
+            goto scan_cmdfile;
+    }
+    goto next_input;
+
+    return 0;
 }
 
 static void print_bindings(int verbose)
@@ -993,26 +1028,75 @@ static void print_bindings(int verbose)
 
 int main(int argc, char *argv[])
 {
-    char *path = ".";
+    int ret = 0;
+    bb_state_t state = {0};
+    memset(&state, 0, sizeof(bb_state_t));
+    clock_gettime(CLOCK_MONOTONIC, &state.lastclick);
+    state.sort = 'n';
+    strncpy(state.columns, "smpn", sizeof(state.columns));
+
+    char *initial_path = NULL;
     char sep = '\n';
     int print_dir = 0, print_selection = 0;
+    int cmd_args = 0;
     for (int i = 1; i < argc; i++) {
+        if (argv[i][0] == '+') {
+            ++cmd_args;
+            continue;
+        }
+        if (strcmp(argv[i], "--") == 0) {
+            if (i + 1 < argc) initial_path = argv[i+1];
+            break;
+        }
+        if (argv[i][0] != '-' && !initial_path)
+            initial_path = argv[i];
+    }
+    
+    char *cmdfilename = NULL;
+    FILE *cmdfile = NULL;
+    if (cmd_args > 0) {
+        if (initial_path) {
+            strcpy(state.cmdfilename, CMDFILE_FORMAT);
+            cmdfilename = state.cmdfilename;
+        } else {
+            cmdfilename = getenv("BBCMD");
+            if (!cmdfilename || !*cmdfilename) {
+                fprintf(stderr, "Commands only work from inside bb\n");
+                ret = 1;
+                goto done;
+            }
+        }
+        FILE *f = fopen(cmdfilename, "w");
+        if (!f) {
+            fprintf(stderr, "Could not open command file: %s\n", cmdfilename);
+            ret = 1;
+            goto done;
+        }
+    }
+
+    int i;
+    for (i = 1; i < argc; i++) {
+        if (argv[i][0] == '+') {
+            for (i = i+1; i < argc; i++) {
+                fprintf(cmdfile, "%s", argv[i]+1);
+                fputc('\0', cmdfile);
+            }
+            continue;
+        }
+        if (strcmp(argv[i], "--") == 0) break;
         if (strcmp(argv[i], "--help") == 0) {
           usage:
             printf("bb - an itty bitty console TUI file browser\n");
             printf("Usage: bb [-h/--help] [-s] [-b] [-0] [path]\n");
-            return 0;
+            goto done;
         }
-        if (strcmp(argv[i], "-c") == 0) {
-            char *bb_cmdfile = getenv("BBCMD");
-            if (!bb_cmdfile)
-                err("Can only execute bb commands from inside bb");
-            FILE *f = fopen(bb_cmdfile, "w");
-            for (i = i+1; i < argc; i++) {
-                fprintf(f, "%s\n", argv[i]);
-            }
-            fclose(f);
-            return 0;
+        if (strcmp(argv[i], "--columns") == 0 && i + 1 < argc) {
+            strncpy(state.columns, argv[++i], sizeof(state.columns));
+            continue;
+        }
+        if (strcmp(argv[i], "--sort") == 0 && i + 1 < argc) {
+            state.sort = *argv[++i];
+            continue;
         }
         if (argv[i][0] == '-' && argv[i][1] == '-') {
             if (argv[i][2] == '\0') break;
@@ -1033,31 +1117,41 @@ int main(int argc, char *argv[])
                         break;
                     case 'b':
                         print_bindings(0);
-                        exit(0);
-                        break;
+                        goto done;
                     case 'B':
                         print_bindings(1);
-                        exit(0);
-                        break;
-                    case 'P':
-                        display_permissions = 0;
-                        break;
-                    case 'T':
-                        display_times = 0;
-                        break;
-                    case 'S':
-                        display_sizes = 0;
-                        break;
+                        goto done;
                 }
             }
             continue;
         }
-        if (argv[i][0]) {
-            path = argv[i];
-            break;
-        }
     }
+    if (cmdfile) {
+        fclose(cmdfile);
+        cmdfile = NULL;
+    }
+
+    if (!initial_path) initial_path = ".";
+    strcpy(state.path, initial_path);
+
     init_term();
-    explore(path, print_dir, print_selection, sep);
-    return 0;
+    alt_screen();
+    hide_cursor();
+    explore(&state);
+    default_screen();
+    show_cursor();
+    close_term();
+
+    if (ret == 0) {
+        if (print_dir)
+            printf("%s\n", state.path);
+        if (print_selection)
+            write_selection(STDOUT_FILENO, state.firstselected, sep);
+    } else if (print_dir) {
+        printf("%s\n", initial_path);
+    }
+
+  done:
+    if (cmdfile) fclose(cmdfile);
+    return ret;
 }

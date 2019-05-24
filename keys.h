@@ -35,6 +35,7 @@
 #define KEY_MOUSE_RELEASE    (0xFFFF-25)
 #define KEY_MOUSE_WHEEL_UP   (0xFFFF-26)
 #define KEY_MOUSE_WHEEL_DOWN (0xFFFF-27)
+#define KEY_MOUSE_DOUBLE_LEFT (0xFFFF-28)
 
 /* These are all ASCII code points below SPACE character and a BACKSPACE key. */
 #define KEY_CTRL_TILDE       0x00
