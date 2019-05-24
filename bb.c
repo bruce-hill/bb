@@ -1066,8 +1066,8 @@ int main(int argc, char *argv[])
                 goto done;
             }
         }
-        FILE *f = fopen(cmdfilename, "w");
-        if (!f) {
+        cmdfile = fopen(cmdfilename, "w");
+        if (!cmdfile) {
             fprintf(stderr, "Could not open command file: %s\n", cmdfilename);
             ret = 1;
             goto done;
@@ -1077,10 +1077,8 @@ int main(int argc, char *argv[])
     int i;
     for (i = 1; i < argc; i++) {
         if (argv[i][0] == '+') {
-            for (i = i+1; i < argc; i++) {
-                fprintf(cmdfile, "%s", argv[i]+1);
-                fputc('\0', cmdfile);
-            }
+            fputs(&argv[i][1], cmdfile);
+            fputc('\0', cmdfile);
             continue;
         }
         if (strcmp(argv[i], "--") == 0) break;
