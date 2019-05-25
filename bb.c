@@ -28,17 +28,17 @@
 
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
-#define startswith(str, start) (strncmp(str, start, strlen(start)) == 0)
 #define writez(fd, str) write(fd, str, strlen(str))
 #define IS_SELECTED(p) (((p)->atme) != NULL)
 
-#define alt_screen() writez(termfd, "\e[?1049h")
-#define default_screen() writez(termfd, "\e[?1049l")
-#define hide_cursor() writez(termfd, "\e[?25l");
-#define show_cursor() writez(termfd, "\e[?25h");
+#define alt_screen() writez(termfd, "\033[?1049h")
+#define default_screen() writez(termfd, "\033[?1049l")
+#define hide_cursor() writez(termfd, "\033[?25l");
+#define show_cursor() writez(termfd, "\033[?25h");
 #define queue_select(state, name) do {\
-    if ((state)->to_select) free(state->to_select); \
-    (state)->to_select = memcheck(strdup(name)); \
+    char *__name = (name); \
+    (state)->to_select = realloc((state)->to_select, strlen(__name)+1); \
+    strcpy((state)->to_select, __name); \
 } while (0)
 
 #define err(...) do { \
@@ -50,6 +50,7 @@
     cleanup_and_exit(1); \
 } while (0)
 
+extern binding_t bindings[];
 static struct termios orig_termios;
 static int termfd = 0;
 static int width, height;
@@ -64,6 +65,7 @@ typedef enum {
     SORT_MTIME = 'm',
     SORT_CTIME = 'c',
     SORT_ATIME = 'a',
+    SORT_RANDOM = 'r',
 
     RSORT_NAME = 'N',
     RSORT_SIZE = 'S',
@@ -71,12 +73,13 @@ typedef enum {
     RSORT_MTIME = 'M',
     RSORT_CTIME = 'C',
     RSORT_ATIME = 'A',
+    RSORT_RANDOM = 'R',
 } sortmethod_t;
 
 // This bit toggles 'A' (0) vs 'a' (1)
 #define SORT_DESCENDING 32
 #define IS_REVERSED(method) (!((method) & SORT_DESCENDING))
-#define COLUMN(method) ((method) & ~SORT_DESCENDING)
+#define DESCENDING(method) ((method) | SORT_DESCENDING)
 
 typedef struct entry_s {
     struct entry_s *next, **atme;
@@ -84,9 +87,9 @@ typedef struct entry_s {
     ino_t      d_ino;
     __uint16_t d_reclen;
     __uint8_t  d_type;
-    __uint8_t  d_namlen;
+    __uint16_t  d_namlen;
     char *d_name;
-    char d_fullname[0];
+    char d_fullname[1];
 } entry_t;
 
 typedef struct {
@@ -101,8 +104,9 @@ typedef struct {
     char sort;
 } bb_state_t;
 
-static void update_term_size(int _)
+static void update_term_size(int sig)
 {
+    (void)sig;
     struct winsize sz = {0};
     ioctl(termfd, TIOCGWINSZ, &sz);
     width = sz.ws_col;
@@ -134,17 +138,18 @@ static void init_term()
     update_term_size(0);
     signal(SIGWINCH, update_term_size);
     // Initiate mouse tracking:
-    writez(termfd, "\e[?1000h\e[?1002h\e[?1015h\e[?1006h");
+    writez(termfd, "\033[?1000h\033[?1002h\033[?1015h\033[?1006h");
 }
 
-static void cleanup_and_exit(int sig) 
+static void cleanup_and_exit(int sig)
 {
+    (void)sig;
     if (termfd) {
         tcsetattr(termfd, TCSAFLUSH, &orig_termios);
         close(termfd);
         termfd = 0;
     }
-    printf("\e[?1000l\e[?1002l\e[?1015l\e[?1006l\e[?1049l\e[?25h\n"); // Restore default screen and show cursor
+    printf("\033[?1000l\033[?1002l\033[?1015l\033[?1006l\033[?1049l\033[?25h\n"); // Restore default screen and show cursor
     fflush(stdout);
     unlink(cmdfilename);
     exit(1);
@@ -155,7 +160,7 @@ static void close_term()
     signal(SIGWINCH, SIG_IGN);
 
     // Disable mouse tracking:
-    writez(termfd, "\e[?1000l\e[?1002l\e[?1015l\e[?1006l");
+    writez(termfd, "\033[?1000l\033[?1002l\033[?1015l\033[?1006l");
 
     tcsetattr(termfd, TCSAFLUSH, &orig_termios);
     close(termfd);
@@ -176,7 +181,7 @@ static int run_cmd_on_selection(bb_state_t *state, const char *cmd)
     if ((child = fork()) == 0) {
         signal(SIGINT, SIG_DFL);
         // TODO: is there a max number of args? Should this be batched?
-        char **const args = memcheck(calloc(MAX(1, state->nselected) + 5, sizeof(char*)));
+        char **args = memcheck(calloc(MAX(1, state->nselected) + 5, sizeof(char*)));
         int i = 0;
         args[i++] = "sh";
         args[i++] = "-c";
@@ -217,7 +222,7 @@ static int run_cmd_on_selection(bb_state_t *state, const char *cmd)
 static void term_move(int x, int y)
 {
     static char buf[32] = {0};
-    int len = snprintf(buf, sizeof(buf), "\e[%d;%dH", y+1, x+1);
+    int len = snprintf(buf, sizeof(buf), "\033[%d;%dH", y+1, x+1);
     if (len > 0)
         write(termfd, buf, len);
 }
@@ -230,7 +235,7 @@ static int write_escaped(int fd, const char *str, size_t n, const char *reset_co
     char buf[5];
     int ret = 0;
     int backlog = 0;
-    for (int i = 0; i < n; i++) {
+    for (size_t i = 0; i < n; i++) {
         int escapelen = 0;
         if (str[i] <= '\x1b' && escapes[(int)str[i]] != ' ')
             escapelen = sprintf(buf, "\\%c", escapes[(int)str[i]]);
@@ -247,7 +252,7 @@ static int write_escaped(int fd, const char *str, size_t n, const char *reset_co
             write(fd, &str[i-backlog], backlog);
             backlog = 0;
         }
-        writez(fd, "\e[31m");
+        writez(fd, "\033[31m");
         write(fd, buf, escapelen);
         writez(fd, reset_color);
     }
@@ -268,10 +273,10 @@ static void render(bb_state_t *state, int lazy)
     if (lazy) {
         // Use terminal scrolling:
         if (lastscroll > state->scroll) {
-            int n = sprintf(buf, "\e[3;%dr\e[%dT\e[1;%dr", height-1, lastscroll - state->scroll, height);
+            int n = sprintf(buf, "\033[3;%dr\033[%dT\033[1;%dr", height-1, lastscroll - state->scroll, height);
             write(termfd, buf, n);
         } else if (lastscroll < state->scroll) {
-            int n = sprintf(buf, "\e[3;%dr\e[%dS\e[1;%dr", height-1, state->scroll - lastscroll, height);
+            int n = sprintf(buf, "\033[3;%dr\033[%dS\033[1;%dr", height-1, state->scroll - lastscroll, height);
             write(termfd, buf, n);
         }
     }
@@ -279,13 +284,13 @@ static void render(bb_state_t *state, int lazy)
     for (char *col = state->columns; *col; ++col) {
         switch (*col) {
             case 's':
-                namewidth -= sizewidth + 2;
+                namewidth -= sizewidth + 3;
                 break;
             case 'm': case 'c': case 'a':
-                namewidth -= datewidth + 2;
+                namewidth -= datewidth + 3;
                 break;
             case 'p':
-                namewidth -= permwidth + 2;
+                namewidth -= permwidth + 3;
                 break;
         }
     }
@@ -293,60 +298,62 @@ static void render(bb_state_t *state, int lazy)
     if (!lazy) {
         // Path
         term_move(0,0);
-        writez(termfd, "\e[0;1;30;47m ");
-        write_escaped(termfd, state->path, strlen(state->path), "\e[0;1;30;47m");
-        writez(termfd, "\e[K\e[0m");
+        writez(termfd, "\033[0;2;37m ");
+        write_escaped(termfd, state->path, strlen(state->path), "\033[0;2;37m");
+        writez(termfd, "\033[K\033[0m");
 
+        // Columns
         term_move(0,1);
-        writez(termfd, " ");
+        writez(termfd, " \033[0;44;30m");
         for (char *col = state->columns; *col; ++col) {
-            if (col != state->columns) writez(termfd, " │");
-            writez(termfd, COLUMN(state->sort) == *col ? (IS_REVERSED(state->sort) ? "▲" : "▼") : " ");
+            const char *colname;
+            int colwidth = 0;
             switch (*col) {
                 case 's':
-                    for (int i = writez(termfd, " Size"); i < sizewidth-1; i++)
-                        write(termfd, " ", 1);
+                    colname = "  Size"; colwidth = sizewidth;
                     break;
                 case 'p':
-                    for (int i = writez(termfd, "Per"); i < permwidth-1; i++)
-                        write(termfd, " ", 1);
+                    colname = "Per"; colwidth = permwidth;
                     break;
                 case 'm':
-                    for (int i = writez(termfd, "Modified"); i < datewidth-1; i++)
-                        write(termfd, " ", 1);
+                    colname = "     Modified"; colwidth = datewidth;
                     break;
                 case 'a':
-                    for (int i = writez(termfd, "Accessed"); i < datewidth-1; i++)
-                        write(termfd, " ", 1);
+                    colname = "     Accessed"; colwidth = datewidth;
                     break;
                 case 'c':
-                    for (int i = writez(termfd, "Created"); i < datewidth-1; i++)
-                        write(termfd, " ", 1);
+                    colname = "     Created"; colwidth = datewidth;
                     break;
                 case 'n':
-                    for (int i = writez(termfd, "Name"); i < namewidth; i++)
-                        write(termfd, " ", 1);
+                    colname = "Name"; colwidth = namewidth;
                     break;
+                default:
+                    continue;
             }
+            if (col != state->columns) writez(termfd, " │ ");
+            writez(termfd, DESCENDING(state->sort) == *col ? (IS_REVERSED(state->sort) ? "▲" : "▼") : " ");
+            for (ssize_t i = writez(termfd, colname); i < colwidth-1; i++)
+                write(termfd, " ", 1);
         }
+        writez(termfd, "\033[0m");
     }
 
     if (state->nselected > 0) {
         int len = snprintf(buf, sizeof(buf), "%lu selected ", state->nselected);
         if (strlen(state->path) + 1 + len < width) {
             term_move(width-len, 0);
-            writez(termfd, "\e[0;1;30;47m");
+            writez(termfd, "\033[0;1;30;47m");
             write(termfd, buf, len);
-            writez(termfd, "\e[0m");
+            writez(termfd, "\033[0m");
         }
     }
 
     entry_t **files = state->files;
-    static const char *NORMAL_COLOR = "\e[0m";
-    static const char *CURSOR_COLOR = "\e[0;30;43m";
-    static const char *LINKDIR_COLOR = "\e[0;36m";
-    static const char *DIR_COLOR = "\e[0;34m";
-    static const char *LINK_COLOR = "\e[0;33m";
+    static const char *NORMAL_COLOR = "\033[0m";
+    static const char *CURSOR_COLOR = "\033[0;30;43m";
+    static const char *LINKDIR_COLOR = "\033[0;36m";
+    static const char *DIR_COLOR = "\033[0;34m";
+    static const char *LINK_COLOR = "\033[0;33m";
     for (int i = state->scroll; i < state->scroll + height - 3; i++) {
         if (lazy) {
             if (i == state->cursor || i == lastcursor)
@@ -360,7 +367,7 @@ static void render(bb_state_t *state, int lazy)
         int y = i - state->scroll + 2;
         term_move(0, y);
         if (i >= state->nfiles) {
-            writez(termfd, "\e[K");
+            writez(termfd, "\033[K");
             continue;
         }
 
@@ -370,7 +377,7 @@ static void render(bb_state_t *state, int lazy)
 
         { // Selection box:
             if (IS_SELECTED(entry))
-                writez(termfd, "\e[43m \e[0m");
+                writez(termfd, "\033[41m \033[0m");
             else
                 writez(termfd, " ");
         }
@@ -389,7 +396,7 @@ static void render(bb_state_t *state, int lazy)
         writez(termfd, color);
 
         for (char *col = state->columns; *col; ++col) {
-            if (col != state->columns) writez(termfd, " │");
+            if (col != state->columns) writez(termfd, " │ ");
             switch (*col) {
                 case 's': {
                     int j = 0;
@@ -428,7 +435,8 @@ static void render(bb_state_t *state, int lazy)
                     break;
 
                 case 'n': {
-                    int wrote = write_escaped(termfd, entry->d_name, entry->d_namlen, color);
+                    ssize_t wrote = write(termfd, " ", 1);
+                    wrote += write_escaped(termfd, entry->d_name, entry->d_namlen, color);
                     if (entry->d_isdir) {
                         writez(termfd, "/");
                         ++wrote;
@@ -439,7 +447,7 @@ static void render(bb_state_t *state, int lazy)
                         ssize_t pathlen;
                         if ((pathlen = readlink(entry->d_name, linkpath, sizeof(linkpath))) < 0)
                             err("readlink() failed");
-                        writez(termfd, "\e[2m -> ");
+                        writez(termfd, "\033[2m -> ");
                         wrote += 4;
                         wrote += write_escaped(termfd, linkpath, pathlen, color);
                         if (entry->d_isdir) {
@@ -447,19 +455,19 @@ static void render(bb_state_t *state, int lazy)
                             ++wrote;
                         }
                     }
-                    for (int i = wrote; i < namewidth-1; i++)
+                    while (wrote++ < namewidth - 1)
                         write(termfd, " ", 1);
                     break;
                 }
             }
         }
-        writez(termfd, " \e[0m\e[K"); // Reset color and attributes
+        writez(termfd, " \033[0m\033[K"); // Reset color and attributes
     }
 
     static const char *help = "Press '?' to see key bindings ";
     term_move(0, height - 1);
-    writez(termfd, "\e[K");
-    term_move(MAX(0, width - strlen(help)), height - 1);
+    writez(termfd, "\033[K");
+    term_move(MAX(0, width - (int)strlen(help)), height - 1);
     writez(termfd, help);
     lastcursor = state->cursor;
     lastscroll = state->scroll;
@@ -469,17 +477,18 @@ static int compare_files(void *r, const void *v1, const void *v2)
 {
     char sort = *((char *)r);
     int sign = IS_REVERSED(sort) ? -1 : 1;
+    sort = DESCENDING(sort);
     const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
     int diff = -(f1->d_isdir - f2->d_isdir);
     if (diff) return -diff; // Always sort dirs before files
-    if (sort == SORT_NONE) return 0;
-    if (COLUMN(sort) == SORT_NAME) {
+    if (sort == SORT_NONE || sort == SORT_RANDOM) return 0;
+    if (sort == SORT_NAME) {
         const char *p1 = f1->d_name, *p2 = f2->d_name;
         while (*p1 && *p2) {
             char c1 = *p1, c2 = *p2;
             if ('A' <= c1 && 'Z' <= c1) c1 = c1 - 'A' + 'a';
             if ('A' <= c2 && 'Z' <= c2) c2 = c2 - 'A' + 'a';
-            int diff = (c1 - c2);
+            diff = (c1 - c2);
             if ('0' <= c1 && c1 <= '9' && '0' <= c2 && c2 <= '9') {
                 long n1 = strtol(p1, (char**)&p1, 10);
                 long n2 = strtol(p2, (char**)&p2, 10);
@@ -488,7 +497,7 @@ static int compare_files(void *r, const void *v1, const void *v2)
             } else if (diff) {
                 return diff*sign;
             } else {
-                ++p1, ++p2;
+                ++p1; ++p2;
             }
         }
         return (*p1 - *p2)*sign;
@@ -496,26 +505,26 @@ static int compare_files(void *r, const void *v1, const void *v2)
     struct stat info1, info2;
     lstat(f1->d_fullname, &info1);
     lstat(f2->d_fullname, &info2);
-    switch (COLUMN(sort)) {
+    switch (sort) {
         case SORT_PERM:
             return -((info1.st_mode & 0x3FF) - (info2.st_mode & 0x3FF))*sign;
         case SORT_SIZE:
-            return -(info1.st_size - info2.st_size)*sign;
+            return info1.st_size > info2.st_size ? -sign : sign;
         case SORT_MTIME:
             if (info1.st_mtimespec.tv_sec == info2.st_mtimespec.tv_sec)
-                return -(info1.st_mtimespec.tv_nsec - info2.st_mtimespec.tv_nsec)*sign;
+                return info1.st_mtimespec.tv_nsec > info2.st_mtimespec.tv_nsec ? -sign : sign;
             else
-                return -(info1.st_mtimespec.tv_sec - info2.st_mtimespec.tv_sec)*sign;
+                return info1.st_mtimespec.tv_sec > info2.st_mtimespec.tv_sec ? -sign : sign;
         case SORT_CTIME:
             if (info1.st_ctimespec.tv_sec == info2.st_ctimespec.tv_sec)
-                return -(info1.st_ctimespec.tv_nsec - info2.st_ctimespec.tv_nsec)*sign;
+                return info1.st_ctimespec.tv_nsec > info2.st_ctimespec.tv_nsec ? -sign : sign;
             else
-                return -(info1.st_ctimespec.tv_sec - info2.st_ctimespec.tv_sec)*sign;
+                return info1.st_ctimespec.tv_sec > info2.st_ctimespec.tv_sec ? -sign : sign;
         case SORT_ATIME:
             if (info1.st_atimespec.tv_sec == info2.st_atimespec.tv_sec)
-                return -(info1.st_atimespec.tv_nsec - info2.st_atimespec.tv_nsec)*sign;
+                return info1.st_atimespec.tv_nsec > info2.st_atimespec.tv_nsec ? -sign : sign;
             else
-                return -(info1.st_atimespec.tv_sec - info2.st_atimespec.tv_sec)*sign;
+                return info1.st_atimespec.tv_sec > info2.st_atimespec.tv_sec ? -sign : sign;
     }
     return 0;
 }
@@ -579,7 +588,7 @@ static int deselect_file(bb_state_t *state, entry_t *e)
     if (!IS_SELECTED(e)) return 0;
     if (e->next) e->next->atme = e->atme;
     *(e->atme) = e->next;
-    e->next = NULL, e->atme = NULL;
+    e->next = NULL; e->atme = NULL;
     --state->nselected;
     return 1;
 }
@@ -646,7 +655,7 @@ static void populate_files(bb_state_t *state)
                 entry->d_isdir = S_ISDIR(statbuf.st_mode);
         }
         entry->d_namlen = dp->d_namlen;
-        entry->next = NULL, entry->atme = NULL;
+        entry->next = NULL; entry->atme = NULL;
 
         if (state->nfiles >= filecap) {
             filecap += 100;
@@ -676,14 +685,37 @@ static int explore(bb_state_t *state)
 
   sort_files:
     qsort_r(&state->files[1], state->nfiles-1, sizeof(entry_t*), &state->sort, compare_files);
+    if (DESCENDING(state->sort) == SORT_RANDOM) {
+        entry_t **files = &state->files[1];
+        size_t ndirs = 0, nents = state->nfiles - 1;
+        for (int i = 0; i < nents; i++) {
+            if (state->files[i]->d_isdir) ++ndirs;
+            else break;
+        }
+        for (size_t i = 0; i < ndirs - 1; i++) {
+            //size_t j = i + rand() / (RAND_MAX / (ndirs - i) + 1);
+            size_t j = i + rand() / (RAND_MAX / (ndirs - 1 - i));
+            entry_t *tmp = files[j];
+            files[j] = files[i];
+            files[i] = tmp;
+        }
+        for (size_t i = ndirs; i < nents - 1; i++) {
+            //size_t j = i + rand() / (RAND_MAX / (nents - i) + 1);
+            size_t j = i + rand() / (RAND_MAX / (nents - 1 - i));
+            entry_t *tmp = files[j];
+            files[j] = files[i];
+            files[i] = tmp;
+        }
+    }
 
     // Put the cursor on the first *real* file if one exists
     if (state->cursor == 0 && state->nfiles > 1)
         ++state->cursor;
 
     if (state->to_select) {
+        char *sel = state->to_select;
         for (int i = 0; i < state->nfiles; i++) {
-            if (strcmp(state->to_select, state->files[i]->d_name) == 0) {
+            if (strcmp(sel, sel[0] == '/' ? state->files[i]->d_fullname : state->files[i]->d_name) == 0) {
                 state->cursor = i;
                 if (state->nfiles > height - 4)
                     state->scroll = MAX(0, i - MIN(SCROLLOFF, (height-4)/2));
@@ -705,18 +737,19 @@ static int explore(bb_state_t *state)
   next_input:
     if (width != lastwidth || height != lastheight) {
         scrolloff = MIN(SCROLLOFF, (height-4)/2);
-        lastwidth = width, lastheight = height;
+        lastwidth = width; lastheight = height;
         lazy = 0;
         goto redraw;
     }
 
   scan_cmdfile:
-
     {
 #define cleanup_cmd() do { if (cmdfile) fclose(cmdfile); if (cmd) free(cmd); } while (0)
         FILE *cmdfile = fopen(cmdfilename, "r");
-        if (!cmdfile)
+        if (!cmdfile) {
+            if (!lazy) goto redraw;
             goto get_user_input;
+        }
 
         if (cmdpos) 
             fseek(cmdfile, cmdpos, SEEK_SET);
@@ -737,34 +770,37 @@ static int explore(bb_state_t *state)
                     goto refresh;
                 case 'q': // quit
                     cleanup_cmd();
-                    return 0;
+                    goto quit;
                 case 's': // sort:, select:, scroll:, spread:
                     switch (cmd[1]) {
                         case 'o': // sort:
-                            state->sort = *value;
-                            queue_select(state, state->files[state->cursor]->d_name);
-                            cleanup_cmd();
-                            goto sort_files;
-                        case 'c': { // scroll:
-                            //int oldscroll = state->scroll;
-                            int isabs = value[0] != '-' && value[0] != '+';
-                            long delta = strtol(value, &value, 10);
-                            if (*value == '%') delta = (delta * height)/100;
-
-                            //int fudge = state->cursor - clamped(state->cursor, state->scroll + scrolloff, state->scroll + (height-4) - scrolloff);
-                            if (state->nfiles > height-4) {
-                                if (isabs) state->scroll = delta;
-                                else state->scroll += delta;
-                                state->scroll = clamped(state->scroll, 0, state->nfiles-1 - (height-4));
+                            switch (*value) {
+                                case 'n': case 'N': case 's': case 'S':
+                                case 'p': case 'P': case 'm': case 'M':
+                                case 'c': case 'C': case 'a': case 'A':
+                                case 'r': case 'R':
+                                    state->sort = *value;
+                                    queue_select(state, state->files[state->cursor]->d_name);
+                                    cleanup_cmd();
+                                    goto sort_files;
                             }
-
-                            state->cursor = clamped(state->cursor, state->scroll, state->scroll + (height-4));
-                            /*
-                            //if (!isabs && abs(state->scroll - oldscroll) == abs(delta)) {
-                            state->cursor = clamped(state->cursor, state->scroll + scrolloff, state->scroll + (height-4) - scrolloff);
-                            if (fudge && fudge < 0 != delta < 0)
-                                state->cursor += fudge;
-                                */
+                            goto next_cmd;
+                        case 'c': { // scroll:
+                            int isdelta = value[0] == '+' || value[0] == '-';
+                            long n = strtol(value, &value, 10);
+                            if (*value == '%')
+                                n = (n * (value[1] == 'n' ? state->nfiles : height)) / 100;
+                            if (isdelta) {
+                                state->cursor += n;
+                                if (state->nfiles > height-4)
+                                    state->scroll += n;
+                            } else {
+                                state->cursor = (int)n;
+                                if (state->nfiles > height-4)
+                                    state->scroll = (int)n;
+                            }
+                            if (state->nfiles > height-4)
+                                state->scroll = clamped(state->scroll, 0, state->nfiles-1 - (height-4));
                             state->cursor = clamped(state->cursor, 0, state->nfiles-1);
                             break;
                         }
@@ -783,30 +819,43 @@ static int explore(bb_state_t *state)
                             }
                             break;
                     }
-                case 'c': { // cd:
-                    char *rpbuf = realpath(value, NULL);
-                    if (!rpbuf) continue;
-                    if (strcmp(rpbuf, state->path) == 0) {
-                        free(rpbuf);
-                        continue;
+                case 'c':
+                    switch (cmd[1]) {
+                        case 'd': { // cd:
+                            char *rpbuf = realpath(value, NULL);
+                            if (!rpbuf) continue;
+                            if (strcmp(rpbuf, state->path) == 0) {
+                                free(rpbuf);
+                                continue;
+                            }
+                            if (chdir(rpbuf) == 0) {
+                                if (strcmp(value, "..") == 0)
+                                    queue_select(state, state->path);
+                                strcpy(state->path, rpbuf);
+                                free(rpbuf);
+                                cleanup_cmd();
+                                goto refresh;
+                            } else {
+                                free(rpbuf);
+                            }
+                        }
+                        case 'o': // cols:
+                            for (char *col = value, *dst = state->columns;
+                                 *col && dst < &state->columns[sizeof(state->columns)-1]; col++) {
+                                *(dst++) = DESCENDING(*col);
+                                *dst = '\0';
+                            }
                     }
-                    if (chdir(rpbuf) == 0) {
-                        strcpy(state->path, rpbuf);
-                        free(rpbuf);
-                        cleanup_cmd();
-                        goto refresh;
-                    } else {
-                        free(rpbuf);
-                    }
-                }
-                case 't': // toggle:
+                case 't': { // toggle:
                     lazy = 0;
                     entry_t *e = find_file(state, value);
                     if (e) {
                         if (IS_SELECTED(e)) deselect_file(state, e);
                         else select_file(state, e);
                     }
-                case 'd': // deselect:
+                    break;
+                }
+                case 'd': { // deselect:
                     lazy = 0;
                     if (strcmp(value, "*") == 0) {
                         clear_selection(state);
@@ -814,6 +863,7 @@ static int explore(bb_state_t *state)
                         entry_t *e = find_file(state, value);
                         if (e) select_file(state, e);
                     }
+                }
                 case 'g': { // goto:
                     for (int i = 0; i < state->nfiles; i++) {
                         if (strcmp(value[0] == '/' ?
@@ -836,14 +886,15 @@ static int explore(bb_state_t *state)
                 case 'm': { // move:
                   move:;
                     int oldcur = state->cursor;
-                    int isabs = value[0] != '-' && value[0] != '+';
-                    long delta = strtol(value, &value, 10);
-                    if (*value == '%') delta = (delta * height)/100;
-                    if (isabs) state->cursor = delta;
-                    else state->cursor += delta;
+                    int isdelta = value[0] == '-' || value[0] == '+';
+                    long n = strtol(value, &value, 10);
+                    if (*value == '%')
+                        n = (n * (value[1] == 'n' ? state->nfiles : height)) / 100;
+                    if (isdelta) state->cursor += n;
+                    else state->cursor = n;
 
                     state->cursor = clamped(state->cursor, 0, state->nfiles-1);
-                    delta = state->cursor - oldcur;
+                    int delta = state->cursor - oldcur;
 
                     if (state->nfiles > height-4) {
                         if (delta > 0) {
@@ -905,7 +956,7 @@ static int explore(bb_state_t *state)
                         case 'n': x += namewidth; break;
                     }
                     if (x >= mouse_x) {
-                        if (COLUMN(state->sort) == *col)
+                        if (DESCENDING(state->sort) == *col)
                             state->sort ^= SORT_DESCENDING;
                         else
                             state->sort = *col;
@@ -952,32 +1003,32 @@ static int explore(bb_state_t *state)
 
         case KEY_CTRL_H: {
             term_move(0,height-1);
-            writez(termfd, "\e[K\e[33;1mPress any key...\e[0m");
+            writez(termfd, "\033[K\033[33;1mPress any key...\033[0m");
             while ((key = term_getkey(termfd, &mouse_x, &mouse_y, 1000)) == -1)
                 ;
             term_move(0,height-1);
-            writez(termfd, "\e[K\e[1m<\e[33m");
+            writez(termfd, "\033[K\033[1m<\033[33m");
             const char *name = keyname(key);
-            char buf[32] = {key};
+            char buf[32] = {(char)key};
             if (name) writez(termfd, name);
             else if (' ' <= key && key <= '~')
                 write(termfd, buf, 1);
             else {
-                sprintf(buf, "\e[31m\\x%02X", key);
+                sprintf(buf, "\033[31m\\x%02X", key);
                 writez(termfd, buf);
             }
 
-            writez(termfd, "\e[0;1m> is bound to: \e[34;1m");
+            writez(termfd, "\033[0;1m> is bound to: \033[34;1m");
             for (int i = 0; bindings[i].keys[0] > 0; i++) {
                 for (int j = 0; bindings[i].keys[j]; j++) {
                     if (key == bindings[i].keys[j]) {
                         writez(termfd, bindings[i].description);
-                        writez(termfd, "\e[0m");
+                        writez(termfd, "\033[0m");
                         goto next_input;
                     }
                 }
             }
-            writez(termfd, "--- nothing ---\e[0m");
+            writez(termfd, "--- nothing ---\033[0m");
             goto next_input;
         }
 
@@ -1002,7 +1053,7 @@ static int explore(bb_state_t *state)
             if (cmdpos != 0)
                 err("Command file still open");
             term_move(0, height-1);
-            //writez(termfd, "\e[K");
+            //writez(termfd, "\033[K");
             if (binding->flags & NORMAL_TERM) {
                 default_screen();
                 show_cursor();
@@ -1019,6 +1070,7 @@ static int explore(bb_state_t *state)
     }
     goto next_input;
 
+  quit:
     return 0;
 }
 
@@ -1026,12 +1078,12 @@ static void print_bindings(int verbose)
 {
     struct winsize sz = {0};
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &sz);
-    int width = sz.ws_col;
-    if (width == 0) width = 80;
+    int _width = sz.ws_col;
+    if (_width == 0) _width = 80;
 
     char buf[1024];
     char *kb = "Key Bindings";
-    printf("\n\e[33;1;4m\e[%dG%s\e[0m\n\n", (width-(int)strlen(kb))/2, kb);
+    printf("\n\033[33;1;4m\033[%dG%s\033[0m\n\n", (_width-(int)strlen(kb))/2, kb);
     for (int i = 0; bindings[i].keys[0]; i++) {
         char *p = buf;
         for (int j = 0; bindings[i].keys[j]; j++) {
@@ -1043,17 +1095,17 @@ static void print_bindings(int verbose)
             else if (' ' <= key && key <= '~')
                 p += sprintf(p, "%c", (char)key);
             else
-                p += sprintf(p, "\e[31m\\x%02X", key);
+                p += sprintf(p, "\033[31m\\x%02X", key);
         }
         *p = '\0';
-        printf("\e[1m\e[%dG%s\e[0m", width/2 - 1 - (int)strlen(buf), buf);
-        printf("\e[0m\e[%dG\e[34;1m%s\e[0m", width/2 + 1, bindings[i].description);
+        printf("\033[1m\033[%dG%s\033[0m", _width/2 - 1 - (int)strlen(buf), buf);
+        printf("\033[0m\033[%dG\033[34;1m%s\033[0m", _width/2 + 1, bindings[i].description);
         if (verbose) {
-            printf("\n\e[%dG\e[0;32m", MAX(1, (width - (int)strlen(bindings[i].command))/2));
+            printf("\n\033[%dG\033[0;32m", MAX(1, (_width - (int)strlen(bindings[i].command))/2));
             fflush(stdout);
-            write_escaped(STDOUT_FILENO, bindings[i].command, strlen(bindings[i].command), "\e[0;32m");
+            write_escaped(STDOUT_FILENO, bindings[i].command, strlen(bindings[i].command), "\033[0;32m");
         }
-        printf("\e[0m\n");
+        printf("\033[0m\n");
     }
     printf("\n");
 }
@@ -1111,14 +1163,6 @@ int main(int argc, char *argv[])
             printf("bb - an itty bitty console TUI file browser\n");
             printf("Usage: bb [-h/--help] [-s] [-b] [-0] [path]\n");
             return 1;
-        }
-        if (strcmp(argv[i], "--columns") == 0 && i + 1 < argc) {
-            strncpy(state.columns, argv[++i], sizeof(state.columns));
-            continue;
-        }
-        if (strcmp(argv[i], "--sort") == 0 && i + 1 < argc) {
-            state.sort = *argv[++i];
-            continue;
         }
         if (argv[i][0] == '-' && argv[i][1] == '-') {
             if (argv[i][2] == '\0') break;

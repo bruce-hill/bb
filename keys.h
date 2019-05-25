@@ -2,8 +2,8 @@
  * Definitions of some key character constants
  */
 
-#ifndef _KEYS_DEFINED
-#define _KEYS_DEFINED
+#ifndef FILE__KEYS_H
+#define FILE__KEYS_H
 
 #include <poll.h>
 
@@ -86,6 +86,9 @@
 
 
 #define ESC_DELAY 10
+
+int term_getkey(int fd, int *mouse_x, int *mouse_y, int timeout);
+const char *keyname(int key);
 
 static inline int nextchar(int fd, int timeout)
 {
@@ -174,7 +177,8 @@ int term_getkey(int fd, int *mouse_x, int *mouse_y, int timeout)
                 y = y * 10 + (buf - '0');
             if (buf != 'm' && buf != 'M') return -1;
 
-            *mouse_x = x - 1, *mouse_y = y - 1;
+            *mouse_x = x - 1;
+            *mouse_y = y - 1;
 
             if (buf == 'm')
                 return KEY_MOUSE_RELEASE;
@@ -205,7 +209,7 @@ int term_getkey(int fd, int *mouse_x, int *mouse_y, int timeout)
     return -1;
 }
 
-const char *keyname(key)
+const char *keyname(int key)
 {
     // TODO: currently only the keys I'm using are named
     switch (key) {

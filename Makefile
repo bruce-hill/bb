@@ -1,6 +1,6 @@
 PREFIX=
 CC=cc
-CFLAGS=-O0 -std=gnu99 -Wall
+CFLAGS=-O0 -std=gnu99 -Wall -Wpedantic -Weverything -Wno-missing-field-initializers -Wno-padded -Wno-missing-noreturn -Wno-sign-conversion -Wno-cast-qual -Wno-sign-compare -Wno-shorten-64-to-32
 LIBS=
 NAME=bb
 G=
