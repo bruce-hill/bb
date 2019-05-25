@@ -730,135 +730,140 @@ static int explore(bb_state_t *state)
             did_anything = 1;
             char *value = strchr(cmd, ':');
             if (value) ++value;
-            if (strcmp(cmd, "refresh") == 0) {
-                queue_select(state, state->files[state->cursor]->d_name);
-                cleanup_cmd();
-                goto refresh;
-            } else if (strcmp(cmd, "quit") == 0) {
-                cleanup_cmd();
-                return 0;
-            } else if (startswith(cmd, "sort:")) {
-                state->sort = *value;
-                queue_select(state, state->files[state->cursor]->d_name);
-                cleanup_cmd();
-                goto sort_files;
-            } else if (startswith(cmd, "cd:")) {
-                char *rpbuf = realpath(value, NULL);
-                if (strcmp(rpbuf, state->path)) {
-                    free(rpbuf);
-                    continue;
-                }
-                if (chdir(rpbuf) == 0) {
-                    strcpy(state->path, rpbuf);
-                    free(rpbuf);
+            switch (cmd[0]) {
+                case 'r': // refresh
+                    queue_select(state, state->files[state->cursor]->d_name);
                     cleanup_cmd();
                     goto refresh;
-                } else {
-                    free(rpbuf);
+                case 'q': // quit
+                    cleanup_cmd();
+                    return 0;
+                case 's': // sort:, select:, scroll:, spread:
+                    switch (cmd[1]) {
+                        case 'o': // sort:
+                            state->sort = *value;
+                            queue_select(state, state->files[state->cursor]->d_name);
+                            cleanup_cmd();
+                            goto sort_files;
+                        case 'c': { // scroll:
+                            //int oldscroll = state->scroll;
+                            int isabs = value[0] != '-' && value[0] != '+';
+                            long delta = strtol(value, &value, 10);
+                            if (*value == '%') delta = (delta * height)/100;
+
+                            //int fudge = state->cursor - clamped(state->cursor, state->scroll + scrolloff, state->scroll + (height-4) - scrolloff);
+                            if (state->nfiles > height-4) {
+                                if (isabs) state->scroll = delta;
+                                else state->scroll += delta;
+                                state->scroll = clamped(state->scroll, 0, state->nfiles-1 - (height-4));
+                            }
+
+                            state->cursor = clamped(state->cursor, state->scroll, state->scroll + (height-4));
+                            /*
+                            //if (!isabs && abs(state->scroll - oldscroll) == abs(delta)) {
+                            state->cursor = clamped(state->cursor, state->scroll + scrolloff, state->scroll + (height-4) - scrolloff);
+                            if (fudge && fudge < 0 != delta < 0)
+                                state->cursor += fudge;
+                                */
+                            state->cursor = clamped(state->cursor, 0, state->nfiles-1);
+                       }
+                    } else { // select:
+                        lazy = 0;
+                        if (strcmp(value, "*") == 0) {
+                            for (int i = 0; i < state->nfiles; i++)
+                                select_file(state, state->files[i]);
+                        } else {
+                            entry_t *e = find_file(state, value);
+                            if (e) select_file(state, e);
+                        }
+                    }
+                case 'c': { // cd:
+                    char *rpbuf = realpath(value, NULL);
+                    if (strcmp(rpbuf, state->path)) {
+                        free(rpbuf);
+                        continue;
+                    }
+                    if (chdir(rpbuf) == 0) {
+                        strcpy(state->path, rpbuf);
+                        free(rpbuf);
+                        cleanup_cmd();
+                        goto refresh;
+                    } else {
+                        free(rpbuf);
+                    }
                 }
-            } else if (startswith(cmd, "toggle:")) {
-                lazy = 0;
-                entry_t *e = find_file(state, value);
-                if (e) {
-                    if (IS_SELECTED(e)) deselect_file(state, e);
-                    else select_file(state, e);
-                }
-            } else if (startswith(cmd, "select:")) {
-                lazy = 0;
-                if (strcmp(value, "*") == 0) {
-                    for (int i = 0; i < state->nfiles; i++)
-                        select_file(state, state->files[i]);
-                } else {
+                case 't': // toggle:
+                    lazy = 0;
                     entry_t *e = find_file(state, value);
-                    if (e) select_file(state, e);
+                    if (e) {
+                        if (IS_SELECTED(e)) deselect_file(state, e);
+                        else select_file(state, e);
+                    }
+                case 'd': // deselect:
+                    lazy = 0;
+                    if (strcmp(value, "*") == 0) {
+                        clear_selection(state);
+                    } else {
+                        entry_t *e = find_file(state, value);
+                        if (e) select_file(state, e);
+                    }
+                case 'g': { // goto:
+                    for (int i = 0; i < state->nfiles; i++) {
+                        if (strcmp(value[0] == '/' ?
+                                    state->files[i]->d_fullname : state->files[i]->d_name,
+                                    value) == 0) {
+                            state->cursor = i;
+                            goto next_cmd;
+                        }
+                    }
+                    char *lastslash = strrchr(value, '/');
+                    if (!lastslash) goto next_cmd;
+                    *lastslash = '\0'; // Split in two
+                    if (chdir(value) != 0) goto next_cmd;
+                    strcpy(state->path, value);
+                    if (lastslash[1])
+                        queue_select(state, lastslash+1);
+                    cleanup_cmd();
+                    goto refresh;
                 }
-            } else if (startswith(cmd, "deselect:")) {
-                lazy = 0;
-                if (strcmp(value, "*") == 0) {
-                    clear_selection(state);
-                } else {
-                    entry_t *e = find_file(state, value);
-                    if (e) select_file(state, e);
-                }
-            } else if (startswith(cmd, "cursor:")) {
-                for (int i = 0; i < state->nfiles; i++) {
-                    if (strcmp(value[0] == '/' ?
-                                state->files[i]->d_fullname : state->files[i]->d_name,
-                                value) == 0) {
-                        state->cursor = i;
-                        goto next_cmd;
+                case 'm': { // move:
+                  move:
+                    int oldcur = state->cursor;
+                    int isabs = value[0] != '-' && value[0] != '+';
+                    long delta = strtol(value, &value, 10);
+                    if (*value == '%') delta = (delta * height)/100;
+                    if (isabs) state->cursor = delta;
+                    else state->cursor += delta;
+
+                    state->cursor = clamped(state->cursor, 0, state->nfiles-1);
+                    delta = state->cursor - oldcur;
+
+                    if (state->nfiles > height-4) {
+                        if (delta > 0) {
+                            if (state->cursor >= state->scroll + (height-4) - scrolloff)
+                                state->scroll += delta;
+                        } else if (delta < 0) {
+                            if (state->cursor <= state->scroll + scrolloff)
+                                state->scroll += delta;
+                        }
+                        //int target = clamped(state->scroll, state->cursor - (height-4) + scrolloff, state->cursor - scrolloff);
+                        //state->scroll += (delta > 0 ? 1 : -1)*MIN(abs(target-state->scroll), abs((int)delta));
+                        //state->scroll = target;
+                        state->scroll = clamped(state->scroll, state->cursor - (height-4) + 1, state->cursor);
+                        state->scroll = clamped(state->scroll, 0, state->nfiles-1 - (height-4));
+                    }
+                    if (cmd[0] == 's') { // spread:
+                        int sel = IS_SELECTED(state->files[oldcur]);
+                        for (int i = state->cursor; i != oldcur; i += (oldcur > i ? 1 : -1)) {
+                            if (sel && !IS_SELECTED(state->files[i]))
+                                select_file(state, state->files[i]);
+                            else if (!sel && IS_SELECTED(state->files[i]))
+                                deselect_file(state, state->files[i]);
+                        }
+                        lazy &= abs(oldcur - state->cursor) <= 1;
                     }
                 }
-                char *lastslash = strrchr(value, '/');
-                if (!lastslash) goto next_cmd;
-                *lastslash = '\0'; // Split in two
-                if (chdir(value) != 0) goto next_cmd;
-                strcpy(state->path, value);
-                if (lastslash[1])
-                    queue_select(state, lastslash+1);
-                cleanup_cmd();
-                goto refresh;
-            } else if (startswith(cmd, "move:")) {
-                int expand_sel = 0;
-                if (*value == 'x') {
-                    expand_sel = 1;
-                    ++value;
-                }
-                int oldcur = state->cursor;
-                int isabs = value[0] != '-' && value[0] != '+';
-                long delta = strtol(value, &value, 10);
-                if (*value == '%') delta = (delta * height)/100;
-                if (isabs) state->cursor = delta;
-                else state->cursor += delta;
-
-                state->cursor = clamped(state->cursor, 0, state->nfiles-1);
-                delta = state->cursor - oldcur;
-
-                if (state->nfiles > height-4) {
-                    if (delta > 0) {
-                        if (state->cursor >= state->scroll + (height-4) - scrolloff)
-                            state->scroll += delta;
-                    } else if (delta < 0) {
-                        if (state->cursor <= state->scroll + scrolloff)
-                            state->scroll += delta;
-                    }
-                    //int target = clamped(state->scroll, state->cursor - (height-4) + scrolloff, state->cursor - scrolloff);
-                    //state->scroll += (delta > 0 ? 1 : -1)*MIN(abs(target-state->scroll), abs((int)delta));
-                    //state->scroll = target;
-                    state->scroll = clamped(state->scroll, state->cursor - (height-4) + 1, state->cursor);
-                    state->scroll = clamped(state->scroll, 0, state->nfiles-1 - (height-4));
-                }
-                if (expand_sel) {
-                    int sel = IS_SELECTED(state->files[oldcur]);
-                    for (int i = state->cursor; i != oldcur; i += (oldcur > i ? 1 : -1)) {
-                        if (sel && !IS_SELECTED(state->files[i]))
-                            select_file(state, state->files[i]);
-                        else if (!sel && IS_SELECTED(state->files[i]))
-                            deselect_file(state, state->files[i]);
-                    }
-                    lazy &= abs(oldcur - state->cursor) <= 1;
-                }
-            } else if (startswith(cmd, "scroll:")) {
-                //int oldscroll = state->scroll;
-                int isabs = value[0] != '-' && value[0] != '+';
-                long delta = strtol(value, &value, 10);
-                if (*value == '%') delta = (delta * height)/100;
-
-                //int fudge = state->cursor - clamped(state->cursor, state->scroll + scrolloff, state->scroll + (height-4) - scrolloff);
-                if (state->nfiles > height-4) {
-                    if (isabs) state->scroll = delta;
-                    else state->scroll += delta;
-                    state->scroll = clamped(state->scroll, 0, state->nfiles-1 - (height-4));
-                }
-
-                state->cursor = clamped(state->cursor, state->scroll, state->scroll + (height-4));
-                /*
-                //if (!isabs && abs(state->scroll - oldscroll) == abs(delta)) {
-                state->cursor = clamped(state->cursor, state->scroll + scrolloff, state->scroll + (height-4) - scrolloff);
-                if (fudge && fudge < 0 != delta < 0)
-                    state->cursor += fudge;
-                    */
-                state->cursor = clamped(state->cursor, 0, state->nfiles-1);
+                default: break;
             }
           next_cmd:;
         }
@@ -1176,3 +1181,5 @@ int main(int argc, char *argv[])
 
     return ret;
 }
+
+// vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1
