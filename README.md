@@ -2,7 +2,7 @@
 
 `bb` (bitty browser) is a TUI console file browser that is:
 
-- Extremely lightweight (currently around 1.2K lines of code)
+- Extremely lightweight (currently around 1.4K lines of code)
 - Highly interoperable with unix pipelines
 - Highly customizable and hackable
 - Without any build dependencies other than the C standard library (no ncurses)
