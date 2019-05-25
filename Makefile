@@ -1,9 +1,9 @@
 PREFIX=
 CC=cc
-CFLAGS=-O0 -std=gnu99 -Wall -Wpedantic -Weverything -Wno-missing-field-initializers -Wno-padded -Wno-missing-noreturn -Wno-sign-conversion -Wno-cast-qual -Wno-sign-compare -Wno-shorten-64-to-32
+CFLAGS=-O0 -std=gnu99 -Wall -Wpedantic -Weverything -Wno-missing-field-initializers -Wno-padded -Wno-missing-noreturn -Wno-cast-qual
 LIBS=
 NAME=bb
-G=
+G=-g
 
 all: $(NAME)
 

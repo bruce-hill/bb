@@ -229,6 +229,8 @@ const char *keyname(int key)
         case KEY_CTRL_H: return "Ctrl-h";
         case KEY_CTRL_R: return "Ctrl-r";
         case KEY_CTRL_U: return "Ctrl-u";
+        case KEY_CTRL_T: return "Ctrl-t";
+        case KEY_CTRL_W: return "Ctrl-w";
         case KEY_PGDN: return "PgDn";
         case KEY_PGUP: return "PgUp";
         case KEY_MOUSE_WHEEL_DOWN: return "Scroll down";
