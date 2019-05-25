@@ -766,20 +766,27 @@ static int explore(bb_state_t *state)
                                 state->cursor += fudge;
                                 */
                             state->cursor = clamped(state->cursor, 0, state->nfiles-1);
-                       }
-                    } else { // select:
-                        lazy = 0;
-                        if (strcmp(value, "*") == 0) {
-                            for (int i = 0; i < state->nfiles; i++)
-                                select_file(state, state->files[i]);
-                        } else {
-                            entry_t *e = find_file(state, value);
-                            if (e) select_file(state, e);
+                            break;
                         }
+
+                        case 'p':
+                            goto move;
+
+                        case '\0': case 'e': // select:
+                            lazy = 0;
+                            if (strcmp(value, "*") == 0) {
+                                for (int i = 0; i < state->nfiles; i++)
+                                    select_file(state, state->files[i]);
+                            } else {
+                                entry_t *e = find_file(state, value);
+                                if (e) select_file(state, e);
+                            }
+                            break;
                     }
                 case 'c': { // cd:
                     char *rpbuf = realpath(value, NULL);
-                    if (strcmp(rpbuf, state->path)) {
+                    if (!rpbuf) continue;
+                    if (strcmp(rpbuf, state->path) == 0) {
                         free(rpbuf);
                         continue;
                     }
@@ -827,7 +834,7 @@ static int explore(bb_state_t *state)
                     goto refresh;
                 }
                 case 'm': { // move:
-                  move:
+                  move:;
                     int oldcur = state->cursor;
                     int isabs = value[0] != '-' && value[0] != '+';
                     long delta = strtol(value, &value, 10);
@@ -871,7 +878,7 @@ static int explore(bb_state_t *state)
         cleanup_cmd();
         unlink(cmdfilename);
         cmdpos = 0;
-        if (did_anything)
+        if (did_anything || !lazy)
             goto redraw;
     }
 
