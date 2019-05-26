@@ -176,8 +176,8 @@ void init_term(void)
     tcsetattr(termfd, TCSAFLUSH, &tios);
     update_term_size(0);
     signal(SIGWINCH, update_term_size);
-    // Initiate mouse tracking:
-    writez(termfd, "\033[?1000h\033[?1002h\033[?1015h\033[?1006h");
+    // Initiate mouse tracking and disable text wrapping:
+    writez(termfd, "\033[?1000h\033[?1002h\033[?1015h\033[?1006h\033[?7l");
 }
 
 void cleanup_and_exit(int sig)
@@ -188,7 +188,8 @@ void cleanup_and_exit(int sig)
         close(termfd);
         termfd = 0;
     }
-    printf("\033[?1000l\033[?1002l\033[?1015l\033[?1006l\033[?1049l\033[?25h\n"); // Restore default screen and show cursor
+    // Restore default screen, show cursor and re-enable text wrapping
+    printf("\033[?1000l\033[?1002l\033[?1015l\033[?1006l\033[?1049l\033[?7h\033[?25h\n");
     fflush(stdout);
     unlink(cmdfilename);
     exit(EXIT_FAILURE);
@@ -198,8 +199,8 @@ void close_term(void)
 {
     signal(SIGWINCH, SIG_IGN);
 
-    // Disable mouse tracking:
-    writez(termfd, "\033[?1000l\033[?1002l\033[?1015l\033[?1006l");
+    // Disable mouse tracking and re-enable text wrapping
+    writez(termfd, "\033[?1000l\033[?1002l\033[?1015l\033[?1006l\033[?7h");
 
     tcsetattr(termfd, TCSAFLUSH, &orig_termios);
     close(termfd);
