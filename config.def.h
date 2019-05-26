@@ -52,6 +52,25 @@
  */
 #include "keys.h"
 
+// Configurable options:
+extern const char *CURSOR_COLOR, *LINKDIR_COLOR, *DIR_COLOR, *LINK_COLOR, *NORMAL_COLOR,
+       *SORT_INDICATOR, *RSORT_INDICATOR, *CMDFILE_FORMAT;
+extern const int KEY_DELAY;
+
+const int KEY_DELAY = 50;
+#define SCROLLOFF MIN(5, (termheight-4)/2)
+
+const char *CMDFILE_FORMAT = "/tmp/bb.XXXXXX";
+
+const char *SORT_INDICATOR =  "↓";
+const char *RSORT_INDICATOR = "↑";
+
+const char *NORMAL_COLOR =  "\033[0m";
+const char *CURSOR_COLOR =  "\033[0;30;43m";
+const char *LINKDIR_COLOR = "\033[0;36m";
+const char *DIR_COLOR =     "\033[0;34m";
+const char *LINK_COLOR =    "\033[0;33m";
+
 #define PIPE_SELECTION_TO " printf '%s\\n' \"$@\" | "
 #define PAUSE " read -n1 -p '\033[2m...press any key to continue...\033[0m\033[?25l'"
 

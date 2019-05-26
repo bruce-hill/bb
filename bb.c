@@ -25,11 +25,6 @@
 #include "keys.h"
 
 #define BB_VERSION "0.9.0"
-#define KEY_DELAY 50
-#define SCROLLOFF MIN(5, (termheight-4)/2)
-#define SORT_INDICATOR "▼"
-#define RSORT_INDICATOR "▲"
-#define CMDFILE_FORMAT "/tmp/bb.XXXXXX"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -141,10 +136,14 @@ static void sort_files(bb_state_t *state);
 static entry_t *explore(const char *path);
 static void print_bindings(int verbose);
 
-// Global variables
+// Config options
 extern binding_t bindings[];
 extern const char *startupcmds[];
+extern const char *CURSOR_COLOR, *LINKDIR_COLOR, *DIR_COLOR, *LINK_COLOR, *NORMAL_COLOR,
+       *SORT_INDICATOR, *RSORT_INDICATOR, *CMDFILE_FORMAT;
+extern const int KEY_DELAY;
 
+// Global variables
 static struct termios orig_termios;
 static int termfd = 0;
 static int termwidth, termheight;
@@ -425,11 +424,6 @@ void render(bb_state_t *s, int lazy)
     }
 
     entry_t **files = s->files;
-    static const char *NORMAL_COLOR = "\033[0m";
-    static const char *CURSOR_COLOR = "\033[0;30;43m";
-    static const char *LINKDIR_COLOR = "\033[0;36m";
-    static const char *DIR_COLOR = "\033[0;34m";
-    static const char *LINK_COLOR = "\033[0;33m";
     for (int i = s->scroll; i < s->scroll + termheight - 3; i++) {
         if (lazy) {
             if (i == s->cursor || i == lastcursor)
@@ -471,20 +465,14 @@ void render(bb_state_t *s, int lazy)
 
         int x = 1;
         for (char *col = s->columns; *col; ++col) {
-            char posbuf[32];
+            sprintf(buf, "\033[%d;%dH\033[K", y+1, x+1);
+            bwritez(termfd, buf);
             if (col != s->columns) {
-                sprintf(posbuf, "\033[%d;%dH\033[K", y+1, x+2);
-                bwritez(termfd, posbuf);
-                if (color == CURSOR_COLOR)
-                    bwritez(termfd, "│ ");
-                else {
-                    bwritez(termfd, "\033[0;2m│\033[22m ");
-                    bwritez(termfd, color);
-                }
+                if (i == s->cursor) bwritez(termfd, " │");
+                else bwritez(termfd, " \033[37;2m│\033[22m");
+                bwritez(termfd, color);
+                bwritez(termfd, " ");
                 x += 3;
-            } else {
-                sprintf(posbuf, "\033[%d;%dH\033[K", y+1, x+1);
-                bwritez(termfd, posbuf);
             }
             switch (*col) {
                 case 's': {
