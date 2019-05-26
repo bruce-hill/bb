@@ -1244,10 +1244,10 @@ entry_t *explore(const char *path)
             }
             term_move(0, termheight-1);
             //writez(termfd, "\033[K");
-            if (binding->flags & NORMAL_TERM) {
+            if (binding->flags & NORMAL_TERM)
                 default_screen();
+            if (binding->flags & NORMAL_TERM || binding->flags & SHOW_CURSOR)
                 show_cursor();
-            }
             close_term();
             run_cmd_on_selection(state, binding->command);
             init_term();
