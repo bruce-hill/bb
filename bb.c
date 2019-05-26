@@ -27,6 +27,8 @@
 #define BB_VERSION "0.9.0"
 #define KEY_DELAY 50
 #define SCROLLOFF MIN(5, (termheight-4)/2)
+#define SORT_INDICATOR "▼"
+#define RSORT_INDICATOR "▲"
 #define CMDFILE_FORMAT "/tmp/bb.XXXXXX"
 
 #ifndef PATH_MAX
@@ -38,7 +40,9 @@
 #define writez(fd, str) write(fd, str, strlen(str))
 #define IS_SELECTED(p) (((p)->atme) != NULL)
 #define LLREMOVE(e) do { \
-    (e)->next->atme = (e)->atme; \
+    if ((e)->next) { \
+        (e)->next->atme = (e)->atme; \
+    } \
     *((e)->atme) = (e)->next; \
     (e)->next = NULL; \
     (e)->atme = NULL; \
@@ -55,8 +59,7 @@
         close_term(); \
     } \
     fprintf(stderr, __VA_ARGS__); \
-    if (errno) \
-        fprintf(stderr, "\n%s", strerror(errno)); \
+    if (errno) fprintf(stderr, "\n%s", strerror(errno)); \
     fprintf(stderr, "\n"); \
     cleanup_and_exit(1); \
 } while (0)
@@ -123,7 +126,7 @@ static void* memcheck(void *p);
 static int unprintables(char *s);
 static int run_cmd_on_selection(bb_state_t *s, const char *cmd);
 static void term_move(int x, int y);
-static size_t bwrite_escaped(int fd, const char *str, const char *reset_color);
+static void bwrite_escaped(int fd, const char *str, const char *reset_color);
 static void render(bb_state_t *s, int lazy);
 static int compare_files(void *r, const void *v1, const void *v2);
 static int find_file(bb_state_t *s, const char *name);
@@ -308,25 +311,35 @@ static void bmove(int fd, int x, int y)
     if (len > 0)
         bwrite(fd, buf, (size_t)len);
 }
-static size_t bwrite_escaped(int fd, const char *str, const char *color)
+static void bwrite_escaped(int fd, const char *str, const char *color)
 {
     static const char *escapes = "       abtnvfr             e";
-    size_t wrote = 0, maxcharlen = (size_t)strlen(color) + 10;
+    size_t maxcharlen = (size_t)strlen(color) + 10;
     for (const char *c = str; *c; ++c) {
         if (SCREENBUF_SIZE - screenbufpos < maxcharlen)
             bflush(fd);
-        if (*c <= '\x1b' && escapes[(int)*c] != ' ') { // "\n", etc.
+        if ((*c & 0xE0) == 0xC0 && (c[1] & 0xC0) == 0x80) { // UTF8 2-byte
+            screenbuf[screenbufpos++] = *(c++);
+            screenbuf[screenbufpos++] = *c;
+        } else if ((*c & 0xF0) == 0xE0 && (c[1] & 0xC0) == 0x80
+                   && (c[2] & 0xC0) == 0x80) { // UTF8 3-byte
+            screenbuf[screenbufpos++] = *(c++);
+            screenbuf[screenbufpos++] = *(c++);
+            screenbuf[screenbufpos++] = *c;
+        } else if ((*c & 0xF8) == 0xF0 && (c[1] & 0xC0) == 0x80
+                   && (c[2] & 0xC0) == 0x80 && (c[3] & 0xC0) == 0x80 ) { // UTF8 4-byte
+            screenbuf[screenbufpos++] = *(c++);
+            screenbuf[screenbufpos++] = *(c++);
+            screenbuf[screenbufpos++] = *(c++);
+            screenbuf[screenbufpos++] = *c;
+        } else if (*c > 0 && *c <= '\x1b' && escapes[(int)*c] != ' ') { // "\n", etc.
             screenbufpos += (size_t)sprintf(&screenbuf[screenbufpos], "\033[31m\\%c%s", escapes[(int)*c], color);
-            wrote += 2;
         } else if (!(' ' <= *c && *c <= '~')) { // "\x02", etc.
             screenbufpos += (size_t)sprintf(&screenbuf[screenbufpos], "\033[31m\\x%02X%s", *c, color);
-            wrote += 4;
         } else {
             screenbuf[screenbufpos++] = *c;
-            wrote += 1;
         }
     }
-    return wrote;
 }
 
 
@@ -349,19 +362,22 @@ void render(bb_state_t *s, int lazy)
         }
     }
     colnamew = termwidth - 1;
+    int namecols = 0;
     for (char *col = s->columns; *col; ++col) {
         switch (*col) {
-            case 's':
-                colnamew -= colsizew + 3;
-                break;
+            case 's': colnamew -= colsizew;
+                      break;
             case 'm': case 'c': case 'a':
-                colnamew -= coldatew + 3;
-                break;
-            case 'p':
-                colnamew -= colpermw + 3;
-                break;
+                      colnamew -= coldatew;
+                      break;
+            case 'p': colnamew -= colpermw;
+                      break;
+            case 'n': namecols++;
+                      break;
         }
     }
+    colnamew -= 3*strlen(s->columns);
+    colnamew /= namecols;
 
     if (!lazy) {
         // Path
@@ -372,7 +388,7 @@ void render(bb_state_t *s, int lazy)
 
         // Columns
         bmove(termfd,0,1);
-        bwritez(termfd, " \033[0;44;30m");
+        bwritez(termfd, "\033[41m \033[0;44;30m");
         for (char *col = s->columns; *col; ++col) {
             const char *colname;
             int colwidth = 0;
@@ -399,11 +415,13 @@ void render(bb_state_t *s, int lazy)
                     continue;
             }
             if (col != s->columns) bwritez(termfd, " │ ");
-            bwritez(termfd, DESCENDING(s->sort) == *col ? (IS_REVERSED(s->sort) ? "▲" : "▼") : " ");
+            if (DESCENDING(s->sort) != *col) bwritez(termfd, " ");
+            else if (IS_REVERSED(s->sort)) bwritez(termfd, RSORT_INDICATOR);
+            else bwritez(termfd, SORT_INDICATOR);
             for (ssize_t i = bwritez(termfd, colname); i < colwidth-1; i++)
                 bwrite(termfd, " ", 1);
         }
-        bwritez(termfd, "\033[0m");
+        bwritez(termfd, " \033[K\033[0m");
     }
 
     entry_t **files = s->files;
@@ -451,8 +469,23 @@ void render(bb_state_t *s, int lazy)
             color = NORMAL_COLOR;
         bwritez(termfd, color);
 
+        int x = 1;
         for (char *col = s->columns; *col; ++col) {
-            if (col != s->columns) bwritez(termfd, " │ ");
+            char posbuf[32];
+            if (col != s->columns) {
+                sprintf(posbuf, "\033[%d;%dH\033[K", y+1, x+2);
+                bwritez(termfd, posbuf);
+                if (color == CURSOR_COLOR)
+                    bwritez(termfd, "│ ");
+                else {
+                    bwritez(termfd, "\033[0;2m│\033[22m ");
+                    bwritez(termfd, color);
+                }
+                x += 3;
+            } else {
+                sprintf(posbuf, "\033[%d;%dH\033[K", y+1, x+1);
+                bwritez(termfd, posbuf);
+            }
             switch (*col) {
                 case 's': {
                     int j = 0;
@@ -464,22 +497,26 @@ void render(bb_state_t *s, int lazy)
                     }
                     sprintf(buf, "%6.*f%c", j > 0 ? 1 : 0, bytes, units[j]);
                     bwritez(termfd, buf);
+                    x += colsizew;
                     break;
                 }
 
                 case 'm':
                     strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_mtime)));
                     bwritez(termfd, buf);
+                    x += coldatew;
                     break;
 
                 case 'c':
                     strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_ctime)));
                     bwritez(termfd, buf);
+                    x += coldatew;
                     break;
 
                 case 'a':
                     strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_atime)));
                     bwritez(termfd, buf);
+                    x += coldatew;
                     break;
 
                 case 'p':
@@ -488,38 +525,35 @@ void render(bb_state_t *s, int lazy)
                     buf[2] = '0' + ((entry->info.st_mode >> 3) & 7);
                     buf[3] = '0' + ((entry->info.st_mode >> 0) & 7);
                     bwrite(termfd, buf, 4);
+                    x += colpermw;
                     break;
 
                 case 'n': {
-                    ssize_t wrote = bwrite(termfd, " ", 1);
                     if (entry->d_escname)
-                        wrote += bwrite_escaped(termfd, entry->d_name, color);
+                        bwrite_escaped(termfd, entry->d_name, color);
                     else
-                        wrote += bwritez(termfd, entry->d_name);
+                        bwritez(termfd, entry->d_name);
                     if (entry->d_isdir) {
                         bwritez(termfd, "/");
-                        ++wrote;
                     }
 
                     if (entry->d_linkname) {
                         bwritez(termfd, "\033[2m -> ");
-                        wrote += 4;
                         if (entry->d_esclink)
-                            wrote += bwrite_escaped(termfd, entry->d_linkname, color);
+                            bwrite_escaped(termfd, entry->d_linkname, color);
                         else
-                            wrote += bwritez(termfd, entry->d_linkname);
+                            bwritez(termfd, entry->d_linkname);
                         if (entry->d_isdir) {
                             bwritez(termfd, "/");
-                            ++wrote;
                         }
+                        bwritez(termfd, "\033[22m");
                     }
-                    while (wrote++ < colnamew - 1)
-                        bwrite(termfd, " ", 1);
+                    x += colnamew;
                     break;
                 }
             }
         }
-        bwritez(termfd, " \033[0m\033[K"); // Reset color and attributes
+        bwritez(termfd, " \033[K\033[0m"); // Reset color and attributes
     }
 
     static const char *help = "Press '?' to see key bindings ";
@@ -859,6 +893,7 @@ execute_cmd(bb_state_t *state, const char *cmd)
         case 's': // sort:, select:, scroll:, spread:
             switch (cmd[1]) {
                 case 'o': // sort:
+                    if (!value) return BB_INVALID;
                     switch (*value) {
                         case 'n': case 'N': case 's': case 'S':
                         case 'p': case 'P': case 'm': case 'M':
@@ -870,6 +905,7 @@ execute_cmd(bb_state_t *state, const char *cmd)
                     }
                     return BB_INVALID;
                 case 'c': { // scroll:
+                    if (!value) return BB_INVALID;
                     // TODO: figure out the best version of this
                     int isdelta = value[0] == '+' || value[0] == '-';
                     int n = (int)strtol(value, &value, 10);
@@ -886,6 +922,7 @@ execute_cmd(bb_state_t *state, const char *cmd)
                     goto move;
 
                 case '\0': case 'e': // select:
+                    if (!value) value = state->files[state->cursor]->d_name;
                     if (strcmp(value, "*") == 0) {
                         for (int i = 0; i < state->nfiles; i++)
                             select_file(state->files[i]);
@@ -900,6 +937,7 @@ execute_cmd(bb_state_t *state, const char *cmd)
                 case 'd': { // cd:
                     char pbuf[PATH_MAX];
                   cd:
+                    if (!value) return BB_INVALID;
                     if (value[0] == '~') {
                         char *home;
                         if (!(home = getenv("HOME")))
@@ -937,6 +975,7 @@ execute_cmd(bb_state_t *state, const char *cmd)
                     return BB_REFRESH;
             }
         case 't': { // toggle:
+            if (!value) value = state->files[state->cursor]->d_name;
             int f = find_file(state, value);
             if (f < 0) return BB_INVALID;
             entry_t *e = state->files[f];
@@ -953,6 +992,7 @@ execute_cmd(bb_state_t *state, const char *cmd)
                 populate_files(state, state->path);
                 return BB_REFRESH;
             } else if (value) { // deselect:
+                if (!value) value = state->files[state->cursor]->d_name;
                 if (strcmp(value, "*") == 0) {
                     clear_selection();
                     return BB_DIRTY;
@@ -1004,6 +1044,7 @@ execute_cmd(bb_state_t *state, const char *cmd)
                 default: { // move:
                     int oldcur, isdelta, n;
                   move:
+                    if (!value) return BB_INVALID;
                     oldcur = state->cursor;
                     isdelta = value[0] == '-' || value[0] == '+';
                     n = (int)strtol(value, &value, 10);
