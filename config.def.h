@@ -28,7 +28,7 @@
         dots[:yes|:no]           Toggle whether dotfiles are visible
         goto:<filename>          Move the cursor to <filename> (changing directory if needed)
         jump:<key>               Jump to the mark associated with <key>
-        mark:<key>[;<path>]      Associate <key> with <path> (or current dir, if blank)
+        mark:<key>[=<path>]      Associate <key> with <path> (or current dir, if blank)
         move:<num*>              Move the cursor a numeric amount
         quit                     Quit bb
         refresh                  Refresh the file listing
@@ -74,8 +74,8 @@ const char *startupcmds[] = {
     // User-defined startup commands can go here
     //////////////////////////////////////////////
     // Set some default marks:
-    "+mark:0", "+mark:~;~", "+mark:h;~", "+mark:/;/", "+mark:c;~/.config",
-    "+mark:l;~/.local",
+    "+mark:0", "+mark:~=~", "+mark:h=~", "+mark:/=/", "+mark:c=~/.config",
+    "+mark:l=~/.local",
     // Default column and sorting options:
     "+columns:smpn", "+sort:n",
     NULL, // NULL-terminated array

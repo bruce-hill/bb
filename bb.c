@@ -15,6 +15,7 @@
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -92,9 +93,7 @@ typedef struct entry_s {
     int visible;
     int d_isdir : 1, d_escname : 1, d_esclink : 1;
     ino_t      d_ino;
-    __uint16_t d_reclen;
     __uint8_t  d_type;
-    __uint16_t  d_namlen;
     struct stat info;
     char *d_name, *d_linkname;
     char d_fullname[1];
@@ -234,7 +233,9 @@ int run_cmd_on_selection(bb_state_t *s, const char *cmd)
         args[i++] = "sh";
         args[i++] = "-c";
         args[i++] = (char*)cmd;
+#ifdef __APPLE__
         args[i++] = "--";
+#endif
         entry_t *first = firstselected ? firstselected : s->files[s->cursor];
         for (entry_t *e = first; e; e = e->next) {
             if (i >= space) {
@@ -486,7 +487,10 @@ void render(bb_state_t *s, int lazy)
 
                 case 'n': {
                     ssize_t wrote = bwrite(termfd, " ", 1);
-                    wrote += bwrite_escaped(termfd, entry->d_name, color);
+                    if (entry->d_escname)
+                        wrote += bwrite_escaped(termfd, entry->d_name, color);
+                    else
+                        wrote += bwritez(termfd, entry->d_name);
                     if (entry->d_isdir) {
                         bwritez(termfd, "/");
                         ++wrote;
@@ -495,7 +499,10 @@ void render(bb_state_t *s, int lazy)
                     if (entry->d_linkname) {
                         bwritez(termfd, "\033[2m -> ");
                         wrote += 4;
-                        wrote += bwrite_escaped(termfd, entry->d_linkname, color);
+                        if (entry->d_esclink)
+                            wrote += bwrite_escaped(termfd, entry->d_linkname, color);
+                        else
+                            wrote += bwritez(termfd, entry->d_linkname);
                         if (entry->d_isdir) {
                             bwritez(termfd, "/");
                             ++wrote;
@@ -751,18 +758,17 @@ void populate_files(bb_state_t *s, const char *path)
                 d_esclink = unprintables(linkbuf) > 0;
         }
 
-        entry_t *entry = memcheck(calloc(sizeof(entry_t) + pathlen + dp->d_namlen + 2 + (size_t)(linkpathlen + 1), 1));
+        entry_t *entry = memcheck(calloc(sizeof(entry_t) + pathlen + strlen(dp->d_name) + 2 + (size_t)(linkpathlen + 1), 1));
         if (pathlen > MAX_PATH) err("Path is too big");
         strncpy(entry->d_fullname, s->path, pathlen);
         entry->d_fullname[pathlen] = '/';
         entry->d_name = &entry->d_fullname[pathlen + 1];
-        strncpy(entry->d_name, dp->d_name, dp->d_namlen + 1);
+        strcpy(entry->d_name, dp->d_name);
         if (linkpathlen >= 0) {
-            entry->d_linkname = entry->d_name + dp->d_namlen + 2;
+            entry->d_linkname = entry->d_name + strlen(dp->d_name) + 2;
             strncpy(entry->d_linkname, linkbuf, linkpathlen+1);
         }
         entry->d_ino = dp->d_ino;
-        entry->d_reclen = dp->d_reclen;
         entry->d_type = dp->d_type;
         entry->d_isdir = dp->d_type == DT_DIR;
         ++entry->visible;
@@ -771,9 +777,9 @@ void populate_files(bb_state_t *s, const char *path)
             if (stat(entry->d_fullname, &statbuf) == 0)
                 entry->d_isdir = S_ISDIR(statbuf.st_mode);
         }
-        entry->d_namlen = dp->d_namlen;
         entry->next = NULL; entry->atme = NULL;
         entry->d_escname = unprintables(entry->d_name) > 0;
+        entry->d_esclink = d_esclink;
         lstat(entry->d_fullname, &entry->info);
         s->files[s->nfiles++] = entry;
       next_file:;
@@ -981,7 +987,7 @@ execute_cmd(bb_state_t *state, const char *cmd)
                     if (!value) return BB_INVALID;
                     char key = value[0];
                     if (key < 0) return BB_INVALID;
-                    value = strchr(value, ';');
+                    value = strchr(value, '=');
                     if (!value) value = state->path;
                     else ++value;
                     if (state->marks[(int)key])
@@ -1152,9 +1158,11 @@ entry_t *explore(const char *path)
                     goto redraw;
                 }
                 set_cursor(state, clicked);
-                if (dt_ms <= 200)
+                if (dt_ms <= 200) {
                     key = KEY_MOUSE_DOUBLE_LEFT;
-                goto user_bindings;
+                    goto user_bindings;
+                }
+                goto redraw;
             }
             break;
         }
