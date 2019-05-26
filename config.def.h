@@ -90,12 +90,12 @@ binding_t bindings[] = {
     //////////////////////////////////////////////////////////////////////////
     {{'?'},                  "bb -b | less -r", "Show the help menu", NORMAL_TERM},
     {{KEY_CTRL_H},           "<placeholder>", "Figure out what key does"},
-    {{'q', 'Q'},             "bb +q", "Quit"},
-    {{'k', KEY_ARROW_UP},    "+m:-1", "Move up"},
-    {{'j', KEY_ARROW_DOWN},  "+m:+1", "Move down"},
-    {{'h', KEY_ARROW_LEFT},  "bb \"+cd:..\"", "Go up a folder"},
+    {{'q', 'Q'},             "+quit", "Quit"},
+    {{'k', KEY_ARROW_UP},    "+move:-1", "Move up"},
+    {{'j', KEY_ARROW_DOWN},  "+move:+1", "Move down"},
+    {{'h', KEY_ARROW_LEFT},  "+cd:..", "Go up a folder"},
     {{'l', KEY_ARROW_RIGHT}, "test -d \"$BBCURSOR\" && bb \"+cd:$BBCURSOR\"", "Enter a folder"},
-    {{' ','v','V'},          "bb \"+t:$BBCURSOR\"", "Toggle selection"},
+    {{' ','v','V'},          "+toggle", "Toggle selection"},
     {{'e'},                  "$EDITOR \"$@\"", "Edit file in $EDITOR", NORMAL_TERM},
     {{'\r', KEY_MOUSE_DOUBLE_LEFT},
 #ifdef __APPLE__
@@ -106,8 +106,6 @@ elif file -bI \"$BBCURSOR\" | grep '^\\(text/\\|inode/empty\\)' >/dev/null; then
 else open \"$BBCURSOR\"; fi",
 #else
 "if test -d \"$BBCURSOR\"; then bb \"+cd:$BBCURSOR\";\n\
-elif test -x \"$BBCURSOR\"; then \"$BBCURSOR\";\n\
-    read -n1 -p '\n\033[2m...press any key to continue...\033[0m';\n\
 elif file -bi \"$BBCURSOR\" | grep '^\\(text/\\|inode/empty\\)' >/dev/null; then $EDITOR \"$BBCURSOR\";\n\
 else xdg-open \"$BBCURSOR\"; fi",
 #endif
@@ -139,24 +137,24 @@ else xdg-open \"$BBCURSOR\"; fi",
     {{'P'},                  "read -p 'Select pattern: ' patt && "
                              "for f; do echo \"$f\" | grep \"$patt\" >/dev/null 2>/dev/null && bb \"+sel:$f\"; done",
                              "Regex select files"},
-    {{'J'},                  "bb '+spread:+1'", "Spread selection down"},
-    {{'K'},                  "bb '+spread:-1'", "Spread selection up"},
+    {{'J'},                  "+spread:+1", "Spread selection down"},
+    {{'K'},                  "+spread:-1", "Spread selection up"},
     {{'s'}, "read -n1 -p 'Sort \033[1m(a)\033[22mlphabetic "
             "\033[1m(s)\033[22mize \033[1m(m)\033[22modification \033[1m(c)\033[22mcreation "
             "\033[1m(a)\033[22maccess \033[1m(r)\033[22mandom \033[1m(p)\033[22mermissions:\033[0m ' sort "
             "&& bb \"+sort:$sort\"", "Sort by..."},
     {{'#'},                  "read -p 'Set columns: ' cols && bb \"+cols:$cols\"", "Set columns"},
-    {{'.'},                  "bb +dots", "Toggle dotfiles"},
-    {{'g', KEY_HOME},        "bb +m:0", "Go to first file"},
-    {{'G', KEY_END},         "bb +m:100%n", "Go to last file"},
-    {{KEY_ESC},              "bb '+d:*'", "Clear selection"},
-    {{KEY_F5, KEY_CTRL_R},   "bb +r", "Refresh"},
-    {{KEY_CTRL_A},           "bb '+select:*'", "Select all files in current folder"},
-    {{KEY_PGDN},             "bb '+scroll:+100%'", "Page down"},
-    {{KEY_PGUP},             "bb '+scroll:-100%'", "Page up"},
-    {{KEY_CTRL_D},           "bb '+scroll:+50%'", "Half page down"},
-    {{KEY_CTRL_U},           "bb '+scroll:-50%'", "Half page up"},
-    {{KEY_MOUSE_WHEEL_DOWN}, "bb '+scroll:+3'", "Scroll down"},
-    {{KEY_MOUSE_WHEEL_UP},   "bb '+scroll:-3'", "Scroll up"},
+    {{'.'},                  "+dots", "Toggle dotfiles"},
+    {{'g', KEY_HOME},        "+move:0", "Go to first file"},
+    {{'G', KEY_END},         "+move:100%n", "Go to last file"},
+    {{KEY_ESC},              "+deselect:*", "Clear selection"},
+    {{KEY_F5, KEY_CTRL_R},   "+refresh", "Refresh"},
+    {{KEY_CTRL_A},           "+select:*", "Select all files in current folder"},
+    {{KEY_PGDN},             "+scroll:+100%", "Page down"},
+    {{KEY_PGUP},             "+scroll:-100%", "Page up"},
+    {{KEY_CTRL_D},           "+scroll:+50%", "Half page down"},
+    {{KEY_CTRL_U},           "+scroll:-50%", "Half page up"},
+    {{KEY_MOUSE_WHEEL_DOWN}, "+scroll:+3", "Scroll down"},
+    {{KEY_MOUSE_WHEEL_UP},   "+scroll:-3", "Scroll up"},
     {0}, // Array must be 0-terminated
 };
