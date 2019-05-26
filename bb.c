@@ -31,9 +31,6 @@
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
 #define writez(fd, str) write(fd, str, strlen(str))
 #define IS_SELECTED(p) (((p)->atme) != NULL)
-// This uses the intrusive linked list offsets
-//#define PREV_STATE(s) ((s) == firststate ? NULL : (bb_state_t*)((s)->atme - offsetof(bb_state_t, next)))
-#define PREV_STATE(s) ((s) == firststate ? NULL : (bb_state_t*)((long)(s)->atme + (long)(s) - (long)(&(s)->atme)))
 #define LLREMOVE(e) do { \
     (e)->next->atme = (e)->atme; \
     *((e)->atme) = (e)->next; \
@@ -83,48 +80,46 @@ typedef enum {
     RSORT_RANDOM = 'R',
 } sortmethod_t;
 
-/* Both entry_t and bb_state_t use intrusive linked lists.  This means they can
- * only belong to one list at a time, in this case the list of selected entries
- * and the list of states, respectively. 'atme' is an indirect pointer to
- * either the 'next' field of the previous list member, or the variable that
- * points to the first list member. In other words, item->next->atme == &item->next
- * and firstitem->atme == &firstitem.
+/* entry_t uses intrusive linked lists.  This means entries can only belong to
+ * one list at a time, in this case the list of selected entries. 'atme' is an
+ * indirect pointer to either the 'next' field of the previous list member, or
+ * the variable that points to the first list member. In other words,
+ * item->next->atme == &item->next and firstitem->atme == &firstitem.
  */
 typedef struct entry_s {
     struct entry_s *next, **atme;
     int visible;
-    int d_isdir : 1;
+    int d_isdir : 1, d_escname : 1, d_esclink : 1;
     ino_t      d_ino;
     __uint16_t d_reclen;
     __uint8_t  d_type;
     __uint16_t  d_namlen;
-    char *d_name;
+    struct stat info;
+    char *d_name, *d_linkname;
     char d_fullname[1];
 } entry_t;
 
 typedef struct bb_state_s {
-    struct bb_state_s *next, **atme;
     entry_t **files;
     char path[MAX_PATH];
-    char *to_select;
     int nfiles;
     int scroll, cursor;
     int showhidden;
     char columns[16];
     char sort;
+    char *marks[128]; // Mapping from key to directory
 } bb_state_t;
 
 // Functions
-static bb_state_t *new_state(bb_state_t *template);
-static void delete_state(bb_state_t *s);
 static void update_term_size(int sig);
 static void init_term(void);
 static void cleanup_and_exit(int sig);
 static void close_term(void);
 static void* memcheck(void *p);
+static int unprintables(char *s);
 static int run_cmd_on_selection(bb_state_t *s, const char *cmd);
 static void term_move(int x, int y);
-static int write_escaped(int fd, const char *str, size_t n, const char *reset_color);
+static size_t bwrite_escaped(int fd, const char *str, const char *reset_color);
 static void render(bb_state_t *s, int lazy);
 static int compare_files(void *r, const void *v1, const void *v2);
 static int find_file(bb_state_t *s, const char *name);
@@ -141,6 +136,8 @@ static void print_bindings(int verbose);
 
 // Global variables
 extern binding_t bindings[];
+extern const char *startupcmds[];
+
 static struct termios orig_termios;
 static int termfd = 0;
 static int termwidth, termheight;
@@ -150,47 +147,7 @@ static const int colsizew = 7, coldatew = 19, colpermw = 4;
 static int colnamew;
 static struct timespec lastclick = {0, 0};
 static entry_t *firstselected = NULL;
-static bb_state_t *firststate = NULL;
 
-
-bb_state_t *new_state(bb_state_t *template)
-{
-    bb_state_t *s = memcheck(calloc(1, sizeof(bb_state_t)));
-    if (template) {
-        populate_files(s, template->path);
-        s->cursor = template->cursor;
-        s->scroll = template->scroll;
-        s->showhidden = template->showhidden;
-        strcpy(s->columns, template->columns);
-        s->sort = template->sort;
-        sort_files(s);
-    } else {
-        s->sort = 'n';
-        strncpy(s->columns, "smpn", sizeof(s->columns));
-    }
-    return s;
-}
-
-void delete_state(bb_state_t *s)
-{
-    if (s->files) {
-        for (int i = 0; i < s->nfiles; i++) {
-            entry_t *e = s->files[i];
-            --e->visible;
-            if (!IS_SELECTED(e))
-                free(e);
-        }
-        free(s->files);
-    }
-    if (s->to_select)
-        free(s->to_select);
-
-    LLREMOVE(s);
-    memset(s, 'X', sizeof(bb_state_t)); // Just to be safe
-    free(s);
-    if (!firststate)
-        cleanup_and_exit(0);
-}
 
 void update_term_size(int sig)
 {
@@ -233,7 +190,7 @@ void cleanup_and_exit(int sig)
     printf("\033[?1000l\033[?1002l\033[?1015l\033[?1006l\033[?1049l\033[?25h\n"); // Restore default screen and show cursor
     fflush(stdout);
     unlink(cmdfilename);
-    exit(1);
+    exit(EXIT_FAILURE);
 }
 
 void close_term(void)
@@ -252,6 +209,13 @@ void* memcheck(void *p)
 {
     if (!p) err("Allocation failure");
     return p;
+}
+
+int unprintables(char *s)
+{
+    int count = 0;
+    for ( ; *s; ++s) count += *s < ' ';
+    return count;
 }
 
 int run_cmd_on_selection(bb_state_t *s, const char *cmd)
@@ -275,7 +239,7 @@ int run_cmd_on_selection(bb_state_t *s, const char *cmd)
                 space += 100;
                 args = memcheck(realloc(args, space*sizeof(char*)));
             }
-            args[i++] = e->d_name;
+            args[i++] = e->d_fullname;
         }
         args[i] = NULL;
 
@@ -305,42 +269,63 @@ void term_move(int x, int y)
         write(termfd, buf, (size_t)len);
 }
 
-int write_escaped(int fd, const char *str, size_t n, const char *reset_color)
+static char *screenbuf = NULL;
+#define SCREENBUF_SIZE ((size_t)((2*getpagesize()) - 128))
+static size_t screenbufpos = 0;
+static inline void bflush(int fd)
 {
-    // Returns number of *visible* characters written, not including coloring
-    // escapes['\n'] == 'n', etc.
-    static const char *escapes = "       abtnvfr             e";
-    char buf[5];
-    int ret = 0;
-    size_t backlog = 0;
-    for (size_t i = 0; i < n; i++) {
-        int escapelen = 0;
-        if (str[i] <= '\x1b' && escapes[(int)str[i]] != ' ')
-            escapelen = sprintf(buf, "\\%c", escapes[(int)str[i]]);
-        else if (!(' ' <= str[i] && str[i] <= '~'))
-            escapelen = sprintf(buf, "\\x%02X", str[i]);
-        else {
-            ++backlog;
-            ++ret;
-            continue;
-        }
-        ret += escapelen;
-
-        if (backlog > 0) {
-            write(fd, &str[i-backlog], backlog);
-            backlog = 0;
-        }
-        writez(fd, "\033[31m");
-        write(fd, buf, (size_t)escapelen);
-        writez(fd, reset_color);
+    if (screenbufpos == 0) return;
+    ssize_t wrote;
+    size_t i = 0;
+    while (screenbufpos > 0 && (wrote = write(fd, &screenbuf[i], screenbufpos - i)) > 0) {
+        i += (size_t)wrote;
     }
-    if (backlog > 0)
-        write(fd, &str[n-backlog], backlog);
-    return ret;
+    screenbufpos = 0;
 }
+static ssize_t bwrite(int fd, const char *str, size_t n)
+{
+    if (screenbufpos + n >= SCREENBUF_SIZE)
+        bflush(fd);
+    memcpy(screenbuf + screenbufpos, str, n);
+    screenbufpos += n;
+    return (ssize_t)n;
+}
+static ssize_t bwritez(int fd, const char *str)
+{
+    return bwrite(fd, str, strlen(str));
+}
+static void bmove(int fd, int x, int y)
+{
+    static char buf[32] = {0};
+    int len = snprintf(buf, sizeof(buf), "\033[%d;%dH", y+1, x+1);
+    if (len > 0)
+        bwrite(fd, buf, (size_t)len);
+}
+static size_t bwrite_escaped(int fd, const char *str, const char *color)
+{
+    static const char *escapes = "       abtnvfr             e";
+    size_t wrote = 0, maxcharlen = (size_t)strlen(color) + 10;
+    for (const char *c = str; *c; ++c) {
+        if (SCREENBUF_SIZE - screenbufpos < maxcharlen)
+            bflush(fd);
+        if (*c <= '\x1b' && escapes[(int)*c] != ' ') { // "\n", etc.
+            screenbufpos += (size_t)sprintf(&screenbuf[screenbufpos], "\033[31m\\%c%s", escapes[(int)*c], color);
+            wrote += 2;
+        } else if (!(' ' <= *c && *c <= '~')) { // "\x02", etc.
+            screenbufpos += (size_t)sprintf(&screenbuf[screenbufpos], "\033[31m\\x%02X%s", *c, color);
+            wrote += 4;
+        } else {
+            screenbuf[screenbufpos++] = *c;
+            wrote += 1;
+        }
+    }
+    return wrote;
+}
+
 
 void render(bb_state_t *s, int lazy)
 {
+    bflush(termfd);
     static int lastcursor = -1, lastscroll = -1;
     char buf[64];
     if (lastcursor == -1 || lastscroll == -1)
@@ -350,10 +335,10 @@ void render(bb_state_t *s, int lazy)
         // Use terminal scrolling:
         if (lastscroll > s->scroll) {
             int n = sprintf(buf, "\033[3;%dr\033[%dT\033[1;%dr", termheight-1, lastscroll - s->scroll, termheight);
-            write(termfd, buf, (size_t)n);
+            bwrite(termfd, buf, (size_t)n);
         } else if (lastscroll < s->scroll) {
             int n = sprintf(buf, "\033[3;%dr\033[%dS\033[1;%dr", termheight-1, s->scroll - lastscroll, termheight);
-            write(termfd, buf, (size_t)n);
+            bwrite(termfd, buf, (size_t)n);
         }
     }
     colnamew = termwidth - 1;
@@ -373,23 +358,14 @@ void render(bb_state_t *s, int lazy)
 
     if (!lazy) {
         // Path
-        term_move(0,0);
-        char tabnum[] = "1)";
-        for (bb_state_t *si = firststate; si; si = si->next) {
-            const char *color = si == s ? "\033[0;1;37m" : "\033[0;2;37m";
-            writez(termfd, color);
-            write(termfd, tabnum, 2);
-            ++tabnum[0];
-            // TODO error check
-            char *title = si == s ? si->path : strrchr(si->path, '/') + 1;
-            write_escaped(termfd, title, strlen(title), color);
-            writez(termfd, " ");
-        }
-        writez(termfd, "\033[K\033[0m");
+        bmove(termfd,0,0);
+        const char *color = "\033[0;1;37m";
+        bwrite_escaped(termfd, s->path, color);
+        bwritez(termfd, " \033[K\033[0m");
 
         // Columns
-        term_move(0,1);
-        writez(termfd, " \033[0;44;30m");
+        bmove(termfd,0,1);
+        bwritez(termfd, " \033[0;44;30m");
         for (char *col = s->columns; *col; ++col) {
             const char *colname;
             int colwidth = 0;
@@ -415,12 +391,12 @@ void render(bb_state_t *s, int lazy)
                 default:
                     continue;
             }
-            if (col != s->columns) writez(termfd, " │ ");
-            writez(termfd, DESCENDING(s->sort) == *col ? (IS_REVERSED(s->sort) ? "▲" : "▼") : " ");
-            for (ssize_t i = writez(termfd, colname); i < colwidth-1; i++)
-                write(termfd, " ", 1);
+            if (col != s->columns) bwritez(termfd, " │ ");
+            bwritez(termfd, DESCENDING(s->sort) == *col ? (IS_REVERSED(s->sort) ? "▲" : "▼") : " ");
+            for (ssize_t i = bwritez(termfd, colname); i < colwidth-1; i++)
+                bwrite(termfd, " ", 1);
         }
-        writez(termfd, "\033[0m");
+        bwritez(termfd, "\033[0m");
     }
 
     entry_t **files = s->files;
@@ -440,21 +416,18 @@ void render(bb_state_t *s, int lazy)
 
       do_render:;
         int y = i - s->scroll + 2;
-        term_move(0, y);
+        bmove(termfd,0, y);
         if (i >= s->nfiles) {
-            writez(termfd, "\033[K");
+            bwritez(termfd, "\033[K");
             continue;
         }
 
         entry_t *entry = files[i];
-        struct stat info = {0};
-        lstat(entry->d_fullname, &info);
-
         { // Selection box:
             if (IS_SELECTED(entry))
-                writez(termfd, "\033[41m \033[0m");
+                bwritez(termfd, "\033[41m \033[0m");
             else
-                writez(termfd, " ");
+                bwritez(termfd, " ");
         }
 
         const char *color;
@@ -468,84 +441,81 @@ void render(bb_state_t *s, int lazy)
             color = LINK_COLOR;
         else
             color = NORMAL_COLOR;
-        writez(termfd, color);
+        bwritez(termfd, color);
 
         for (char *col = s->columns; *col; ++col) {
-            if (col != s->columns) writez(termfd, " │ ");
+            if (col != s->columns) bwritez(termfd, " │ ");
             switch (*col) {
                 case 's': {
                     int j = 0;
                     const char* units = "BKMGTPEZY";
-                    double bytes = (double)info.st_size;
+                    double bytes = (double)entry->info.st_size;
                     while (bytes > 1024) {
                         bytes /= 1024;
                         j++;
                     }
                     sprintf(buf, "%6.*f%c", j > 0 ? 1 : 0, bytes, units[j]);
-                    writez(termfd, buf);
+                    bwritez(termfd, buf);
                     break;
                 }
 
                 case 'm':
-                    strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(info.st_mtime)));
-                    writez(termfd, buf);
+                    strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_mtime)));
+                    bwritez(termfd, buf);
                     break;
 
                 case 'c':
-                    strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(info.st_ctime)));
-                    writez(termfd, buf);
+                    strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_ctime)));
+                    bwritez(termfd, buf);
                     break;
 
                 case 'a':
-                    strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(info.st_atime)));
-                    writez(termfd, buf);
+                    strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_atime)));
+                    bwritez(termfd, buf);
                     break;
 
                 case 'p':
                     buf[0] = ' ';
-                    buf[1] = '0' + ((info.st_mode >> 6) & 7);
-                    buf[2] = '0' + ((info.st_mode >> 3) & 7);
-                    buf[3] = '0' + ((info.st_mode >> 0) & 7);
-                    write(termfd, buf, 4);
+                    buf[1] = '0' + ((entry->info.st_mode >> 6) & 7);
+                    buf[2] = '0' + ((entry->info.st_mode >> 3) & 7);
+                    buf[3] = '0' + ((entry->info.st_mode >> 0) & 7);
+                    bwrite(termfd, buf, 4);
                     break;
 
                 case 'n': {
-                    ssize_t wrote = write(termfd, " ", 1);
-                    wrote += write_escaped(termfd, entry->d_name, entry->d_namlen, color);
+                    ssize_t wrote = bwrite(termfd, " ", 1);
+                    wrote += bwrite_escaped(termfd, entry->d_name, color);
                     if (entry->d_isdir) {
-                        writez(termfd, "/");
+                        bwritez(termfd, "/");
                         ++wrote;
                     }
 
-                    if (entry->d_type == DT_LNK) {
-                        char linkpath[MAX_PATH+1] = {0};
-                        ssize_t pathlen;
-                        if ((pathlen = readlink(entry->d_name, linkpath, sizeof(linkpath))) < 0)
-                            err("readlink() failed");
-                        writez(termfd, "\033[2m -> ");
+                    if (entry->d_linkname) {
+                        bwritez(termfd, "\033[2m -> ");
                         wrote += 4;
-                        wrote += write_escaped(termfd, linkpath, (size_t)pathlen, color);
+                        wrote += bwrite_escaped(termfd, entry->d_linkname, color);
                         if (entry->d_isdir) {
-                            writez(termfd, "/");
+                            bwritez(termfd, "/");
                             ++wrote;
                         }
                     }
                     while (wrote++ < colnamew - 1)
-                        write(termfd, " ", 1);
+                        bwrite(termfd, " ", 1);
                     break;
                 }
             }
         }
-        writez(termfd, " \033[0m\033[K"); // Reset color and attributes
+        bwritez(termfd, " \033[0m\033[K"); // Reset color and attributes
     }
 
     static const char *help = "Press '?' to see key bindings ";
-    term_move(0, termheight - 1);
-    writez(termfd, "\033[K");
-    term_move(MAX(0, termwidth - (int)strlen(help)), termheight - 1);
-    writez(termfd, help);
+    bmove(termfd,0, termheight - 1);
+    bwritez(termfd, "\033[K");
+    bmove(termfd,MAX(0, termwidth - (int)strlen(help)), termheight - 1);
+    bwritez(termfd, help);
     lastcursor = s->cursor;
     lastscroll = s->scroll;
+    bflush(termfd);
     // TODO: show selection and dotfile setting and anything else?
 }
 
@@ -557,7 +527,6 @@ int compare_files(void *r, const void *v1, const void *v2)
     const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
     int diff = -(f1->d_isdir - f2->d_isdir);
     if (diff) return -diff; // Always sort dirs before files
-    if (sort == SORT_NONE || sort == SORT_RANDOM) return 0;
     if (sort == SORT_NAME) {
         const char *p1 = f1->d_name, *p2 = f2->d_name;
         while (*p1 && *p2) {
@@ -578,29 +547,26 @@ int compare_files(void *r, const void *v1, const void *v2)
         }
         return (*p1 - *p2)*sign;
     }
-    struct stat info1, info2;
-    lstat(f1->d_fullname, &info1);
-    lstat(f2->d_fullname, &info2);
     switch (sort) {
         case SORT_PERM:
-            return -((info1.st_mode & 0x3FF) - (info2.st_mode & 0x3FF))*sign;
+            return -((f1->info.st_mode & 0x3FF) - (f2->info.st_mode & 0x3FF))*sign;
         case SORT_SIZE:
-            return info1.st_size > info2.st_size ? -sign : sign;
+            return f1->info.st_size > f2->info.st_size ? -sign : sign;
         case SORT_MTIME:
-            if (info1.st_mtimespec.tv_sec == info2.st_mtimespec.tv_sec)
-                return info1.st_mtimespec.tv_nsec > info2.st_mtimespec.tv_nsec ? -sign : sign;
+            if (f1->info.st_mtimespec.tv_sec == f2->info.st_mtimespec.tv_sec)
+                return f1->info.st_mtimespec.tv_nsec > f2->info.st_mtimespec.tv_nsec ? -sign : sign;
             else
-                return info1.st_mtimespec.tv_sec > info2.st_mtimespec.tv_sec ? -sign : sign;
+                return f1->info.st_mtimespec.tv_sec > f2->info.st_mtimespec.tv_sec ? -sign : sign;
         case SORT_CTIME:
-            if (info1.st_ctimespec.tv_sec == info2.st_ctimespec.tv_sec)
-                return info1.st_ctimespec.tv_nsec > info2.st_ctimespec.tv_nsec ? -sign : sign;
+            if (f1->info.st_ctimespec.tv_sec == f2->info.st_ctimespec.tv_sec)
+                return f1->info.st_ctimespec.tv_nsec > f2->info.st_ctimespec.tv_nsec ? -sign : sign;
             else
-                return info1.st_ctimespec.tv_sec > info2.st_ctimespec.tv_sec ? -sign : sign;
+                return f1->info.st_ctimespec.tv_sec > f2->info.st_ctimespec.tv_sec ? -sign : sign;
         case SORT_ATIME:
-            if (info1.st_atimespec.tv_sec == info2.st_atimespec.tv_sec)
-                return info1.st_atimespec.tv_nsec > info2.st_atimespec.tv_nsec ? -sign : sign;
+            if (f1->info.st_atimespec.tv_sec == f2->info.st_atimespec.tv_sec)
+                return f1->info.st_atimespec.tv_nsec > f2->info.st_atimespec.tv_nsec ? -sign : sign;
             else
-                return info1.st_atimespec.tv_sec > info2.st_atimespec.tv_sec ? -sign : sign;
+                return f1->info.st_atimespec.tv_sec > f2->info.st_atimespec.tv_sec ? -sign : sign;
     }
     return 0;
 }
@@ -703,7 +669,6 @@ void set_scroll(bb_state_t *state, int newscroll)
 
 void populate_files(bb_state_t *s, const char *path)
 {
-    if (!path) err("No path given");
     ino_t old_inode = 0;
     // Clear old files (if any)
     if (s->files) {
@@ -719,6 +684,10 @@ void populate_files(bb_state_t *s, const char *path)
     }
     s->nfiles = 0;
     s->cursor = 0;
+
+    if (path == NULL)
+        return;
+
     if (strcmp(path, s->path) != 0) {
         s->scroll = 0;
         strcpy(s->path, path);
@@ -744,6 +713,7 @@ void populate_files(bb_state_t *s, const char *path)
         err("Couldn't open dir: %s", s->path);
     size_t pathlen = strlen(s->path);
     size_t filecap = 0;
+    char linkbuf[MAX_PATH+1];
     for (struct dirent *dp; (dp = readdir(dir)) != NULL; ) {
         if (dp->d_name[0] == '.' && dp->d_name[1] == '\0')
             continue;
@@ -765,12 +735,26 @@ void populate_files(bb_state_t *s, const char *path)
             }
         }
 
-        entry_t *entry = memcheck(malloc(sizeof(entry_t) + pathlen + dp->d_namlen + 2));
+        ssize_t linkpathlen = -1;
+        linkbuf[0] = 0;
+        int d_esclink = 0;
+        if (dp->d_type == DT_LNK) {
+            linkpathlen = readlink(dp->d_name, linkbuf, sizeof(linkbuf));
+            linkbuf[linkpathlen] = 0;
+            if (linkpathlen > 0)
+                d_esclink = unprintables(linkbuf) > 0;
+        }
+
+        entry_t *entry = memcheck(calloc(sizeof(entry_t) + pathlen + dp->d_namlen + 2 + (size_t)(linkpathlen + 1), 1));
         if (pathlen > MAX_PATH) err("Path is too big");
         strncpy(entry->d_fullname, s->path, pathlen);
         entry->d_fullname[pathlen] = '/';
         entry->d_name = &entry->d_fullname[pathlen + 1];
         strncpy(entry->d_name, dp->d_name, dp->d_namlen + 1);
+        if (linkpathlen >= 0) {
+            entry->d_linkname = entry->d_name + dp->d_namlen + 2;
+            strncpy(entry->d_linkname, linkbuf, linkpathlen+1);
+        }
         entry->d_ino = dp->d_ino;
         entry->d_reclen = dp->d_reclen;
         entry->d_type = dp->d_type;
@@ -783,6 +767,8 @@ void populate_files(bb_state_t *s, const char *path)
         }
         entry->d_namlen = dp->d_namlen;
         entry->next = NULL; entry->atme = NULL;
+        entry->d_escname = unprintables(entry->d_name) > 0;
+        lstat(entry->d_fullname, &entry->info);
         s->files[s->nfiles++] = entry;
       next_file:;
     }
@@ -798,6 +784,7 @@ void populate_files(bb_state_t *s, const char *path)
             }
         }
     }
+    sort_files(s);
 }
 
 void sort_files(bb_state_t *state)
@@ -832,254 +819,163 @@ void sort_files(bb_state_t *state)
     }
 }
 
-entry_t *explore(const char *path)
+static enum { BB_NOP = 0, BB_INVALID, BB_REFRESH, BB_DIRTY, BB_QUIT }
+execute_cmd(bb_state_t *state, const char *cmd)
 {
-    static long cmdpos = 0;
-
-    init_term();
-    alt_screen();
-    hide_cursor();
-
-    bb_state_t *state = new_state(NULL);
-    if (!firststate) {
-        firststate = state;
-        state->atme = &firststate;
-    }
-    {
-        char *real = realpath(path, NULL);
-        if (!real || chdir(real))
-            err("Not a valid path: %s\n", path);
-        populate_files(state, real);
-        free(real); // estate
-    }
-    sort_files(state);
-
-  refresh:;
-
-    int lastwidth = termwidth, lastheight = termheight;
-    int lazy = 0;
-
-  redraw:
-    render(state, lazy);
-    lazy = 1;
-
-  next_input:
-    if (termwidth != lastwidth || termheight != lastheight) {
-        lastwidth = termwidth; lastheight = termheight;
-        lazy = 0;
-        goto redraw;
-    }
-
-  scan_cmdfile:
-    {
-#define cleanup_cmd() do { if (cmdfile) fclose(cmdfile); if (cmd) free(cmd); } while (0)
-        FILE *cmdfile = fopen(cmdfilename, "r");
-        if (!cmdfile) {
-            if (!lazy) goto redraw;
-            goto get_user_input;
-        }
-
-        if (cmdpos) 
-            fseek(cmdfile, cmdpos, SEEK_SET);
-        
-        int did_anything = 0;
-        char *cmd = NULL;
-        size_t cap = 0;
-        while (getdelim(&cmd, &cap, '\0', cmdfile) >= 0) {
-            cmdpos = ftell(cmdfile);
-            if (!cmd[0]) continue;
-            did_anything = 1;
-            char *value = strchr(cmd, ':');
-            if (value) ++value;
-            switch (cmd[0]) {
-                case 'r': // refresh
-                    populate_files(state, state->path);
-                    sort_files(state);
-                    goto refresh;
-                case 'q': // quit
-                    cleanup_cmd();
-                    goto quit;
-                case 's': // sort:, select:, scroll:, spread:
-                    switch (cmd[1]) {
-                        case 'o': // sort:
-                            switch (*value) {
-                                case 'n': case 'N': case 's': case 'S':
-                                case 'p': case 'P': case 'm': case 'M':
-                                case 'c': case 'C': case 'a': case 'A':
-                                case 'r': case 'R':
-                                    state->sort = *value;
-                                    sort_files(state);
-                                    cleanup_cmd();
-                                    lazy = 0;
-                                    goto refresh;
-                            }
-                            goto next_cmd;
-                        case 'c': { // scroll:
-                            // TODO: figure out the best version of this
-                            int isdelta = value[0] == '+' || value[0] == '-';
-                            int n = (int)strtol(value, &value, 10);
-                            if (*value == '%')
-                                n = (n * (value[1] == 'n' ? state->nfiles : termheight)) / 100;
-                            if (isdelta)
-                                set_scroll(state, state->scroll + n);
-                            else
-                                set_scroll(state, n);
-                            goto next_cmd;
-                        }
-
-                        case 'p': // spread:
-                            goto move;
-
-                        case '\0': case 'e': // select:
-                            lazy = 0;
-                            if (strcmp(value, "*") == 0) {
-                                for (int i = 0; i < state->nfiles; i++)
-                                    select_file(state->files[i]);
-                            } else {
-                                int f = find_file(state, value);
-                                if (f >= 0) select_file(state->files[f]);
-                            }
-                            goto next_cmd;
-                    }
-                case 'c':
-                    switch (cmd[1]) {
-                        case 'd': { // cd:
-                            char *rpbuf = realpath(value, NULL);
-                            if (!rpbuf) continue;
-                            if (strcmp(rpbuf, state->path) == 0) {
-                                free(rpbuf);
-                                goto next_cmd;
-                            }
-                            if (chdir(rpbuf)) {
-                                free(rpbuf);
-                                goto next_cmd;
-                            }
-                            char *oldpath = memcheck(strdup(state->path));
-                            populate_files(state, rpbuf);
+    char *value = strchr(cmd, ':');
+    if (value) ++value;
+    switch (cmd[0]) {
+        case 'r': // refresh
+            populate_files(state, state->path);
+            return BB_REFRESH;
+        case 'q': // quit
+            return BB_QUIT;
+        case 's': // sort:, select:, scroll:, spread:
+            switch (cmd[1]) {
+                case 'o': // sort:
+                    switch (*value) {
+                        case 'n': case 'N': case 's': case 'S':
+                        case 'p': case 'P': case 'm': case 'M':
+                        case 'c': case 'C': case 'a': case 'A':
+                        case 'r': case 'R':
+                            state->sort = *value;
                             sort_files(state);
-                            free(rpbuf);
-                            if (strcmp(value, "..") == 0) {
-                                int f = find_file(state, oldpath);
-                                if (f >= 0) set_cursor(state, f);
-                            }
-                            free(oldpath);
-                            cleanup_cmd();
-                            goto refresh;
-                        }
-                        case 'o': // cols:
-                            for (char *col = value, *dst = state->columns;
-                                 *col && dst < &state->columns[sizeof(state->columns)-1]; col++) {
-                                *(dst++) = DESCENDING(*col);
-                                *dst = '\0';
-                            }
-                            break;
-                        case 'l': { // closetab:
-                            if (!value) value = "+0";
-                            bb_state_t *from = (value[0] == '+' || value[0] == '-') ? state : firststate;
-                            int n = (int)strtol(value, &value, 10);
-                            bb_state_t *s;
-                            if (n < 0) {
-                                for (s = from; n++; s = PREV_STATE(s))
-                                    if (!s) goto next_cmd;
-                            } else {
-                                for (s = from; n--; s = s->next)
-                                    if (!s) goto next_cmd;
-                            }
-                            if (state == s) {
-                                if (s->next)
-                                    state = s->next;
-                                else if (PREV_STATE(s))
-                                    state = PREV_STATE(s);
-                                if (chdir(state->path))
-                                    err("Could not cd to '%s'", state->path);
-                            }
-                            delete_state(s);
-                            goto next_cmd;
-                        }
+                            return BB_REFRESH;
                     }
-                case 'n': { // newtab
-                    bb_state_t *ns = new_state(state);
-                    if (state->next)
-                        state->next->atme = &ns->next;
-                    ns->next = state->next;
-                    ns->atme = &state->next;
-                    state->next = ns;
-                    state = ns;
-                    if (chdir(ns->path))
-                        err("Could not cd to '%s'", ns->path);
-                    goto refresh;
+                    return BB_INVALID;
+                case 'c': { // scroll:
+                    // TODO: figure out the best version of this
+                    int isdelta = value[0] == '+' || value[0] == '-';
+                    int n = (int)strtol(value, &value, 10);
+                    if (*value == '%')
+                        n = (n * (value[1] == 'n' ? state->nfiles : termheight)) / 100;
+                    if (isdelta)
+                        set_scroll(state, state->scroll + n);
+                    else
+                        set_scroll(state, n);
+                    return BB_NOP;
                 }
-                case 't': { // toggle:, tab:
-                    if (cmd[1] == 'o') { // toggle:
-                        lazy = 0;
-                        int f = find_file(state, value);
-                        if (f >= 0) {
-                            entry_t *e = state->files[f];
-                            if (IS_SELECTED(e)) deselect_file(e);
-                            else select_file(e);
-                        }
-                        goto next_cmd;
-                    } else if (cmd[1] == 'a') { // tab:
-                        bb_state_t *from = (value[0] == '+' || value[0] == '-') ? state : firststate;
-                        int n = (int)strtol(value, &value, 10);
-                        bb_state_t *s = from;
-                        if (n < 0) {
-                            while (s && n++) s = PREV_STATE(s);
-                        } else {
-                            while (s && n--) s = s->next;
-                        }
-                        if (!s || s == state)
-                            goto next_cmd;
 
-                        state = s;
-                        if (chdir(s->path))
-                            err("Could not cd to '%s'", s->path);
-                        goto refresh;
+                case 'p': // spread:
+                    goto move;
+
+                case '\0': case 'e': // select:
+                    if (strcmp(value, "*") == 0) {
+                        for (int i = 0; i < state->nfiles; i++)
+                            select_file(state->files[i]);
+                    } else {
+                        int f = find_file(state, value);
+                        if (f >= 0) select_file(state->files[f]);
                     }
-                }
-                case 'd': { // deselect:, dots:
-                    if (cmd[1] == 'o') { // dots:
-                        int requested = value ? (value[0] == 'y') : state->showhidden ^ 1;
-                        if (requested == state->showhidden)
-                            goto next_cmd;
-                        state->showhidden = requested;
-                        populate_files(state, state->path);
-                        sort_files(state);
-                        goto refresh;
-                    } else if (value) { // deselect:
-                        lazy = 0;
-                        if (strcmp(value, "*") == 0) {
-                            clear_selection();
-                        } else {
-                            int f = find_file(state, value);
-                            if (f >= 0)
-                                select_file(state->files[f]);
-                        }
-                        goto next_cmd;
+                    return BB_DIRTY;
+            }
+        case 'c':
+            switch (cmd[1]) {
+                case 'd': { // cd:
+                  cd:;
+                    char pbuf[MAX_PATH];
+                    if (value[0] == '~') {
+                        char *home;
+                        if (!(home = getenv("HOME")))
+                            return BB_INVALID;
+                        strcpy(pbuf, home);
+                        strcat(pbuf, value+1);
+                        value = pbuf;
                     }
-                }
-                case 'g': { // goto:
-                    int f = find_file(state, value);
-                    if (f >= 0) {
-                        set_cursor(state, f);
-                        goto next_cmd;
+                    char *rpbuf = realpath(value, NULL);
+                    if (!rpbuf) return BB_INVALID;
+                    if (strcmp(rpbuf, state->path) == 0) {
+                        free(rpbuf);
+                        return BB_NOP;
                     }
-                    char *lastslash = strrchr(value, '/');
-                    if (!lastslash) goto next_cmd;
-                    *lastslash = '\0'; // Split in two
-                    char *real = realpath(path, NULL);
-                    if (!real || chdir(real))
-                        err("Not a valid path: %s\n", path);
-                    populate_files(state, real);
-                    free(real); // estate
-                    if (lastslash[1]) {
-                        f = find_file(state, value);
+                    if (chdir(rpbuf)) {
+                        free(rpbuf);
+                        return BB_INVALID;
+                    }
+                    char *oldpath = memcheck(strdup(state->path));
+                    populate_files(state, rpbuf);
+                    free(rpbuf);
+                    if (strcmp(value, "..") == 0) {
+                        int f = find_file(state, oldpath);
                         if (f >= 0) set_cursor(state, f);
                     }
-                    cleanup_cmd();
-                    goto refresh;
+                    free(oldpath);
+                    return BB_REFRESH;
                 }
-                case 'm': { // move:
+                case 'o': // cols:
+                    if (!value) return BB_INVALID;
+                    for (int i = 0; i < (int)sizeof(state->columns)-1 && value[i]; i++) {
+                        state->columns[i] = value[i];
+                        state->columns[i+1] = '\0';
+                    }
+                    return BB_REFRESH;
+            }
+        case 't': { // toggle:
+            int f = find_file(state, value);
+            if (f < 0) return BB_INVALID;
+            entry_t *e = state->files[f];
+            if (IS_SELECTED(e)) deselect_file(e);
+            else select_file(e);
+            return f == state->cursor ? BB_NOP : BB_DIRTY;
+        }
+        case 'd': { // deselect:, dots:
+            if (cmd[1] == 'o') { // dots:
+                int requested = value ? (value[0] == 'y') : state->showhidden ^ 1;
+                if (requested == state->showhidden)
+                    return BB_INVALID;
+                state->showhidden = requested;
+                populate_files(state, state->path);
+                return BB_REFRESH;
+            } else if (value) { // deselect:
+                if (strcmp(value, "*") == 0) {
+                    clear_selection();
+                    return BB_DIRTY;
+                } else {
+                    int f = find_file(state, value);
+                    if (f >= 0)
+                        select_file(state->files[f]);
+                    return f == state->cursor ? BB_NOP : BB_DIRTY;
+                }
+            }
+            return BB_INVALID;
+        }
+        case 'g': { // goto:
+            if (!value) return BB_INVALID;
+            int f = find_file(state, value);
+            if (f >= 0) {
+                set_cursor(state, f);
+                return BB_NOP;
+            }
+            char *path = memcheck(strdup(value));
+            char *lastslash = strrchr(path, '/');
+            if (!lastslash) return BB_INVALID;
+            *lastslash = '\0'; // Split in two
+            char *real = realpath(path, NULL);
+            if (!real || chdir(real))
+                err("Not a valid path: %s\n", path);
+            populate_files(state, real);
+            free(real); // estate
+            if (lastslash[1]) {
+                f = find_file(state, lastslash + 1);
+                if (f >= 0) set_cursor(state, f);
+            }
+            return BB_REFRESH;
+        }
+        case 'm': { // move:, mark:
+            switch (cmd[1]) {
+                case 'a': { // mark:
+                    if (!value) return BB_INVALID;
+                    char key = value[0];
+                    if (key < 0) return BB_INVALID;
+                    value = strchr(value, ';');
+                    if (!value) value = state->path;
+                    else ++value;
+                    if (state->marks[(int)key])
+                        free(state->marks[(int)key]);
+                    state->marks[(int)key] = memcheck(strdup(value));
+                    return BB_NOP;
+                }
+                default: { // move:
                   move:;
                     int oldcur = state->cursor;
                     int isdelta = value[0] == '-' || value[0] == '+';
@@ -1096,24 +992,112 @@ entry_t *explore(const char *path)
                             else if (!sel && IS_SELECTED(state->files[i]))
                                 deselect_file(state->files[i]);
                         }
-                        lazy &= abs(oldcur - state->cursor) <= 1;
+                        if (abs(oldcur - state->cursor) > 1)
+                            return BB_DIRTY;
                     }
-                    goto next_cmd;
+                    return BB_NOP;
                 }
-                default: break;
             }
-          next_cmd:;
+        }
+        case 'j': { // jump:
+            if (!value) return BB_INVALID;
+            char key = value[0];
+            if (state->marks[(int)key]) {
+                value = state->marks[(int)key];
+                goto cd;
+            }
+            return BB_INVALID;
+        }
+        default: break;
+    }
+    return BB_INVALID;
+}
+
+entry_t *explore(const char *path)
+{
+    static long cmdpos = 0;
+    int lastwidth = termwidth, lastheight = termheight;
+    int lazy = 0, check_cmds = 1;
+
+    screenbuf = valloc((size_t)SCREENBUF_SIZE);
+    init_term();
+    alt_screen();
+    hide_cursor();
+
+    bb_state_t *state = memcheck(calloc(1, sizeof(bb_state_t)));
+    strcpy(state->columns, "n");
+    state->sort = 'n';
+    {
+        char *real = realpath(path, NULL);
+        if (!real || chdir(real))
+            err("Not a valid path: %s\n", path);
+        populate_files(state, real);
+        free(real); // estate
+    }
+
+    for (int i = 0; startupcmds[i]; i++) {
+        if (startupcmds[i][0] == '+') {
+            if (execute_cmd(state, startupcmds[i] + 1) == BB_QUIT)
+                goto quit;
+        } else {
+            run_cmd_on_selection(state, startupcmds[i]);
+            check_cmds = 1;
+        }
+    }
+
+  refresh:;
+    lazy = 0;
+
+  redraw:
+    render(state, lazy);
+    lazy = 1;
+
+  next_input:
+    if (termwidth != lastwidth || termheight != lastheight) {
+        lastwidth = termwidth; lastheight = termheight;
+        lazy = 0;
+        goto redraw;
+    }
+
+    if (check_cmds) {
+        FILE *cmdfile = fopen(cmdfilename, "r");
+        if (!cmdfile) {
+            if (!lazy) goto redraw;
+            goto get_keyboard_input;
         }
 
-        cleanup_cmd();
+        if (cmdpos) 
+            fseek(cmdfile, cmdpos, SEEK_SET);
+        
+        char *cmd = NULL;
+        size_t cap = 0;
+        while (cmdfile && getdelim(&cmd, &cap, '\0', cmdfile) >= 0) {
+            cmdpos = ftell(cmdfile);
+            if (!cmd[0]) continue;
+            switch (execute_cmd(state, cmd)) {
+                case BB_INVALID:// break;
+                case BB_DIRTY: lazy = 0;
+                case BB_NOP: goto redraw;
+                case BB_REFRESH:
+                    free(cmd);
+                    fclose(cmdfile);
+                    goto refresh;
+                case BB_QUIT:
+                    free(cmd);
+                    fclose(cmdfile);
+                    goto quit;
+            }
+        }
+        free(cmd);
+        fclose(cmdfile);
         unlink(cmdfilename);
         cmdpos = 0;
-        if (did_anything || !lazy)
-            goto redraw;
+        check_cmds = 0;
+        //if (!lazy) goto redraw;
     }
 
     int key;
-  get_user_input:
+  get_keyboard_input:
     key = term_getkey(termfd, &mouse_x, &mouse_y, KEY_DELAY);
     switch (key) {
         case KEY_MOUSE_LEFT: {
@@ -1217,16 +1201,35 @@ entry_t *explore(const char *path)
             for (int i = 0; bindings[i].keys[0] > 0; i++) {
                 for (int j = 0; bindings[i].keys[j]; j++) {
                     if (key == bindings[i].keys[j]) {
+                        // Move to front optimization:
+                        if (i > 2) {
+                            binding_t tmp;
+                            tmp = bindings[0];
+                            bindings[0] = bindings[i];
+                            bindings[i] = tmp;
+                            i = 0;
+                        }
                         binding = &bindings[i];
                         goto run_binding;
                     }
                 }
             }
-            goto redraw;
+            // Nothing matched
+            goto next_input;
 
           run_binding:
             if (cmdpos != 0)
                 err("Command file still open");
+            if (binding->command[0] == '+') {
+                switch (execute_cmd(state, binding->command + 1)) {
+                    case BB_INVALID: break;
+                    case BB_DIRTY: lazy = 0;
+                    case BB_NOP: goto redraw;
+                    case BB_REFRESH: goto refresh;
+                    case BB_QUIT: goto quit;
+                }
+                goto get_keyboard_input;
+            }
             term_move(0, termheight-1);
             //writez(termfd, "\033[K");
             if (binding->flags & NORMAL_TERM) {
@@ -1241,15 +1244,22 @@ entry_t *explore(const char *path)
                 alt_screen();
             }
             hide_cursor();
-            goto scan_cmdfile;
+            check_cmds = 1;
+            goto redraw;
     }
     goto next_input;
 
   quit:
 
+    populate_files(state, NULL);
+    for (int i = 0; i < 128; i++)
+        if (state->marks[i]) free(state->marks[i]);
+    free(state);
+
     default_screen();
     show_cursor();
     close_term();
+    free(screenbuf);
     return firstselected;
 }
 
@@ -1270,7 +1280,7 @@ void print_bindings(int verbose)
             int key = bindings[i].keys[j];
             const char *name = keyname(key);
             if (name)
-                p = strcpy(p, name);
+                p = stpcpy(p, name);
             else if (' ' <= key && key <= '~')
                 p += sprintf(p, "%c", (char)key);
             else
@@ -1282,7 +1292,8 @@ void print_bindings(int verbose)
         if (verbose) {
             printf("\n\033[%dG\033[0;32m", MAX(1, (_width - (int)strlen(bindings[i].command))/2));
             fflush(stdout);
-            write_escaped(STDOUT_FILENO, bindings[i].command, strlen(bindings[i].command), "\033[0;32m");
+            bwrite_escaped(STDOUT_FILENO, bindings[i].command, "\033[0;32m");
+            bflush(STDOUT_FILENO);
         }
         printf("\033[0m\n");
     }

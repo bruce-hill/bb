@@ -215,6 +215,7 @@ const char *keyname(int key)
     switch (key) {
         case ' ': return "Space";
         case '\r': return "Enter";
+        case KEY_MOUSE_DOUBLE_LEFT: return "Doubleclick";
         case KEY_ARROW_UP: return "Up";
         case KEY_ARROW_DOWN: return "Down";
         case KEY_ARROW_LEFT: return "Left";
