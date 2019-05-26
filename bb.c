@@ -22,6 +22,7 @@
 #include "config.h"
 #include "keys.h"
 
+#define BB_VERSION "0.9.0"
 #define MAX_PATH 4096
 #define KEY_DELAY 50
 #define SCROLLOFF MIN(5, (termheight-4)/2)
@@ -1368,7 +1369,12 @@ int main(int argc, char *argv[])
           usage:
             printf("bb - an itty bitty console TUI file browser\n");
             printf("Usage: bb [-h/--help] [-s] [-b] [-0] [path]\n");
-            return 1;
+            return 0;
+        }
+        if (strcmp(argv[i], "--version") == 0) {
+          version:
+            printf("bb " BB_VERSION "\n");
+            return 0;
         }
         if (argv[i][0] == '-' && argv[i][1] == '-') {
             if (argv[i][2] == '\0') break;
@@ -1378,6 +1384,7 @@ int main(int argc, char *argv[])
             for (char *c = &argv[i][1]; *c; c++) {
                 switch (*c) {
                     case 'h': goto usage;
+                    case 'v': goto version;
                     case 'd':
                         print_dir = 1;
                         break;
