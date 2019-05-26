@@ -2,7 +2,7 @@
 
 `bb` (bitty browser) is a TUI console file browser that is:
 
-- Extremely lightweight (currently around 1.4K lines of code)
+- Extremely lightweight (under 2k lines of code)
 - Highly interoperable with unix pipelines
 - Highly customizable and hackable
 - Without any build dependencies other than the C standard library (no ncurses)
@@ -24,6 +24,12 @@ a mapping for `read -p "Archive: " name && zip "$name" "$@"` or, if you have
 some complicated one-time task, you can just hit `>` to drop to a shell and run
 commands with the selected files available in `$@` (or use `|` to run a quick
 one-liner command that gets the selected files piped as input).
+
+## API
+`bb` also exposes an API so that programs can modify `bb`'s internal state.
+For example, by default, `f` is bound to `bb "+goto:$(fzf)"`, which has the
+effect of moving `bb`'s cursor to whatever `fzf` (a fuzzy finder) prints out.
+More details about the API can be found in [the config file](config.def.h).
 
 ## Zero Dependencies
 
@@ -47,7 +53,7 @@ libraries as long as you're willing to hand-write a few escape sequences.
 
 Just run `bb` to launch the file browser. Press `?` for a full list of
 available key bindings. In short: `h`/`j`/`k`/`l` or arrow keys for navigation,
-`q` to quit, <space> to toggle selection, `d` to delete, `c` to copy, `m` to
+`q` to quit, `<space>` to toggle selection, `d` to delete, `c` to copy, `M` to
 move, `r` to rename, `n` to create a new file, `N` to create a new directory,
 and `|` to pipe files to a command.
 

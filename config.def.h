@@ -1,5 +1,54 @@
 /*
- * User-defined key bindings.
+    BB Key Bindings
+
+    User-defined key bindings go in config.h, which is created by running `make`
+    (config.def.h is for keeping the defaults around, just in case)
+
+    The basic structure is:
+        <list of keys to bind>
+        <program to run>
+        <description> (for the help menu)
+        <flags> (whether to run in a full terminal window or silently, etc.)
+
+    When the scripts are run, the following values are provided as environment variables:
+
+        $@ (the list of arguments): the full paths of the selected files
+        $BBCURSOR: the (short) name of the file under the cursor
+        $BBFULLCURSOR: the full path name of the file under the cursor
+        $BB_DEPTH: the number of `bb` instances deep (in case you want to run a
+            shell and have that shell print something special in the prompt)
+        $BBCMD: a file to which `bb` commands can be written (used internally)
+
+    In order to modify bb's internal state, you can call `bb +cmd`, where "cmd"
+    is one of the following commands (or a unique prefix of one):
+
+        cd:<path>                Navigate to <path>
+        columns:<columns>        Change which columns are visible, and in what order
+        deselect:<filename>      Deselect <filename>
+        dots[:yes|:no]           Toggle whether dotfiles are visible
+        goto:<filename>          Move the cursor to <filename> (changing directory if needed)
+        jump:<key>               Jump to the mark associated with <key>
+        mark:<key>[;<path>]      Associate <key> with <path> (or current dir, if blank)
+        move:<num*>              Move the cursor a numeric amount
+        quit                     Quit bb
+        refresh                  Refresh the file listing
+        scroll:<num*>            Scroll the view a numeric amount
+        select:<filename>        Select <filename>
+        sort:<method>            Change the sorting method (uppercase means reverse)
+        spread:<num*>            Spread the selection state at the cursor
+        toggle:<filename>        Toggle the selection status of <filename>
+
+    Internally, bb will write the commands (NUL terminated) to $BBCMD, if
+    $BBCMD is set, and read the file when file browsing resumes. These commands
+    can also be passed to bb at startup, and will run immediately.
+    E.g. `bb +col:n +sort:r .` will launch `bb` only showing the name column, randomly sorted.
+
+    *Note: for numeric-based commands (like scroll), the number can be either
+        an absolute value or a relative value (starting with '+' or '-'), and/or
+        a percent (ending with '%'). Scrolling and moving, '%' means percent of
+        screen height, and '%n' means percent of number of files (e.g. +50% means
+        half a screen height down, and 100%n means the last file)
+
  */
 #include "keys.h"
 
@@ -18,28 +67,29 @@ typedef struct {
     int flags;
 } binding_t;
 
+// These commands will run at startup (before command-line arguments)
 extern const char *startupcmds[];
 const char *startupcmds[] = {
-    "+mark:0",
-    "+mark:~;~",
-    "+mark:h;~",
-    "+mark:/;/",
-    "+mark:c;~/.config",
+    //////////////////////////////////////////////
+    // User-defined startup commands can go here
+    //////////////////////////////////////////////
+    // Set some default marks:
+    "+mark:0", "+mark:~;~", "+mark:h;~", "+mark:/;/", "+mark:c;~/.config",
     "+mark:l;~/.local",
-    "+columns:smpn",
-    "+sort:n",
-    NULL,
+    // Default column and sorting options:
+    "+columns:smpn", "+sort:n",
+    NULL, // NULL-terminated array
 };
 
 extern binding_t bindings[];
 binding_t bindings[] = {
-    ////////////////////////////////////////////////////////////////////////
-    // User-defined custom scripts go here
+    //////////////////////////////////////////////////////////////////////////
+    // User-defined custom scripts can go here
     // Please note that these are sh scripts, not bash scripts, so bash-isms
     // won't work unless you make your script use `bash -c "<your script>"`
-    ////////////////////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////////////////////
     {{'?'},                  "bb -b | less -r", "Show the help menu", NORMAL_TERM},
-    {{KEY_CTRL_H},           "", "Figure out what key does"},
+    {{KEY_CTRL_H},           "<placeholder>", "Figure out what key does"},
     {{'q', 'Q'},             "bb +q", "Quit"},
     {{'k', KEY_ARROW_UP},    "+m:-1", "Move up"},
     {{'j', KEY_ARROW_DOWN},  "+m:+1", "Move down"},
@@ -70,8 +120,8 @@ else xdg-open \"$BBCURSOR\"; fi",
     {{'M'},                  "mv -i \"$@\" .; bb '+d:*' +r", "Move files to current folder", SHOW_CURSOR},
     {{'c'},                  "cp -i \"$@\" .; bb +r", "Copy files to current folder", SHOW_CURSOR},
     {{'C'},                  "for f; do cp \"$f\" \"$f.copy\"; done; bb +r", "Clone files"},
-    {{'n'},                  "read -p 'New file: ' name && touch \"$name\"; bb +r", "New file", SHOW_CURSOR},
-    {{'N'},                  "read -p 'New dir: ' name && mkdir \"$name\"; bb +r", "New folder", SHOW_CURSOR},
+    {{'n'},                  "read -p 'New file: ' name && touch \"$name\"; bb +r \"+goto:$name\"", "New file", SHOW_CURSOR},
+    {{'N'},                  "read -p 'New dir: ' name && mkdir \"$name\"; bb +r \"+goto:$name\"", "New folder", SHOW_CURSOR},
     {{'|'},                  "read -p '| ' cmd && " PIPE_SELECTION_TO "sh -c \"$cmd\" && " PAUSE "; bb +r",
                              "Pipe selected files to a command", SHOW_CURSOR},
     {{':'},                  "read -p ': ' cmd && sh -c \"$cmd\" -- \"$@\"; " PAUSE "; bb +r",
@@ -108,5 +158,5 @@ else xdg-open \"$BBCURSOR\"; fi",
     {{KEY_CTRL_U},           "bb '+scroll:-50%'", "Half page up"},
     {{KEY_MOUSE_WHEEL_DOWN}, "bb '+scroll:+3'", "Scroll down"},
     {{KEY_MOUSE_WHEEL_UP},   "bb '+scroll:-3'", "Scroll up"},
-    {0},
+    {0}, // Array must be 0-terminated
 };

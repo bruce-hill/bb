@@ -537,8 +537,11 @@ int compare_files(void *r, const void *v1, const void *v2)
             if ('0' <= c1 && c1 <= '9' && '0' <= c2 && c2 <= '9') {
                 long n1 = strtol(p1, (char**)&p1, 10);
                 long n2 = strtol(p2, (char**)&p2, 10);
-                diff = ((p1 - f1->d_name) - (p2 - f2->d_name)) || (n1 - n2);
-                if (diff) return diff*sign;
+                diff = (int)(p1 - f1->d_name) - (int)(p2 - f2->d_name);
+                if (diff != 0)
+                    return diff*sign;
+                if (n1 != n2)
+                    return (n1 > n2 ? 1 : -1)*sign;
             } else if (diff) {
                 return diff*sign;
             } else {
@@ -682,16 +685,17 @@ void populate_files(bb_state_t *s, const char *path)
         free(s->files);
         s->files = NULL;
     }
+    int old_cursor = s->cursor;
+    int old_scroll = s->scroll;
     s->nfiles = 0;
     s->cursor = 0;
 
     if (path == NULL)
         return;
 
-    if (strcmp(path, s->path) != 0) {
-        s->scroll = 0;
+    int samedir = strcmp(path, s->path) == 0;
+    if (!samedir)
         strcpy(s->path, path);
-    }
 
     // Hash inode -> entry_t with linear probing
     int nselected = 0;
@@ -776,15 +780,22 @@ void populate_files(bb_state_t *s, const char *path)
     free(selecthash);
     if (s->nfiles == 0) err("No files found (not even '..')");
 
-    if (old_inode) {
-        for (int i = 0; i < s->nfiles; i++) {
-            if (s->files[i]->d_ino == old_inode) {
-                set_cursor(s, i);
-                break;
+    sort_files(s);
+    if (samedir) {
+        if (old_inode) {
+            for (int i = 0; i < s->nfiles; i++) {
+                if (s->files[i]->d_ino == old_inode) {
+                    set_scroll(s, old_scroll);
+                    set_cursor(s, i);
+                    return;
+                }
             }
         }
+        set_cursor(s, old_cursor);
+        set_scroll(s, old_scroll);
+    } else {
+        set_cursor(s, 0);
     }
-    sort_files(s);
 }
 
 void sort_files(bb_state_t *state)
@@ -825,9 +836,10 @@ execute_cmd(bb_state_t *state, const char *cmd)
     char *value = strchr(cmd, ':');
     if (value) ++value;
     switch (cmd[0]) {
-        case 'r': // refresh
+        case 'r': { // refresh
             populate_files(state, state->path);
             return BB_REFRESH;
+        }
         case 'q': // quit
             return BB_QUIT;
         case 's': // sort:, select:, scroll:, spread:
@@ -1323,6 +1335,7 @@ int main(int argc, char *argv[])
 
     FILE *cmdfile = NULL;
     if (initial_path) {
+      has_initial_path:
         cmdfilename = memcheck(strdup(CMDFILE_FORMAT));
         if (!mktemp(cmdfilename)) err("Couldn't create tmpfile\n");
         cmdfile = fopen(cmdfilename, "a");
@@ -1337,7 +1350,8 @@ int main(int argc, char *argv[])
     } else if (cmd_args > 0) {
         char *parent_bbcmd = getenv("BBCMD");
         if (!parent_bbcmd || parent_bbcmd[0] == '\0') {
-            err("Couldn't find command file\n");
+            initial_path = ".";
+            goto has_initial_path;
         }
         cmdfile = fopen(parent_bbcmd, "a");
         if (!cmdfile) err("Couldn't open cmdfile: '%s'\n", parent_bbcmd);
