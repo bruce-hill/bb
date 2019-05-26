@@ -5,6 +5,7 @@
  */
 #include <dirent.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -24,10 +25,13 @@
 #include "keys.h"
 
 #define BB_VERSION "0.9.0"
-#define MAX_PATH 4096
 #define KEY_DELAY 50
 #define SCROLLOFF MIN(5, (termheight-4)/2)
 #define CMDFILE_FORMAT "/tmp/bb.XXXXXX"
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
@@ -101,7 +105,7 @@ typedef struct entry_s {
 
 typedef struct bb_state_s {
     entry_t **files;
-    char path[MAX_PATH];
+    char path[PATH_MAX];
     int nfiles;
     int scroll, cursor;
     int showhidden;
@@ -164,8 +168,8 @@ void init_term(void)
     tcgetattr(termfd, &orig_termios);
     struct termios tios;
     memcpy(&tios, &orig_termios, sizeof(tios));
-    tios.c_iflag &= (unsigned long)~(IGNBRK | BRKINT | PARMRK | ISTRIP
-                           | INLCR | IGNCR | ICRNL | IXON);
+    tios.c_iflag &= ~(unsigned long)(
+        IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
     tios.c_oflag &= (unsigned long)~OPOST;
     tios.c_lflag &= (unsigned long)~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
     tios.c_cflag &= (unsigned long)~(CSIZE | PARENB);
@@ -417,8 +421,9 @@ void render(bb_state_t *s, int lazy)
             continue;
         }
 
-      do_render:;
-        int y = i - s->scroll + 2;
+        int y;
+      do_render:
+        y = i - s->scroll + 2;
         bmove(termfd,0, y);
         if (i >= s->nfiles) {
             bwritez(termfd, "\033[K");
@@ -726,7 +731,7 @@ void populate_files(bb_state_t *s, const char *path)
         err("Couldn't open dir: %s", s->path);
     size_t pathlen = strlen(s->path);
     size_t filecap = 0;
-    char linkbuf[MAX_PATH+1];
+    char linkbuf[PATH_MAX+1];
     for (struct dirent *dp; (dp = readdir(dir)) != NULL; ) {
         if (dp->d_name[0] == '.' && dp->d_name[1] == '\0')
             continue;
@@ -759,7 +764,7 @@ void populate_files(bb_state_t *s, const char *path)
         }
 
         entry_t *entry = memcheck(calloc(sizeof(entry_t) + pathlen + strlen(dp->d_name) + 2 + (size_t)(linkpathlen + 1), 1));
-        if (pathlen > MAX_PATH) err("Path is too big");
+        if (pathlen > PATH_MAX) err("Path is too big");
         strncpy(entry->d_fullname, s->path, pathlen);
         entry->d_fullname[pathlen] = '/';
         entry->d_name = &entry->d_fullname[pathlen + 1];
@@ -782,7 +787,8 @@ void populate_files(bb_state_t *s, const char *path)
         entry->d_esclink = d_esclink;
         lstat(entry->d_fullname, &entry->info);
         s->files[s->nfiles++] = entry;
-      next_file:;
+      next_file:
+        continue;
     }
     closedir(dir);
     free(selecthash);
@@ -892,8 +898,8 @@ execute_cmd(bb_state_t *state, const char *cmd)
         case 'c':
             switch (cmd[1]) {
                 case 'd': { // cd:
-                  cd:;
-                    char pbuf[MAX_PATH];
+                    char pbuf[PATH_MAX];
+                  cd:
                     if (value[0] == '~') {
                         char *home;
                         if (!(home = getenv("HOME")))
@@ -996,10 +1002,11 @@ execute_cmd(bb_state_t *state, const char *cmd)
                     return BB_NOP;
                 }
                 default: { // move:
-                  move:;
-                    int oldcur = state->cursor;
-                    int isdelta = value[0] == '-' || value[0] == '+';
-                    int n = (int)strtol(value, &value, 10);
+                    int oldcur, isdelta, n;
+                  move:
+                    oldcur = state->cursor;
+                    isdelta = value[0] == '-' || value[0] == '+';
+                    n = (int)strtol(value, &value, 10);
                     if (*value == '%')
                         n = (n * (value[1] == 'n' ? state->nfiles : termheight)) / 100;
                     if (isdelta) set_cursor(state, state->cursor + n);
@@ -1065,7 +1072,7 @@ entry_t *explore(const char *path)
         }
     }
 
-  refresh:;
+  refresh:
     lazy = 0;
 
   redraw:
@@ -1088,16 +1095,19 @@ entry_t *explore(const char *path)
 
         if (cmdpos) 
             fseek(cmdfile, cmdpos, SEEK_SET);
-        
+
         char *cmd = NULL;
         size_t cap = 0;
         while (cmdfile && getdelim(&cmd, &cap, '\0', cmdfile) >= 0) {
             cmdpos = ftell(cmdfile);
             if (!cmd[0]) continue;
             switch (execute_cmd(state, cmd)) {
-                case BB_INVALID:// break;
-                case BB_DIRTY: lazy = 0;
-                case BB_NOP: goto redraw;
+                case BB_INVALID:
+                    break;
+                case BB_DIRTY:
+                    lazy = 0;
+                case BB_NOP:
+                    goto redraw;
                 case BB_REFRESH:
                     free(cmd);
                     fclose(cmdfile);
@@ -1132,11 +1142,15 @@ entry_t *explore(const char *path)
                 for (char *col = state->columns; *col; ++col) {
                     if (col != state->columns) x += 3;
                     switch (*col) {
-                        case 's': x += colsizew; break;
-                        case 'p': x += colpermw; break;
+                        case 's': x += colsizew;
+                                  break;
+                        case 'p': x += colpermw;
+                                  break;
                         case 'm': case 'a': case 'c':
-                            x += coldatew; break;
-                        case 'n': x += colnamew; break;
+                                  x += coldatew;
+                                  break;
+                        case 'n': x += colnamew;
+                                  break;
                     }
                     if (x >= mouse_x) {
                         if (DESCENDING(state->sort) == *col)
@@ -1216,10 +1230,10 @@ entry_t *explore(const char *path)
         case -1:
             goto next_input;
 
-        default:
+        default: {
             // Search user-defined key bindings from config.h:
-          user_bindings:;
             binding_t *binding;
+          user_bindings:
             for (int i = 0; bindings[i].keys[0] > 0; i++) {
                 for (int j = 0; bindings[i].keys[j]; j++) {
                     if (key == bindings[i].keys[j]) {
@@ -1268,6 +1282,7 @@ entry_t *explore(const char *path)
             hide_cursor();
             check_cmds = 1;
             goto redraw;
+        }
     }
     goto next_input;
 
@@ -1392,23 +1407,18 @@ int main(int argc, char *argv[])
         if (argv[i][0] == '-') {
             for (char *c = &argv[i][1]; *c; c++) {
                 switch (*c) {
-                    case 'h': goto usage;
+                    case 'h':goto usage;
                     case 'v': goto version;
-                    case 'd':
-                        print_dir = 1;
-                        break;
-                    case '0':
-                        sep = '\0';
-                        break;
-                    case 's':
-                        print_selection = 1;
-                        break;
-                    case 'b':
-                        print_bindings(0);
-                        return 0;
-                    case 'B':
-                        print_bindings(1);
-                        return 0;
+                    case 'd': print_dir = 1;
+                              break;
+                    case '0': sep = '\0';
+                              break;
+                    case 's': print_selection = 1;
+                              break;
+                    case 'b': print_bindings(0);
+                              return 0;
+                    case 'B': print_bindings(1);
+                              return 0;
                 }
             }
             continue;
