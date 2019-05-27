@@ -134,7 +134,7 @@ static void set_cursor(bb_t *bb, int i);
 static void set_scroll(bb_t *bb, int i);
 static void populate_files(bb_t *bb, const char *path);
 static void sort_files(bb_t *bb);
-static entry_t *explore(const char *path);
+static void explore(bb_t *bb, const char *path);
 static void print_bindings(int verbose);
 
 // Config options
@@ -993,19 +993,15 @@ execute_cmd(bb_t *bb, const char *cmd)
     return BB_INVALID;
 }
 
-entry_t *explore(const char *path)
+void explore(bb_t *bb, const char *path)
 {
     static long cmdpos = 0;
     int lastwidth = termwidth, lastheight = termheight;
     int lazy = 0, check_cmds = 1;
-    entry_t *firstselected = NULL;
 
     init_term();
     fputs(T_ON(T_ALT_SCREEN), tty_out);
 
-    bb_t *bb = memcheck(calloc(1, sizeof(bb_t)));
-    strcpy(bb->columns, "n");
-    bb->sort = 'n';
     {
         char *real = realpath(path, NULL);
         if (!real || chdir(real))
@@ -1235,17 +1231,11 @@ entry_t *explore(const char *path)
     goto next_input;
 
   quit:
-    firstselected = bb->firstselected;
     populate_files(bb, NULL);
-    for (int i = 0; i < 128; i++)
-        if (bb->marks[i]) free(bb->marks[i]);
-    free(bb);
-
     fputs(T_LEAVE_BBMODE, tty_out);
     close_term();
     fputs(T_OFF(T_ALT_SCREEN), stdout);
     fflush(stdout);
-    return firstselected;
 }
 
 void print_bindings(int verbose)
@@ -1388,11 +1378,15 @@ int main(int argc, char *argv[])
 
     char *real = realpath(initial_path, NULL);
     if (!real || chdir(real)) err("Not a valid path: %s\n", initial_path);
-    entry_t *firstselected = explore(real);
+
+    bb_t *bb = memcheck(calloc(1, sizeof(bb_t)));
+    strcpy(bb->columns, "n");
+    bb->sort = 'n';
+    explore(bb, real);
     free(real);
 
-    if (firstselected && print_selection) {
-        for (entry_t *e = firstselected; e; e = e->next) {
+    if (bb->firstselected && print_selection) {
+        for (entry_t *e = bb->firstselected; e; e = e->next) {
             const char *p = e->d_fullname;
             while (*p) {
                 const char *p2 = strchr(p, '\n');
@@ -1409,6 +1403,9 @@ int main(int argc, char *argv[])
     if (print_dir) {
         printf("%s\n", initial_path);
     }
+    for (int m = 0; m < 128; m++)
+        if (bb->marks[m]) free(bb->marks[m]);
+    free(bb);
 
     return 0;
 }
