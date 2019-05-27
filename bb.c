@@ -32,7 +32,6 @@
 
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
-#define writez(fd, str) write(fd, str, strlen(str))
 #define IS_SELECTED(p) (((p)->atme) != NULL)
 #define LLREMOVE(e) do { \
     if ((e)->next) { \
@@ -43,13 +42,13 @@
     (e)->atme = NULL; \
 } while (0)
 
-#define alt_screen() writez(termfd, "\033[?1049h")
-#define default_screen() writez(termfd, "\033[?1049l")
-#define hide_cursor() writez(termfd, "\033[?25l");
-#define show_cursor() writez(termfd, "\033[?25h");
+#define alt_screen() fputs("\033[?1049h", tty_out)
+#define default_screen() fputs("\033[?1049l", tty_out)
+#define hide_cursor() fputs("\033[?25l", tty_out);
+#define show_cursor() fputs("\033[?25h", tty_out);
 
 #define err(...) do { \
-    if (termfd) { \
+    if (tty_out) { \
         default_screen(); \
         close_term(); \
     } \
@@ -120,8 +119,6 @@ static void close_term(void);
 static void* memcheck(void *p);
 static int unprintables(char *s);
 static int run_cmd_on_selection(bb_state_t *s, const char *cmd);
-static void term_move(int x, int y);
-static void bwrite_escaped(int fd, const char *str, const char *reset_color);
 static void render(bb_state_t *s, int lazy);
 static int compare_files(void *r, const void *v1, const void *v2);
 static int find_file(bb_state_t *s, const char *name);
@@ -144,8 +141,8 @@ extern const char *CURSOR_COLOR, *LINKDIR_COLOR, *DIR_COLOR, *LINK_COLOR, *NORMA
 extern const int KEY_DELAY;
 
 // Global variables
-static struct termios orig_termios;
-static int termfd = 0;
+static struct termios orig_termios, bb_termios;
+static FILE *tty_out = NULL, *tty_in = NULL;
 static int termwidth, termheight;
 static int mouse_x, mouse_y;
 static char *cmdfilename = NULL;
@@ -159,39 +156,41 @@ void update_term_size(int sig)
 {
     (void)sig;
     struct winsize sz = {0};
-    ioctl(termfd, TIOCGWINSZ, &sz);
+    ioctl(fileno(tty_in), TIOCGWINSZ, &sz);
     termwidth = sz.ws_col;
     termheight = sz.ws_row;
 }
 
 void init_term(void)
 {
-    termfd = open("/dev/tty", O_RDWR);
-    tcgetattr(termfd, &orig_termios);
-    struct termios tios;
-    memcpy(&tios, &orig_termios, sizeof(tios));
-    tios.c_iflag &= ~(unsigned long)(
+    tty_in = fopen("/dev/tty", "r");
+    tty_out = fopen("/dev/tty", "w");
+    tcgetattr(fileno(tty_out), &orig_termios);
+    memcpy(&bb_termios, &orig_termios, sizeof(bb_termios));
+    bb_termios.c_iflag &= ~(unsigned long)(
         IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
-    tios.c_oflag &= (unsigned long)~OPOST;
-    tios.c_lflag &= (unsigned long)~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-    tios.c_cflag &= (unsigned long)~(CSIZE | PARENB);
-    tios.c_cflag |= (unsigned long)CS8;
-    tios.c_cc[VMIN] = 0;
-    tios.c_cc[VTIME] = 0;
-    tcsetattr(termfd, TCSAFLUSH, &tios);
+    bb_termios.c_oflag &= (unsigned long)~OPOST;
+    bb_termios.c_lflag &= (unsigned long)~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
+    bb_termios.c_cflag &= (unsigned long)~(CSIZE | PARENB);
+    bb_termios.c_cflag |= (unsigned long)CS8;
+    bb_termios.c_cc[VMIN] = 0;
+    bb_termios.c_cc[VTIME] = 0;
+    tcsetattr(fileno(tty_out), TCSAFLUSH, &bb_termios);
     update_term_size(0);
     signal(SIGWINCH, update_term_size);
     // Initiate mouse tracking and disable text wrapping:
-    writez(termfd, "\033[?1000h\033[?1002h\033[?1015h\033[?1006h\033[?7l");
+    fputs("\033[?1000h\033[?1002h\033[?1015h\033[?1006h\033[?7l", tty_out);
 }
 
 void cleanup_and_exit(int sig)
 {
     (void)sig;
-    if (termfd) {
-        tcsetattr(termfd, TCSAFLUSH, &orig_termios);
-        close(termfd);
-        termfd = 0;
+    if (tty_out) {
+        tcsetattr(fileno(tty_out), TCSAFLUSH, &orig_termios);
+        fclose(tty_out);
+        tty_out = NULL;
+        fclose(tty_in);
+        tty_in = NULL;
     }
     // Restore default screen, show cursor and re-enable text wrapping
     printf("\033[?1000l\033[?1002l\033[?1015l\033[?1006l\033[?1049l\033[?7h\033[?25h\n");
@@ -205,11 +204,13 @@ void close_term(void)
     signal(SIGWINCH, SIG_IGN);
 
     // Disable mouse tracking and re-enable text wrapping
-    writez(termfd, "\033[?1000l\033[?1002l\033[?1015l\033[?1006l\033[?7h");
+    fputs("\033[?1000l\033[?1002l\033[?1015l\033[?1006l\033[?7h", tty_out);
 
-    tcsetattr(termfd, TCSAFLUSH, &orig_termios);
-    close(termfd);
-    termfd = 0;
+    tcsetattr(fileno(tty_out), TCSAFLUSH, &orig_termios);
+    fclose(tty_out);
+    tty_out = NULL;
+    fclose(tty_in);
+    tty_in = NULL;
 }
 
 void* memcheck(void *p)
@@ -270,73 +271,20 @@ int run_cmd_on_selection(bb_state_t *s, const char *cmd)
     return status;
 }
 
-void term_move(int x, int y)
-{
-    static char buf[32] = {0};
-    int len = snprintf(buf, sizeof(buf), "\033[%d;%dH", y+1, x+1);
-    if (len > 0)
-        write(termfd, buf, (size_t)len);
-}
+#define term_move(x, y) fprintf(tty_out, "\033[%d;%dH", (int)(y)+1, (int)(x)+1)
 
-static char *screenbuf = NULL;
-#define SCREENBUF_SIZE ((size_t)((2*getpagesize()) - 128))
-static size_t screenbufpos = 0;
-static inline void bflush(int fd)
-{
-    if (screenbufpos == 0) return;
-    ssize_t wrote;
-    size_t i = 0;
-    while (screenbufpos > 0 && (wrote = write(fd, &screenbuf[i], screenbufpos - i)) > 0) {
-        i += (size_t)wrote;
-    }
-    screenbufpos = 0;
-}
-static ssize_t bwrite(int fd, const char *str, size_t n)
-{
-    if (screenbufpos + n >= SCREENBUF_SIZE)
-        bflush(fd);
-    memcpy(screenbuf + screenbufpos, str, n);
-    screenbufpos += n;
-    return (ssize_t)n;
-}
-static ssize_t bwritez(int fd, const char *str)
-{
-    return bwrite(fd, str, strlen(str));
-}
-static void bmove(int fd, int x, int y)
-{
-    static char buf[32] = {0};
-    int len = snprintf(buf, sizeof(buf), "\033[%d;%dH", y+1, x+1);
-    if (len > 0)
-        bwrite(fd, buf, (size_t)len);
-}
-static void bwrite_escaped(int fd, const char *str, const char *color)
+static void fputs_escaped(FILE *f, const char *str, const char *color)
 {
     static const char *escapes = "       abtnvfr             e";
-    size_t maxcharlen = (size_t)strlen(color) + 10;
     for (const char *c = str; *c; ++c) {
-        if (SCREENBUF_SIZE - screenbufpos < maxcharlen)
-            bflush(fd);
-        if ((*c & 0xE0) == 0xC0 && (c[1] & 0xC0) == 0x80) { // UTF8 2-byte
-            screenbuf[screenbufpos++] = *(c++);
-            screenbuf[screenbufpos++] = *c;
-        } else if ((*c & 0xF0) == 0xE0 && (c[1] & 0xC0) == 0x80
-                   && (c[2] & 0xC0) == 0x80) { // UTF8 3-byte
-            screenbuf[screenbufpos++] = *(c++);
-            screenbuf[screenbufpos++] = *(c++);
-            screenbuf[screenbufpos++] = *c;
-        } else if ((*c & 0xF8) == 0xF0 && (c[1] & 0xC0) == 0x80
-                   && (c[2] & 0xC0) == 0x80 && (c[3] & 0xC0) == 0x80 ) { // UTF8 4-byte
-            screenbuf[screenbufpos++] = *(c++);
-            screenbuf[screenbufpos++] = *(c++);
-            screenbuf[screenbufpos++] = *(c++);
-            screenbuf[screenbufpos++] = *c;
+        if (*c < 0) {
+            fputc(*c, f);
         } else if (*c > 0 && *c <= '\x1b' && escapes[(int)*c] != ' ') { // "\n", etc.
-            screenbufpos += (size_t)sprintf(&screenbuf[screenbufpos], "\033[31m\\%c%s", escapes[(int)*c], color);
+            fprintf(f, "\033[31m\\%c%s", escapes[(int)*c], color);
         } else if (!(' ' <= *c && *c <= '~')) { // "\x02", etc.
-            screenbufpos += (size_t)sprintf(&screenbuf[screenbufpos], "\033[31m\\x%02X%s", *c, color);
+            fprintf(f, "\033[31m\\x%02X%s", *c, color);
         } else {
-            screenbuf[screenbufpos++] = *c;
+            fputc(*c, f);
         }
     }
 }
@@ -344,7 +292,6 @@ static void bwrite_escaped(int fd, const char *str, const char *color)
 
 void render(bb_state_t *s, int lazy)
 {
-    bflush(termfd);
     static int lastcursor = -1, lastscroll = -1;
     char buf[64];
     if (lastcursor == -1 || lastscroll == -1)
@@ -353,11 +300,9 @@ void render(bb_state_t *s, int lazy)
     if (lazy) {
         // Use terminal scrolling:
         if (lastscroll > s->scroll) {
-            int n = sprintf(buf, "\033[3;%dr\033[%dT\033[1;%dr", termheight-1, lastscroll - s->scroll, termheight);
-            bwrite(termfd, buf, (size_t)n);
+            fprintf(tty_out, "\033[3;%dr\033[%dT\033[1;%dr", termheight-1, lastscroll - s->scroll, termheight);
         } else if (lastscroll < s->scroll) {
-            int n = sprintf(buf, "\033[3;%dr\033[%dS\033[1;%dr", termheight-1, s->scroll - lastscroll, termheight);
-            bwrite(termfd, buf, (size_t)n);
+            fprintf(tty_out, "\033[3;%dr\033[%dS\033[1;%dr", termheight-1, s->scroll - lastscroll, termheight);
         }
     }
     colnamew = termwidth - 1;
@@ -380,14 +325,14 @@ void render(bb_state_t *s, int lazy)
 
     if (!lazy) {
         // Path
-        bmove(termfd,0,0);
+        term_move(0,0);
         const char *color = "\033[0;1;37m";
-        bwrite_escaped(termfd, s->path, color);
-        bwritez(termfd, " \033[K\033[0m");
+        fputs_escaped(tty_out, s->path, color);
+        fputs(" \033[K\033[0m", tty_out);
 
         // Columns
-        bmove(termfd,0,1);
-        bwritez(termfd, "\033[41m \033[0;44;30m");
+        term_move(0,1);
+        fputs("\033[41m \033[0;44;30m", tty_out);
         for (char *col = s->columns; *col; ++col) {
             const char *colname;
             int colwidth = 0;
@@ -413,14 +358,14 @@ void render(bb_state_t *s, int lazy)
                 default:
                     continue;
             }
-            if (col != s->columns) bwritez(termfd, " │ ");
-            if (DESCENDING(s->sort) != *col) bwritez(termfd, " ");
-            else if (IS_REVERSED(s->sort)) bwritez(termfd, RSORT_INDICATOR);
-            else bwritez(termfd, SORT_INDICATOR);
-            for (ssize_t i = bwritez(termfd, colname); i < colwidth-1; i++)
-                bwrite(termfd, " ", 1);
+            if (col != s->columns) fputs(" │ ", tty_out);
+            if (DESCENDING(s->sort) != *col) fputs(" ", tty_out);
+            else if (IS_REVERSED(s->sort)) fputs(RSORT_INDICATOR, tty_out);
+            else fputs(SORT_INDICATOR, tty_out);
+            for (ssize_t i = fputs(colname, tty_out); i < colwidth-1; i++)
+                fputc(' ', tty_out);
         }
-        bwritez(termfd, " \033[K\033[0m");
+        fputs(" \033[K\033[0m", tty_out);
     }
 
     entry_t **files = s->files;
@@ -436,18 +381,18 @@ void render(bb_state_t *s, int lazy)
         int y;
       do_render:
         y = i - s->scroll + 2;
-        bmove(termfd,0, y);
+        term_move(0, y);
         if (i >= s->nfiles) {
-            bwritez(termfd, "\033[K");
+            fputs("\033[K", tty_out);
             continue;
         }
 
         entry_t *entry = files[i];
         { // Selection box:
             if (IS_SELECTED(entry))
-                bwritez(termfd, "\033[41m \033[0m");
+                fputs("\033[41m \033[0m", tty_out);
             else
-                bwritez(termfd, " ");
+                fputs(" ", tty_out);
         }
 
         const char *color;
@@ -461,17 +406,16 @@ void render(bb_state_t *s, int lazy)
             color = LINK_COLOR;
         else
             color = NORMAL_COLOR;
-        bwritez(termfd, color);
+        fputs(color, tty_out);
 
         int x = 1;
         for (char *col = s->columns; *col; ++col) {
-            sprintf(buf, "\033[%d;%dH\033[K", y+1, x+1);
-            bwritez(termfd, buf);
+            fprintf(tty_out, "\033[%d;%dH\033[K", y+1, x+1);
             if (col != s->columns) {
-                if (i == s->cursor) bwritez(termfd, " │");
-                else bwritez(termfd, " \033[37;2m│\033[22m");
-                bwritez(termfd, color);
-                bwritez(termfd, " ");
+                if (i == s->cursor) fputs(" │", tty_out);
+                else fputs(" \033[37;2m│\033[22m", tty_out);
+                fputs(color, tty_out);
+                fputs(" ", tty_out);
                 x += 3;
             }
             switch (*col) {
@@ -483,27 +427,26 @@ void render(bb_state_t *s, int lazy)
                         bytes /= 1024;
                         j++;
                     }
-                    sprintf(buf, "%6.*f%c", j > 0 ? 1 : 0, bytes, units[j]);
-                    bwritez(termfd, buf);
+                    fprintf(tty_out, "%6.*f%c", j > 0 ? 1 : 0, bytes, units[j]);
                     x += colsizew;
                     break;
                 }
 
                 case 'm':
                     strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_mtime)));
-                    bwritez(termfd, buf);
+                    fputs(buf, tty_out);
                     x += coldatew;
                     break;
 
                 case 'c':
                     strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_ctime)));
-                    bwritez(termfd, buf);
+                    fputs(buf, tty_out);
                     x += coldatew;
                     break;
 
                 case 'a':
                     strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_atime)));
-                    bwritez(termfd, buf);
+                    fputs(buf, tty_out);
                     x += coldatew;
                     break;
 
@@ -512,46 +455,47 @@ void render(bb_state_t *s, int lazy)
                     buf[1] = '0' + ((entry->info.st_mode >> 6) & 7);
                     buf[2] = '0' + ((entry->info.st_mode >> 3) & 7);
                     buf[3] = '0' + ((entry->info.st_mode >> 0) & 7);
-                    bwrite(termfd, buf, 4);
+                    buf[4] = '\0';
+                    fputs(buf, tty_out);
                     x += colpermw;
                     break;
 
                 case 'n': {
                     if (entry->d_escname)
-                        bwrite_escaped(termfd, entry->d_name, color);
+                        fputs_escaped(tty_out, entry->d_name, color);
                     else
-                        bwritez(termfd, entry->d_name);
+                        fputs(entry->d_name, tty_out);
                     if (entry->d_isdir) {
-                        bwritez(termfd, "/");
+                        fputs("/", tty_out);
                     }
 
                     if (entry->d_linkname) {
-                        bwritez(termfd, "\033[2m -> ");
+                        fputs("\033[2m -> ", tty_out);
                         if (entry->d_esclink)
-                            bwrite_escaped(termfd, entry->d_linkname, color);
+                            fputs_escaped(tty_out, entry->d_linkname, color);
                         else
-                            bwritez(termfd, entry->d_linkname);
+                            fputs(entry->d_linkname, tty_out);
                         if (entry->d_isdir) {
-                            bwritez(termfd, "/");
+                            fputs("/", tty_out);
                         }
-                        bwritez(termfd, "\033[22m");
+                        fputs("\033[22m", tty_out);
                     }
                     x += colnamew;
                     break;
                 }
             }
         }
-        bwritez(termfd, " \033[K\033[0m"); // Reset color and attributes
+        fputs(" \033[K\033[0m", tty_out); // Reset color and attributes
     }
 
     static const char *help = "Press '?' to see key bindings ";
-    bmove(termfd,0, termheight - 1);
-    bwritez(termfd, "\033[K");
-    bmove(termfd,MAX(0, termwidth - (int)strlen(help)), termheight - 1);
-    bwritez(termfd, help);
+    term_move(0, termheight - 1);
+    fputs("\033[K", tty_out);
+    term_move(MAX(0, termwidth - (int)strlen(help)), termheight - 1);
+    fputs(help, tty_out);
     lastcursor = s->cursor;
     lastscroll = s->scroll;
-    bflush(termfd);
+    fflush(tty_out);
     // TODO: show selection and dotfile setting and anything else?
 }
 
@@ -1075,7 +1019,6 @@ entry_t *explore(const char *path)
     int lastwidth = termwidth, lastheight = termheight;
     int lazy = 0, check_cmds = 1;
 
-    screenbuf = valloc((size_t)SCREENBUF_SIZE);
     init_term();
     alt_screen();
     hide_cursor();
@@ -1157,7 +1100,7 @@ entry_t *explore(const char *path)
 
     int key;
   get_keyboard_input:
-    key = term_getkey(termfd, &mouse_x, &mouse_y, KEY_DELAY);
+    key = term_getkey(fileno(tty_in), &mouse_x, &mouse_y, KEY_DELAY);
     switch (key) {
         case KEY_MOUSE_LEFT: {
             struct timespec clicktime;
@@ -1227,32 +1170,29 @@ entry_t *explore(const char *path)
 
         case KEY_CTRL_H: {
             term_move(0,termheight-1);
-            writez(termfd, "\033[K\033[33;1mPress any key...\033[0m");
-            while ((key = term_getkey(termfd, &mouse_x, &mouse_y, 1000)) == -1)
+            fputs("\033[K\033[33;1mPress any key...\033[0m", tty_out);
+            while ((key = term_getkey(fileno(tty_in), &mouse_x, &mouse_y, 1000)) == -1)
                 ;
             term_move(0,termheight-1);
-            writez(termfd, "\033[K\033[1m<\033[33m");
+            fputs("\033[K\033[1m<\033[33m", tty_out);
             const char *name = keyname(key);
-            char buf[32] = {(char)key};
-            if (name) writez(termfd, name);
+            if (name) fputs(name, tty_out);
             else if (' ' <= key && key <= '~')
-                write(termfd, buf, 1);
-            else {
-                sprintf(buf, "\033[31m\\x%02X", key);
-                writez(termfd, buf);
-            }
+                fputc((char)key, tty_out);
+            else
+                fprintf(tty_out, "\033[31m\\x%02X", key);
 
-            writez(termfd, "\033[0;1m> is bound to: \033[34;1m");
+            fputs("\033[0;1m> is bound to: \033[34;1m", tty_out);
             for (int i = 0; bindings[i].keys[0] > 0; i++) {
                 for (int j = 0; bindings[i].keys[j]; j++) {
                     if (key == bindings[i].keys[j]) {
-                        writez(termfd, bindings[i].description);
-                        writez(termfd, "\033[0m");
+                        fputs(bindings[i].description, tty_out);
+                        fputs("\033[0m", tty_out);
                         goto next_input;
                     }
                 }
             }
-            writez(termfd, "--- nothing ---\033[0m");
+            fputs("--- nothing ---\033[0m", tty_out);
             goto next_input;
         }
 
@@ -1296,7 +1236,7 @@ entry_t *explore(const char *path)
                 goto get_keyboard_input;
             }
             term_move(0, termheight-1);
-            //writez(termfd, "\033[K");
+            //fputs("\033[K", tty_out);
             if (binding->flags & NORMAL_TERM)
                 default_screen();
             if (binding->flags & NORMAL_TERM || binding->flags & SHOW_CURSOR)
@@ -1325,7 +1265,6 @@ entry_t *explore(const char *path)
     default_screen();
     show_cursor();
     close_term();
-    free(screenbuf);
     return firstselected;
 }
 
@@ -1357,9 +1296,8 @@ void print_bindings(int verbose)
         printf("\033[0m\033[%dG\033[34;1m%s\033[0m", _width/2 + 1, bindings[i].description);
         if (verbose) {
             printf("\n\033[%dG\033[0;32m", MAX(1, (_width - (int)strlen(bindings[i].command))/2));
+            fputs_escaped(stdout, bindings[i].command, "\033[0;32m");
             fflush(stdout);
-            bwrite_escaped(STDOUT_FILENO, bindings[i].command, "\033[0;32m");
-            bflush(STDOUT_FILENO);
         }
         printf("\033[0m\n");
     }
