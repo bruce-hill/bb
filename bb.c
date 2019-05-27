@@ -33,14 +33,6 @@
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
 #define IS_SELECTED(p) (((p)->atme) != NULL)
-#define LLREMOVE(e) do { \
-    if ((e)->next) { \
-        (e)->next->atme = (e)->atme; \
-    } \
-    *((e)->atme) = (e)->next; \
-    (e)->next = NULL; \
-    (e)->atme = NULL; \
-} while (0)
 
 // Terminal escape sequences:
 #define CSI           "\033["
@@ -112,8 +104,9 @@ typedef struct entry_s {
     char d_fullname[1];
 } entry_t;
 
-typedef struct bb_state_s {
+typedef struct bb_s {
     entry_t **files;
+    entry_t *firstselected;
     char path[PATH_MAX];
     int nfiles;
     int scroll, cursor;
@@ -121,7 +114,7 @@ typedef struct bb_state_s {
     char columns[16];
     char sort;
     char *marks[128]; // Mapping from key to directory
-} bb_state_t;
+} bb_t;
 
 // Functions
 static void update_term_size(int sig);
@@ -130,18 +123,17 @@ static void cleanup_and_exit(int sig);
 static void close_term(void);
 static void* memcheck(void *p);
 static int unprintables(char *s);
-static int run_cmd_on_selection(bb_state_t *s, const char *cmd);
-static void render(bb_state_t *s, int lazy);
+static int run_cmd_on_selection(bb_t *bb, const char *cmd);
+static void render(bb_t *bb, int lazy);
 static int compare_files(void *r, const void *v1, const void *v2);
-static int find_file(bb_state_t *s, const char *name);
-static void write_selection(int fd, char sep);
-static void clear_selection(void);
-static int select_file(entry_t *e);
-static int deselect_file(entry_t *e);
-static void set_cursor(bb_state_t *state, int i);
-static void set_scroll(bb_state_t *state, int i);
-static void populate_files(bb_state_t *s, const char *path);
-static void sort_files(bb_state_t *state);
+static int find_file(bb_t *bb, const char *name);
+static void clear_selection(bb_t *bb);
+static int select_file(bb_t *bb, entry_t *e);
+static int deselect_file(bb_t *bb, entry_t *e);
+static void set_cursor(bb_t *bb, int i);
+static void set_scroll(bb_t *bb, int i);
+static void populate_files(bb_t *bb, const char *path);
+static void sort_files(bb_t *bb);
 static entry_t *explore(const char *path);
 static void print_bindings(int verbose);
 
@@ -158,7 +150,6 @@ static char *cmdfilename = NULL;
 static const int colsizew = 7, coldatew = 19, colpermw = 4;
 static int colnamew;
 static struct timespec lastclick = {0, 0};
-static entry_t *firstselected = NULL;
 
 
 void update_term_size(int sig)
@@ -228,7 +219,7 @@ int unprintables(char *s)
     return count;
 }
 
-int run_cmd_on_selection(bb_state_t *s, const char *cmd)
+int run_cmd_on_selection(bb_t *bb, const char *cmd)
 {
     pid_t child;
     sig_t old_handler = signal(SIGINT, SIG_IGN);
@@ -245,7 +236,7 @@ int run_cmd_on_selection(bb_state_t *s, const char *cmd)
 #ifdef __APPLE__
         args[i++] = "--";
 #endif
-        entry_t *first = firstselected ? firstselected : s->files[s->cursor];
+        entry_t *first = bb->firstselected ? bb->firstselected : bb->files[bb->cursor];
         for (entry_t *e = first; e; e = e->next) {
             if (i >= space) {
                 space += 100;
@@ -255,8 +246,8 @@ int run_cmd_on_selection(bb_state_t *s, const char *cmd)
         }
         args[i] = NULL;
 
-        setenv("BBCURSOR", s->files[s->cursor]->d_name, 1);
-        setenv("BBFULLCURSOR", s->files[s->cursor]->d_fullname, 1);
+        setenv("BBCURSOR", bb->files[bb->cursor]->d_name, 1);
+        setenv("BBFULLCURSOR", bb->files[bb->cursor]->d_fullname, 1);
 
         execvp("sh", args);
         err("Failed to execute command: '%s'", cmd);
@@ -290,7 +281,7 @@ static void fputs_escaped(FILE *f, const char *str, const char *color)
 }
 
 
-void render(bb_state_t *s, int lazy)
+void render(bb_t *bb, int lazy)
 {
     static int lastcursor = -1, lastscroll = -1;
     char buf[64];
@@ -299,15 +290,15 @@ void render(bb_state_t *s, int lazy)
 
     if (lazy) {
         // Use terminal scrolling:
-        if (lastscroll > s->scroll) {
-            fprintf(tty_out, "\033[3;%dr\033[%dT\033[1;%dr", termheight-1, lastscroll - s->scroll, termheight);
-        } else if (lastscroll < s->scroll) {
-            fprintf(tty_out, "\033[3;%dr\033[%dS\033[1;%dr", termheight-1, s->scroll - lastscroll, termheight);
+        if (lastscroll > bb->scroll) {
+            fprintf(tty_out, "\033[3;%dr\033[%dT\033[1;%dr", termheight-1, lastscroll - bb->scroll, termheight);
+        } else if (lastscroll < bb->scroll) {
+            fprintf(tty_out, "\033[3;%dr\033[%dS\033[1;%dr", termheight-1, bb->scroll - lastscroll, termheight);
         }
     }
     colnamew = termwidth - 1;
     int namecols = 0;
-    for (char *col = s->columns; *col; ++col) {
+    for (char *col = bb->columns; *col; ++col) {
         switch (*col) {
             case 's': colnamew -= colsizew;
                       break;
@@ -320,20 +311,20 @@ void render(bb_state_t *s, int lazy)
                       break;
         }
     }
-    colnamew -= 3*strlen(s->columns);
+    colnamew -= 3*strlen(bb->columns);
     colnamew /= namecols;
 
     if (!lazy) {
         // Path
         move_cursor(tty_out, 0, 0);
         const char *color = "\033[0;1;37m";
-        fputs_escaped(tty_out, s->path, color);
+        fputs_escaped(tty_out, bb->path, color);
         fputs(" \033[K\033[0m", tty_out);
 
         // Columns
         move_cursor(tty_out, 0,1);
         fputs("\033[41m \033[0;44;30m", tty_out);
-        for (char *col = s->columns; *col; ++col) {
+        for (char *col = bb->columns; *col; ++col) {
             const char *colname;
             int colwidth = 0;
             switch (*col) {
@@ -358,9 +349,9 @@ void render(bb_state_t *s, int lazy)
                 default:
                     continue;
             }
-            if (col != s->columns) fputs(" │ ", tty_out);
-            if (DESCENDING(s->sort) != *col) fputs(" ", tty_out);
-            else if (IS_REVERSED(s->sort)) fputs(RSORT_INDICATOR, tty_out);
+            if (col != bb->columns) fputs(" │ ", tty_out);
+            if (DESCENDING(bb->sort) != *col) fputs(" ", tty_out);
+            else if (IS_REVERSED(bb->sort)) fputs(RSORT_INDICATOR, tty_out);
             else fputs(SORT_INDICATOR, tty_out);
             for (ssize_t i = fputs(colname, tty_out); i < colwidth-1; i++)
                 fputc(' ', tty_out);
@@ -368,10 +359,10 @@ void render(bb_state_t *s, int lazy)
         fputs(" \033[K\033[0m", tty_out);
     }
 
-    entry_t **files = s->files;
-    for (int i = s->scroll; i < s->scroll + termheight - 3; i++) {
+    entry_t **files = bb->files;
+    for (int i = bb->scroll; i < bb->scroll + termheight - 3; i++) {
         if (lazy) {
-            if (i == s->cursor || i == lastcursor)
+            if (i == bb->cursor || i == lastcursor)
                 goto do_render;
             if (i < lastscroll || i >= lastscroll + termheight - 3)
                 goto do_render;
@@ -380,9 +371,9 @@ void render(bb_state_t *s, int lazy)
 
         int y;
       do_render:
-        y = i - s->scroll + 2;
+        y = i - bb->scroll + 2;
         move_cursor(tty_out, 0, y);
-        if (i >= s->nfiles) {
+        if (i >= bb->nfiles) {
             fputs("\033[K", tty_out);
             continue;
         }
@@ -396,7 +387,7 @@ void render(bb_state_t *s, int lazy)
         }
 
         const char *color;
-        if (i == s->cursor)
+        if (i == bb->cursor)
             color = CURSOR_COLOR;
         else if (entry->d_isdir && entry->d_type == DT_LNK)
             color = LINKDIR_COLOR;
@@ -409,10 +400,10 @@ void render(bb_state_t *s, int lazy)
         fputs(color, tty_out);
 
         int x = 1;
-        for (char *col = s->columns; *col; ++col) {
+        for (char *col = bb->columns; *col; ++col) {
             fprintf(tty_out, "\033[%d;%dH\033[K", y+1, x+1);
-            if (col != s->columns) {
-                if (i == s->cursor) fputs(" │", tty_out);
+            if (col != bb->columns) {
+                if (i == bb->cursor) fputs(" │", tty_out);
                 else fputs(" \033[37;2m│\033[22m", tty_out);
                 fputs(color, tty_out);
                 fputs(" ", tty_out);
@@ -493,8 +484,8 @@ void render(bb_state_t *s, int lazy)
     fputs("\033[K", tty_out);
     move_cursor(tty_out, MAX(0, termwidth - (int)strlen(help)), termheight - 1);
     fputs(help, tty_out);
-    lastcursor = s->cursor;
-    lastscroll = s->scroll;
+    lastcursor = bb->cursor;
+    lastscroll = bb->scroll;
     fflush(tty_out);
     // TODO: show selection and dotfile setting and anything else?
 }
@@ -554,137 +545,126 @@ int compare_files(void *r, const void *v1, const void *v2)
     return 0;
 }
 
-int find_file(bb_state_t *s, const char *name)
+int find_file(bb_t *bb, const char *name)
 {
-    for (int i = 0; i < s->nfiles; i++) {
-        entry_t *e = s->files[i];
+    for (int i = 0; i < bb->nfiles; i++) {
+        entry_t *e = bb->files[i];
         if (strcmp(name[0] == '/' ? e->d_fullname : e->d_name, name) == 0)
             return i;
     }
     return -1;
 }
 
-void write_selection(int fd, char sep)
+void clear_selection(bb_t *bb)
 {
-    for (entry_t *e = firstselected; e; e = e->next) {
-        const char *p = e->d_fullname;
-        while (*p) {
-            const char *p2 = strchr(p, '\n');
-            if (!p2) p2 = p + strlen(p);
-            write(fd, p, (size_t)(p2 - p));
-            if (*p2 == '\n' && sep == '\n')
-                write(fd, "\\", 1);
-            p = p2;
-        }
-        write(fd, &sep, 1);
-    }
-}
-
-void clear_selection(void)
-{
-    for (entry_t *next, *e = firstselected; e; e = next) {
+    for (entry_t *next, *e = bb->firstselected; e; e = next) {
         next = e->next;
         if (!e->visible)
             free(e);
     }
-    firstselected = NULL;
+    bb->firstselected = NULL;
 }
 
-int select_file(entry_t *e)
+int select_file(bb_t *bb, entry_t *e)
 {
     if (IS_SELECTED(e)) return 0;
     if (strcmp(e->d_name, "..") == 0) return 0;
-    if (firstselected)
-        firstselected->atme = &e->next;
-    e->next = firstselected;
-    e->atme = &firstselected;
-    firstselected = e;
+    if (bb->firstselected)
+        bb->firstselected->atme = &e->next;
+    e->next = bb->firstselected;
+    e->atme = &bb->firstselected;
+    bb->firstselected = e;
     return 1;
 }
 
-int deselect_file(entry_t *e)
+int deselect_file(bb_t *bb, entry_t *e)
 {
+    (void)bb;
     if (!IS_SELECTED(e)) return 0;
-    LLREMOVE(e);
+    if (e->next)
+        e->next->atme = e->atme;
+    *(e->atme) = e->next;
+    e->next = NULL;
+    e->atme = NULL;
     return 1;
 }
 
-void set_cursor(bb_state_t *state, int newcur)
+void set_cursor(bb_t *bb, int newcur)
 {
-    if (newcur > state->nfiles - 1) newcur = state->nfiles - 1;
+    if (newcur > bb->nfiles - 1) newcur = bb->nfiles - 1;
     if (newcur < 0) newcur = 0;
-    state->cursor = newcur;
-    if (state->nfiles <= termheight - 4)
+    bb->cursor = newcur;
+    if (bb->nfiles <= termheight - 4)
         return;
 
-    if (newcur < state->scroll + SCROLLOFF)
-        state->scroll = newcur - SCROLLOFF;
-    else if (newcur > state->scroll + (termheight-4) - SCROLLOFF)
-        state->scroll = newcur - (termheight-4) + SCROLLOFF;
-    int max_scroll = state->nfiles - (termheight-4) - 1;
+    if (newcur < bb->scroll + SCROLLOFF)
+        bb->scroll = newcur - SCROLLOFF;
+    else if (newcur > bb->scroll + (termheight-4) - SCROLLOFF)
+        bb->scroll = newcur - (termheight-4) + SCROLLOFF;
+    int max_scroll = bb->nfiles - (termheight-4) - 1;
     if (max_scroll < 0) max_scroll = 0;
-    if (state->scroll > max_scroll) state->scroll = max_scroll;
-    if (state->scroll < 0) state->scroll = 0;
+    if (bb->scroll > max_scroll) bb->scroll = max_scroll;
+    if (bb->scroll < 0) bb->scroll = 0;
 }
 
-void set_scroll(bb_state_t *state, int newscroll)
+void set_scroll(bb_t *bb, int newscroll)
 {
-    newscroll = MIN(newscroll, state->nfiles - (termheight-4) - 1);
+    newscroll = MIN(newscroll, bb->nfiles - (termheight-4) - 1);
     newscroll = MAX(newscroll, 0);
-    state->scroll = newscroll;
+    bb->scroll = newscroll;
 
-    int delta = newscroll - state->scroll;
-    int oldcur = state->cursor;
-    if (state->nfiles < termheight - 4) {
+    int delta = newscroll - bb->scroll;
+    int oldcur = bb->cursor;
+    if (bb->nfiles < termheight - 4) {
         newscroll = 0;
     } else {
-        if (state->cursor > newscroll + (termheight-4) - SCROLLOFF && state->scroll < state->nfiles - (termheight-4) - 1)
-            state->cursor = newscroll + (termheight-4) - SCROLLOFF;
-        else if (state->cursor < newscroll + SCROLLOFF && state->scroll > 0)
-            state->cursor = newscroll + SCROLLOFF;
+        if (bb->cursor > newscroll + (termheight-4) - SCROLLOFF && bb->scroll < bb->nfiles - (termheight-4) - 1)
+            bb->cursor = newscroll + (termheight-4) - SCROLLOFF;
+        else if (bb->cursor < newscroll + SCROLLOFF && bb->scroll > 0)
+            bb->cursor = newscroll + SCROLLOFF;
     }
-    state->scroll = newscroll;
-    if (abs(state->cursor - oldcur) < abs(delta))
-        state->cursor += delta - (state->cursor - oldcur);
-    if (state->cursor > state->nfiles - 1) state->cursor = state->nfiles - 1;
-    if (state->cursor < 0) state->cursor = 0;
+    bb->scroll = newscroll;
+    if (abs(bb->cursor - oldcur) < abs(delta))
+        bb->cursor += delta - (bb->cursor - oldcur);
+    if (bb->cursor > bb->nfiles - 1) bb->cursor = bb->nfiles - 1;
+    if (bb->cursor < 0) bb->cursor = 0;
 }
 
-void populate_files(bb_state_t *s, const char *path)
+void populate_files(bb_t *bb, const char *path)
 {
     ino_t old_inode = 0;
     // Clear old files (if any)
-    if (s->files) {
-        old_inode = s->files[s->cursor]->d_ino;
-        for (int i = 0; i < s->nfiles; i++) {
-            entry_t *e = s->files[i];
+    if (bb->files) {
+        old_inode = bb->files[bb->cursor]->d_ino;
+        for (int i = 0; i < bb->nfiles; i++) {
+            entry_t *e = bb->files[i];
             --e->visible;
             if (!IS_SELECTED(e))
                 free(e);
         }
-        free(s->files);
-        s->files = NULL;
+        free(bb->files);
+        bb->files = NULL;
     }
-    int old_cursor = s->cursor;
-    int old_scroll = s->scroll;
-    s->nfiles = 0;
-    s->cursor = 0;
+    int old_cursor = bb->cursor;
+    int old_scroll = bb->scroll;
+    bb->nfiles = 0;
+    bb->cursor = 0;
 
     if (path == NULL)
         return;
 
-    int samedir = strcmp(path, s->path) == 0;
+    int samedir = strcmp(path, bb->path) == 0;
     if (!samedir)
-        strcpy(s->path, path);
+        strcpy(bb->path, path);
 
     // Hash inode -> entry_t with linear probing
     int nselected = 0;
-    for (entry_t *p = firstselected; p; p = p->next) ++nselected;
+    for (entry_t *p = bb->firstselected; p; p = p->next) ++nselected;
     int hashsize = 2 * nselected;
     entry_t **selecthash = NULL;
     if (nselected > 0) {
         selecthash = memcheck(calloc((size_t)hashsize, sizeof(entry_t*)));
-        for (entry_t *p = firstselected; p; p = p->next) {
+        for (entry_t *p = bb->firstselected; p; p = p->next) {
             int probe = ((int)p->d_ino) % hashsize;
             while (selecthash[probe])
                 probe = (probe + 1) % hashsize;
@@ -692,20 +672,20 @@ void populate_files(bb_state_t *s, const char *path)
         }
     }
 
-    DIR *dir = opendir(s->path);
+    DIR *dir = opendir(bb->path);
     if (!dir)
-        err("Couldn't open dir: %s", s->path);
-    size_t pathlen = strlen(s->path);
+        err("Couldn't open dir: %s", bb->path);
+    size_t pathlen = strlen(bb->path);
     size_t filecap = 0;
     char linkbuf[PATH_MAX+1];
     for (struct dirent *dp; (dp = readdir(dir)) != NULL; ) {
         if (dp->d_name[0] == '.' && dp->d_name[1] == '\0')
             continue;
-        if (!s->showhidden && dp->d_name[0] == '.' && !(dp->d_name[1] == '.' && dp->d_name[2] == '\0'))
+        if (!bb->showhidden && dp->d_name[0] == '.' && !(dp->d_name[1] == '.' && dp->d_name[2] == '\0'))
             continue;
-        if ((size_t)s->nfiles >= filecap) {
+        if ((size_t)bb->nfiles >= filecap) {
             filecap += 100;
-            s->files = memcheck(realloc(s->files, filecap*sizeof(entry_t*)));
+            bb->files = memcheck(realloc(bb->files, filecap*sizeof(entry_t*)));
         }
 
         // Hashed lookup from selected:
@@ -713,7 +693,7 @@ void populate_files(bb_state_t *s, const char *path)
             for (int probe = ((int)dp->d_ino) % hashsize; selecthash[probe]; probe = (probe + 1) % hashsize) {
                 if (selecthash[probe]->d_ino == dp->d_ino) {
                     ++selecthash[probe]->visible;
-                    s->files[s->nfiles++] = selecthash[probe];
+                    bb->files[bb->nfiles++] = selecthash[probe];
                     goto next_file;
                 }
             }
@@ -731,7 +711,7 @@ void populate_files(bb_state_t *s, const char *path)
 
         entry_t *entry = memcheck(calloc(sizeof(entry_t) + pathlen + strlen(dp->d_name) + 2 + (size_t)(linkpathlen + 1), 1));
         if (pathlen > PATH_MAX) err("Path is too big");
-        strncpy(entry->d_fullname, s->path, pathlen);
+        strncpy(entry->d_fullname, bb->path, pathlen);
         entry->d_fullname[pathlen] = '/';
         entry->d_name = &entry->d_fullname[pathlen + 1];
         strcpy(entry->d_name, dp->d_name);
@@ -752,41 +732,41 @@ void populate_files(bb_state_t *s, const char *path)
         entry->d_escname = unprintables(entry->d_name) > 0;
         entry->d_esclink = d_esclink;
         lstat(entry->d_fullname, &entry->info);
-        s->files[s->nfiles++] = entry;
+        bb->files[bb->nfiles++] = entry;
       next_file:
         continue;
     }
     closedir(dir);
     free(selecthash);
-    if (s->nfiles == 0) err("No files found (not even '..')");
+    if (bb->nfiles == 0) err("No files found (not even '..')");
 
-    sort_files(s);
+    sort_files(bb);
     if (samedir) {
         if (old_inode) {
-            for (int i = 0; i < s->nfiles; i++) {
-                if (s->files[i]->d_ino == old_inode) {
-                    set_scroll(s, old_scroll);
-                    set_cursor(s, i);
+            for (int i = 0; i < bb->nfiles; i++) {
+                if (bb->files[i]->d_ino == old_inode) {
+                    set_scroll(bb, old_scroll);
+                    set_cursor(bb, i);
                     return;
                 }
             }
         }
-        set_cursor(s, old_cursor);
-        set_scroll(s, old_scroll);
+        set_cursor(bb, old_cursor);
+        set_scroll(bb, old_scroll);
     } else {
-        set_cursor(s, 0);
+        set_cursor(bb, 0);
     }
 }
 
-void sort_files(bb_state_t *state)
+void sort_files(bb_t *bb)
 {
-    ino_t cursor_inode = state->files[state->cursor]->d_ino;
-    qsort_r(&state->files[1], (size_t)(state->nfiles-1), sizeof(entry_t*), &state->sort, compare_files);
-    if (DESCENDING(state->sort) == SORT_RANDOM) {
-        entry_t **files = &state->files[1];
-        int ndirs = 0, nents = state->nfiles - 1;
+    ino_t cursor_inode = bb->files[bb->cursor]->d_ino;
+    qsort_r(&bb->files[1], (size_t)(bb->nfiles-1), sizeof(entry_t*), &bb->sort, compare_files);
+    if (DESCENDING(bb->sort) == SORT_RANDOM) {
+        entry_t **files = &bb->files[1];
+        int ndirs = 0, nents = bb->nfiles - 1;
         for (int i = 0; i < nents; i++) {
-            if (state->files[i]->d_isdir) ++ndirs;
+            if (bb->files[i]->d_isdir) ++ndirs;
             else break;
         }
         for (int i = 0; i < ndirs - 1; i++) {
@@ -802,22 +782,22 @@ void sort_files(bb_state_t *state)
             files[i] = tmp;
         }
     }
-    for (int i = 0; i < state->nfiles; i++) {
-        if (state->files[i]->d_ino == cursor_inode) {
-            set_cursor(state, i);
+    for (int i = 0; i < bb->nfiles; i++) {
+        if (bb->files[i]->d_ino == cursor_inode) {
+            set_cursor(bb, i);
             break;
         }
     }
 }
 
 static enum { BB_NOP = 0, BB_INVALID, BB_REFRESH, BB_DIRTY, BB_QUIT }
-execute_cmd(bb_state_t *state, const char *cmd)
+execute_cmd(bb_t *bb, const char *cmd)
 {
     char *value = strchr(cmd, ':');
     if (value) ++value;
     switch (cmd[0]) {
         case 'r': { // refresh
-            populate_files(state, state->path);
+            populate_files(bb, bb->path);
             return BB_REFRESH;
         }
         case 'q': // quit
@@ -831,8 +811,8 @@ execute_cmd(bb_state_t *state, const char *cmd)
                         case 'p': case 'P': case 'm': case 'M':
                         case 'c': case 'C': case 'a': case 'A':
                         case 'r': case 'R':
-                            state->sort = *value;
-                            sort_files(state);
+                            bb->sort = *value;
+                            sort_files(bb);
                             return BB_REFRESH;
                     }
                     return BB_INVALID;
@@ -842,11 +822,11 @@ execute_cmd(bb_state_t *state, const char *cmd)
                     int isdelta = value[0] == '+' || value[0] == '-';
                     int n = (int)strtol(value, &value, 10);
                     if (*value == '%')
-                        n = (n * (value[1] == 'n' ? state->nfiles : termheight)) / 100;
+                        n = (n * (value[1] == 'n' ? bb->nfiles : termheight)) / 100;
                     if (isdelta)
-                        set_scroll(state, state->scroll + n);
+                        set_scroll(bb, bb->scroll + n);
                     else
-                        set_scroll(state, n);
+                        set_scroll(bb, n);
                     return BB_NOP;
                 }
 
@@ -854,13 +834,13 @@ execute_cmd(bb_state_t *state, const char *cmd)
                     goto move;
 
                 case '\0': case 'e': // select:
-                    if (!value) value = state->files[state->cursor]->d_name;
+                    if (!value) value = bb->files[bb->cursor]->d_name;
                     if (strcmp(value, "*") == 0) {
-                        for (int i = 0; i < state->nfiles; i++)
-                            select_file(state->files[i]);
+                        for (int i = 0; i < bb->nfiles; i++)
+                            select_file(bb, bb->files[i]);
                     } else {
-                        int f = find_file(state, value);
-                        if (f >= 0) select_file(state->files[f]);
+                        int f = find_file(bb, value);
+                        if (f >= 0) select_file(bb, bb->files[f]);
                     }
                     return BB_DIRTY;
             }
@@ -880,7 +860,7 @@ execute_cmd(bb_state_t *state, const char *cmd)
                     }
                     char *rpbuf = realpath(value, NULL);
                     if (!rpbuf) return BB_INVALID;
-                    if (strcmp(rpbuf, state->path) == 0) {
+                    if (strcmp(rpbuf, bb->path) == 0) {
                         free(rpbuf);
                         return BB_NOP;
                     }
@@ -888,60 +868,60 @@ execute_cmd(bb_state_t *state, const char *cmd)
                         free(rpbuf);
                         return BB_INVALID;
                     }
-                    char *oldpath = memcheck(strdup(state->path));
-                    populate_files(state, rpbuf);
+                    char *oldpath = memcheck(strdup(bb->path));
+                    populate_files(bb, rpbuf);
                     free(rpbuf);
                     if (strcmp(value, "..") == 0) {
-                        int f = find_file(state, oldpath);
-                        if (f >= 0) set_cursor(state, f);
+                        int f = find_file(bb, oldpath);
+                        if (f >= 0) set_cursor(bb, f);
                     }
                     free(oldpath);
                     return BB_REFRESH;
                 }
                 case 'o': // cols:
                     if (!value) return BB_INVALID;
-                    for (int i = 0; i < (int)sizeof(state->columns)-1 && value[i]; i++) {
-                        state->columns[i] = value[i];
-                        state->columns[i+1] = '\0';
+                    for (int i = 0; i < (int)sizeof(bb->columns)-1 && value[i]; i++) {
+                        bb->columns[i] = value[i];
+                        bb->columns[i+1] = '\0';
                     }
                     return BB_REFRESH;
             }
         case 't': { // toggle:
-            if (!value) value = state->files[state->cursor]->d_name;
-            int f = find_file(state, value);
+            if (!value) value = bb->files[bb->cursor]->d_name;
+            int f = find_file(bb, value);
             if (f < 0) return BB_INVALID;
-            entry_t *e = state->files[f];
-            if (IS_SELECTED(e)) deselect_file(e);
-            else select_file(e);
-            return f == state->cursor ? BB_NOP : BB_DIRTY;
+            entry_t *e = bb->files[f];
+            if (IS_SELECTED(e)) deselect_file(bb, e);
+            else select_file(bb, e);
+            return f == bb->cursor ? BB_NOP : BB_DIRTY;
         }
         case 'd': { // deselect:, dots:
             if (cmd[1] == 'o') { // dots:
-                int requested = value ? (value[0] == 'y') : state->showhidden ^ 1;
-                if (requested == state->showhidden)
+                int requested = value ? (value[0] == 'y') : bb->showhidden ^ 1;
+                if (requested == bb->showhidden)
                     return BB_INVALID;
-                state->showhidden = requested;
-                populate_files(state, state->path);
+                bb->showhidden = requested;
+                populate_files(bb, bb->path);
                 return BB_REFRESH;
             } else if (value) { // deselect:
-                if (!value) value = state->files[state->cursor]->d_name;
+                if (!value) value = bb->files[bb->cursor]->d_name;
                 if (strcmp(value, "*") == 0) {
-                    clear_selection();
+                    clear_selection(bb);
                     return BB_DIRTY;
                 } else {
-                    int f = find_file(state, value);
+                    int f = find_file(bb, value);
                     if (f >= 0)
-                        select_file(state->files[f]);
-                    return f == state->cursor ? BB_NOP : BB_DIRTY;
+                        select_file(bb, bb->files[f]);
+                    return f == bb->cursor ? BB_NOP : BB_DIRTY;
                 }
             }
             return BB_INVALID;
         }
         case 'g': { // goto:
             if (!value) return BB_INVALID;
-            int f = find_file(state, value);
+            int f = find_file(bb, value);
             if (f >= 0) {
-                set_cursor(state, f);
+                set_cursor(bb, f);
                 return BB_NOP;
             }
             char *path = memcheck(strdup(value));
@@ -951,11 +931,11 @@ execute_cmd(bb_state_t *state, const char *cmd)
             char *real = realpath(path, NULL);
             if (!real || chdir(real))
                 err("Not a valid path: %s\n", path);
-            populate_files(state, real);
+            populate_files(bb, real);
             free(real); // estate
             if (lastslash[1]) {
-                f = find_file(state, lastslash + 1);
-                if (f >= 0) set_cursor(state, f);
+                f = find_file(bb, lastslash + 1);
+                if (f >= 0) set_cursor(bb, f);
             }
             return BB_REFRESH;
         }
@@ -966,33 +946,33 @@ execute_cmd(bb_state_t *state, const char *cmd)
                     char key = value[0];
                     if (key < 0) return BB_INVALID;
                     value = strchr(value, '=');
-                    if (!value) value = state->path;
+                    if (!value) value = bb->path;
                     else ++value;
-                    if (state->marks[(int)key])
-                        free(state->marks[(int)key]);
-                    state->marks[(int)key] = memcheck(strdup(value));
+                    if (bb->marks[(int)key])
+                        free(bb->marks[(int)key]);
+                    bb->marks[(int)key] = memcheck(strdup(value));
                     return BB_NOP;
                 }
                 default: { // move:
                     int oldcur, isdelta, n;
                   move:
                     if (!value) return BB_INVALID;
-                    oldcur = state->cursor;
+                    oldcur = bb->cursor;
                     isdelta = value[0] == '-' || value[0] == '+';
                     n = (int)strtol(value, &value, 10);
                     if (*value == '%')
-                        n = (n * (value[1] == 'n' ? state->nfiles : termheight)) / 100;
-                    if (isdelta) set_cursor(state, state->cursor + n);
-                    else set_cursor(state, n);
+                        n = (n * (value[1] == 'n' ? bb->nfiles : termheight)) / 100;
+                    if (isdelta) set_cursor(bb, bb->cursor + n);
+                    else set_cursor(bb, n);
                     if (cmd[0] == 's') { // spread:
-                        int sel = IS_SELECTED(state->files[oldcur]);
-                        for (int i = state->cursor; i != oldcur; i += (oldcur > i ? 1 : -1)) {
-                            if (sel && !IS_SELECTED(state->files[i]))
-                                select_file(state->files[i]);
-                            else if (!sel && IS_SELECTED(state->files[i]))
-                                deselect_file(state->files[i]);
+                        int sel = IS_SELECTED(bb->files[oldcur]);
+                        for (int i = bb->cursor; i != oldcur; i += (oldcur > i ? 1 : -1)) {
+                            if (sel && !IS_SELECTED(bb->files[i]))
+                                select_file(bb, bb->files[i]);
+                            else if (!sel && IS_SELECTED(bb->files[i]))
+                                deselect_file(bb, bb->files[i]);
                         }
-                        if (abs(oldcur - state->cursor) > 1)
+                        if (abs(oldcur - bb->cursor) > 1)
                             return BB_DIRTY;
                     }
                     return BB_NOP;
@@ -1002,8 +982,8 @@ execute_cmd(bb_state_t *state, const char *cmd)
         case 'j': { // jump:
             if (!value) return BB_INVALID;
             char key = value[0];
-            if (state->marks[(int)key]) {
-                value = state->marks[(int)key];
+            if (bb->marks[(int)key]) {
+                value = bb->marks[(int)key];
                 goto cd;
             }
             return BB_INVALID;
@@ -1018,27 +998,28 @@ entry_t *explore(const char *path)
     static long cmdpos = 0;
     int lastwidth = termwidth, lastheight = termheight;
     int lazy = 0, check_cmds = 1;
+    entry_t *firstselected = NULL;
 
     init_term();
     fputs(T_ON(T_ALT_SCREEN), tty_out);
 
-    bb_state_t *state = memcheck(calloc(1, sizeof(bb_state_t)));
-    strcpy(state->columns, "n");
-    state->sort = 'n';
+    bb_t *bb = memcheck(calloc(1, sizeof(bb_t)));
+    strcpy(bb->columns, "n");
+    bb->sort = 'n';
     {
         char *real = realpath(path, NULL);
         if (!real || chdir(real))
             err("Not a valid path: %s\n", path);
-        populate_files(state, real);
+        populate_files(bb, real);
         free(real); // estate
     }
 
     for (int i = 0; startupcmds[i]; i++) {
         if (startupcmds[i][0] == '+') {
-            if (execute_cmd(state, startupcmds[i] + 1) == BB_QUIT)
+            if (execute_cmd(bb, startupcmds[i] + 1) == BB_QUIT)
                 goto quit;
         } else {
-            run_cmd_on_selection(state, startupcmds[i]);
+            run_cmd_on_selection(bb, startupcmds[i]);
             check_cmds = 1;
         }
     }
@@ -1047,7 +1028,7 @@ entry_t *explore(const char *path)
     lazy = 0;
 
   redraw:
-    render(state, lazy);
+    render(bb, lazy);
     lazy = 1;
 
   next_input:
@@ -1072,7 +1053,7 @@ entry_t *explore(const char *path)
         while (cmdfile && getdelim(&cmd, &cap, '\0', cmdfile) >= 0) {
             cmdpos = ftell(cmdfile);
             if (!cmd[0]) continue;
-            switch (execute_cmd(state, cmd)) {
+            switch (execute_cmd(bb, cmd)) {
                 case BB_INVALID:
                     break;
                 case BB_DIRTY:
@@ -1110,8 +1091,8 @@ entry_t *explore(const char *path)
             if (mouse_y == 1) {
                 // Sort column:
                 int x = 1;
-                for (char *col = state->columns; *col; ++col) {
-                    if (col != state->columns) x += 3;
+                for (char *col = bb->columns; *col; ++col) {
+                    if (col != bb->columns) x += 3;
                     switch (*col) {
                         case 's': x += colsizew;
                                   break;
@@ -1124,25 +1105,25 @@ entry_t *explore(const char *path)
                                   break;
                     }
                     if (x >= mouse_x) {
-                        if (DESCENDING(state->sort) == *col)
-                            state->sort ^= SORT_DESCENDING;
+                        if (DESCENDING(bb->sort) == *col)
+                            bb->sort ^= SORT_DESCENDING;
                         else
-                            state->sort = *col;
-                        sort_files(state);
+                            bb->sort = *col;
+                        sort_files(bb);
                         goto refresh;
                     }
                 }
                 goto next_input;
-            } else if (mouse_y >= 2 && state->scroll + (mouse_y - 2) < state->nfiles) {
-                int clicked = state->scroll + (mouse_y - 2);
+            } else if (mouse_y >= 2 && bb->scroll + (mouse_y - 2) < bb->nfiles) {
+                int clicked = bb->scroll + (mouse_y - 2);
                 if (mouse_x == 0) {
-                    if (IS_SELECTED(state->files[clicked]))
-                        deselect_file(state->files[clicked]);
+                    if (IS_SELECTED(bb->files[clicked]))
+                        deselect_file(bb, bb->files[clicked]);
                     else
-                        select_file(state->files[clicked]);
+                        select_file(bb, bb->files[clicked]);
                     goto redraw;
                 }
-                set_cursor(state, clicked);
+                set_cursor(bb, clicked);
                 if (dt_ms <= 200) {
                     key = KEY_MOUSE_DOUBLE_LEFT;
                     goto user_bindings;
@@ -1224,7 +1205,7 @@ entry_t *explore(const char *path)
             if (cmdpos != 0)
                 err("Command file still open");
             if (binding->command[0] == '+') {
-                switch (execute_cmd(state, binding->command + 1)) {
+                switch (execute_cmd(bb, binding->command + 1)) {
                     case BB_INVALID: break;
                     case BB_DIRTY: lazy = 0;
                     case BB_NOP: goto redraw;
@@ -1241,7 +1222,7 @@ entry_t *explore(const char *path)
             }
             if (binding->flags & SHOW_CURSOR)
                 fputs(T_ON(T_SHOW_CURSOR), stdout);
-            run_cmd_on_selection(state, binding->command);
+            run_cmd_on_selection(bb, binding->command);
             init_term();
             if (binding->flags & NORMAL_TERM)
                 fputs(T_ON(T_ALT_SCREEN), tty_out);
@@ -1254,11 +1235,11 @@ entry_t *explore(const char *path)
     goto next_input;
 
   quit:
-
-    populate_files(state, NULL);
+    firstselected = bb->firstselected;
+    populate_files(bb, NULL);
     for (int i = 0; i < 128; i++)
-        if (state->marks[i]) free(state->marks[i]);
-    free(state);
+        if (bb->marks[i]) free(bb->marks[i]);
+    free(bb);
 
     fputs(T_LEAVE_BBMODE, tty_out);
     close_term();
@@ -1407,11 +1388,23 @@ int main(int argc, char *argv[])
 
     char *real = realpath(initial_path, NULL);
     if (!real || chdir(real)) err("Not a valid path: %s\n", initial_path);
-    explore(real);
+    entry_t *firstselected = explore(real);
     free(real);
 
     if (firstselected && print_selection) {
-        write_selection(STDOUT_FILENO, sep);
+        for (entry_t *e = firstselected; e; e = e->next) {
+            const char *p = e->d_fullname;
+            while (*p) {
+                const char *p2 = strchr(p, '\n');
+                if (!p2) p2 = p + strlen(p);
+                write(STDOUT_FILENO, p, (size_t)(p2 - p));
+                if (*p2 == '\n' && sep == '\n')
+                    write(STDOUT_FILENO, "\\", 1);
+                p = p2;
+            }
+            write(STDOUT_FILENO, &sep, 1);
+        }
+        fflush(stdout);
     }
     if (print_dir) {
         printf("%s\n", initial_path);
