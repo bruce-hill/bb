@@ -53,23 +53,19 @@
 #include "keys.h"
 
 // Configurable options:
-extern const char *CURSOR_COLOR, *LINKDIR_COLOR, *DIR_COLOR, *LINK_COLOR, *NORMAL_COLOR,
-       *SORT_INDICATOR, *RSORT_INDICATOR, *CMDFILE_FORMAT;
-extern const int KEY_DELAY;
-
-const int KEY_DELAY = 50;
+#define KEY_DELAY 50
 #define SCROLLOFF MIN(5, (termheight-4)/2)
 
-const char *CMDFILE_FORMAT = "/tmp/bb.XXXXXX";
+#define CMDFILE_FORMAT "/tmp/bb.XXXXXX"
 
-const char *SORT_INDICATOR =  "↓";
-const char *RSORT_INDICATOR = "↑";
+#define SORT_INDICATOR  "↓"
+#define RSORT_INDICATOR "↑"
 
-const char *NORMAL_COLOR =  "\033[0m";
-const char *CURSOR_COLOR =  "\033[0;30;43m";
-const char *LINKDIR_COLOR = "\033[0;36m";
-const char *DIR_COLOR =     "\033[0;34m";
-const char *LINK_COLOR =    "\033[0;33m";
+#define NORMAL_COLOR  "\033[0m"
+#define CURSOR_COLOR  "\033[0;30;43m"
+#define LINKDIR_COLOR "\033[0;36m"
+#define DIR_COLOR     "\033[0;34m"
+#define LINK_COLOR    "\033[0;33m"
 
 #define PIPE_SELECTION_TO " printf '%s\\n' \"$@\" | "
 #define PAUSE " read -n1 -p '\033[2m...press any key to continue...\033[0m\033[?25l'"
@@ -139,9 +135,9 @@ else xdg-open \"$BBCURSOR\"; fi",
     {{'C'},                  "for f; do cp \"$f\" \"$f.copy\"; done; bb +r", "Clone files"},
     {{'n'},                  "read -p 'New file: ' name && touch \"$name\"; bb +r \"+goto:$name\"", "New file", SHOW_CURSOR},
     {{'N'},                  "read -p 'New dir: ' name && mkdir \"$name\"; bb +r \"+goto:$name\"", "New folder", SHOW_CURSOR},
-    {{'|'},                  "read -p '| ' cmd && " PIPE_SELECTION_TO "sh -c \"$cmd\" && " PAUSE "; bb +r",
+    {{'|'},                  "read -p '|' cmd && " PIPE_SELECTION_TO "sh -c \"$cmd\" && " PAUSE "; bb +r",
                              "Pipe selected files to a command", SHOW_CURSOR},
-    {{':'},                  "read -p ': ' cmd && sh -c \"$cmd\" -- \"$@\"; " PAUSE "; bb +r",
+    {{':'},                  "read -p ':' cmd && sh -c \"$cmd\" -- \"$@\"; " PAUSE "; bb +r",
                              "Run a command", SHOW_CURSOR},
     {{'>'},                  "sh", "Open a shell", NORMAL_TERM},
     {{'m'}, "read -n1 -p 'Mark: ' m && bb \"+mark:$m;$PWD\"", "Set mark", SHOW_CURSOR},

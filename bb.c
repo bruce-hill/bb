@@ -42,16 +42,28 @@
     (e)->atme = NULL; \
 } while (0)
 
-#define alt_screen() fputs("\033[?1049h", tty_out)
-#define default_screen() fputs("\033[?1049l", tty_out)
-#define hide_cursor() fputs("\033[?25l", tty_out);
-#define show_cursor() fputs("\033[?25h", tty_out);
+// Terminal escape sequences:
+#define CSI           "\033["
+#define T_WRAP        "7"
+#define T_SHOW_CURSOR "25"
+#define T_MOUSE_XY    "1000"
+#define T_MOUSE_CELL  "1002"
+#define T_MOUSE_SGR   "1006"
+#define T_MOUSE_URXVT "1015"
+#define T_ALT_SCREEN  "1049"
+#define T_ON(opt)  CSI "?" opt "h"
+#define T_OFF(opt) CSI "?" opt "l"
+
+static const char *T_ENTER_BBMODE =  T_OFF(T_WRAP ";" T_MOUSE_URXVT) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
+static const char *T_LEAVE_BBMODE =  T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN) T_ON(T_WRAP);
+static const char *T_LEAVE_BBMODE_PARTIAL = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR) T_ON(T_WRAP);
+
+#define move_cursor(f, x, y) fprintf((f), CSI "%d;%dH", (int)(y)+1, (int)(x)+1)
 
 #define err(...) do { \
-    if (tty_out) { \
-        default_screen(); \
-        close_term(); \
-    } \
+    close_term(); \
+    fputs(T_OFF(T_ALT_SCREEN), stdout); \
+    fflush(stdout); \
     fprintf(stderr, __VA_ARGS__); \
     if (errno) fprintf(stderr, "\n%s", strerror(errno)); \
     fprintf(stderr, "\n"); \
@@ -136,9 +148,6 @@ static void print_bindings(int verbose);
 // Config options
 extern binding_t bindings[];
 extern const char *startupcmds[];
-extern const char *CURSOR_COLOR, *LINKDIR_COLOR, *DIR_COLOR, *LINK_COLOR, *NORMAL_COLOR,
-       *SORT_INDICATOR, *RSORT_INDICATOR, *CMDFILE_FORMAT;
-extern const int KEY_DELAY;
 
 // Global variables
 static struct termios orig_termios, bb_termios;
@@ -179,21 +188,14 @@ void init_term(void)
     update_term_size(0);
     signal(SIGWINCH, update_term_size);
     // Initiate mouse tracking and disable text wrapping:
-    fputs("\033[?1000h\033[?1002h\033[?1015h\033[?1006h\033[?7l", tty_out);
+    fputs(T_ENTER_BBMODE, tty_out);
 }
 
 void cleanup_and_exit(int sig)
 {
     (void)sig;
-    if (tty_out) {
-        tcsetattr(fileno(tty_out), TCSAFLUSH, &orig_termios);
-        fclose(tty_out);
-        tty_out = NULL;
-        fclose(tty_in);
-        tty_in = NULL;
-    }
-    // Restore default screen, show cursor and re-enable text wrapping
-    printf("\033[?1000l\033[?1002l\033[?1015l\033[?1006l\033[?1049l\033[?7h\033[?25h\n");
+    close_term();
+    fputs(T_OFF(T_ALT_SCREEN), stdout);
     fflush(stdout);
     unlink(cmdfilename);
     exit(EXIT_FAILURE);
@@ -201,16 +203,16 @@ void cleanup_and_exit(int sig)
 
 void close_term(void)
 {
+    if (tty_out) {
+        tcsetattr(fileno(tty_out), TCSAFLUSH, &orig_termios);
+        fclose(tty_out);
+        tty_out = NULL;
+        fclose(tty_in);
+        tty_in = NULL;
+    }
+    fputs(T_LEAVE_BBMODE_PARTIAL, stdout);
+    fflush(stdout);
     signal(SIGWINCH, SIG_IGN);
-
-    // Disable mouse tracking and re-enable text wrapping
-    fputs("\033[?1000l\033[?1002l\033[?1015l\033[?1006l\033[?7h", tty_out);
-
-    tcsetattr(fileno(tty_out), TCSAFLUSH, &orig_termios);
-    fclose(tty_out);
-    tty_out = NULL;
-    fclose(tty_in);
-    tty_in = NULL;
 }
 
 void* memcheck(void *p)
@@ -271,8 +273,6 @@ int run_cmd_on_selection(bb_state_t *s, const char *cmd)
     return status;
 }
 
-#define term_move(x, y) fprintf(tty_out, "\033[%d;%dH", (int)(y)+1, (int)(x)+1)
-
 static void fputs_escaped(FILE *f, const char *str, const char *color)
 {
     static const char *escapes = "       abtnvfr             e";
@@ -325,13 +325,13 @@ void render(bb_state_t *s, int lazy)
 
     if (!lazy) {
         // Path
-        term_move(0,0);
+        move_cursor(tty_out, 0, 0);
         const char *color = "\033[0;1;37m";
         fputs_escaped(tty_out, s->path, color);
         fputs(" \033[K\033[0m", tty_out);
 
         // Columns
-        term_move(0,1);
+        move_cursor(tty_out, 0,1);
         fputs("\033[41m \033[0;44;30m", tty_out);
         for (char *col = s->columns; *col; ++col) {
             const char *colname;
@@ -381,7 +381,7 @@ void render(bb_state_t *s, int lazy)
         int y;
       do_render:
         y = i - s->scroll + 2;
-        term_move(0, y);
+        move_cursor(tty_out, 0, y);
         if (i >= s->nfiles) {
             fputs("\033[K", tty_out);
             continue;
@@ -489,9 +489,9 @@ void render(bb_state_t *s, int lazy)
     }
 
     static const char *help = "Press '?' to see key bindings ";
-    term_move(0, termheight - 1);
+    move_cursor(tty_out, 0, termheight - 1);
     fputs("\033[K", tty_out);
-    term_move(MAX(0, termwidth - (int)strlen(help)), termheight - 1);
+    move_cursor(tty_out, MAX(0, termwidth - (int)strlen(help)), termheight - 1);
     fputs(help, tty_out);
     lastcursor = s->cursor;
     lastscroll = s->scroll;
@@ -1020,8 +1020,7 @@ entry_t *explore(const char *path)
     int lazy = 0, check_cmds = 1;
 
     init_term();
-    alt_screen();
-    hide_cursor();
+    fputs(T_ON(T_ALT_SCREEN), tty_out);
 
     bb_state_t *state = memcheck(calloc(1, sizeof(bb_state_t)));
     strcpy(state->columns, "n");
@@ -1158,22 +1157,21 @@ entry_t *explore(const char *path)
             goto quit; // Unreachable
 
         case KEY_CTRL_Z:
-            default_screen();
-            show_cursor();
             close_term();
+            fputs(T_OFF(T_ALT_SCREEN), stdout);
+            fflush(stdout);
             raise(SIGTSTP);
             init_term();
-            alt_screen();
-            hide_cursor();
+            fputs(T_ON(T_ALT_SCREEN), tty_out);
             lazy = 0;
             goto redraw;
 
         case KEY_CTRL_H: {
-            term_move(0,termheight-1);
+            move_cursor(tty_out, 0,termheight-1);
             fputs("\033[K\033[33;1mPress any key...\033[0m", tty_out);
             while ((key = term_getkey(fileno(tty_in), &mouse_x, &mouse_y, 1000)) == -1)
                 ;
-            term_move(0,termheight-1);
+            move_cursor(tty_out, 0,termheight-1);
             fputs("\033[K\033[1m<\033[33m", tty_out);
             const char *name = keyname(key);
             if (name) fputs(name, tty_out);
@@ -1235,20 +1233,20 @@ entry_t *explore(const char *path)
                 }
                 goto get_keyboard_input;
             }
-            term_move(0, termheight-1);
-            //fputs("\033[K", tty_out);
-            if (binding->flags & NORMAL_TERM)
-                default_screen();
-            if (binding->flags & NORMAL_TERM || binding->flags & SHOW_CURSOR)
-                show_cursor();
+            move_cursor(tty_out, 0, termheight-1);
             close_term();
+            if (binding->flags & NORMAL_TERM) {
+                fputs(T_OFF(T_ALT_SCREEN), stdout);
+                fflush(stdout);
+            }
+            if (binding->flags & SHOW_CURSOR)
+                fputs(T_ON(T_SHOW_CURSOR), stdout);
             run_cmd_on_selection(state, binding->command);
             init_term();
-            if (binding->flags & NORMAL_TERM) {
+            if (binding->flags & NORMAL_TERM)
+                fputs(T_ON(T_ALT_SCREEN), tty_out);
+            if (binding->flags & NORMAL_TERM)
                 lazy = 0;
-                alt_screen();
-            }
-            hide_cursor();
             check_cmds = 1;
             goto redraw;
         }
@@ -1262,9 +1260,10 @@ entry_t *explore(const char *path)
         if (state->marks[i]) free(state->marks[i]);
     free(state);
 
-    default_screen();
-    show_cursor();
+    fputs(T_LEAVE_BBMODE, tty_out);
     close_term();
+    fputs(T_OFF(T_ALT_SCREEN), stdout);
+    fflush(stdout);
     return firstselected;
 }
 
