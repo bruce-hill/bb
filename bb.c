@@ -89,7 +89,7 @@ typedef enum {
  */
 typedef struct entry_s {
     struct entry_s *next, **atme;
-    int visible;
+    int refcount;
     int d_isdir : 1, d_escname : 1, d_esclink : 1;
     ino_t      d_ino;
     __uint8_t  d_type;
@@ -261,15 +261,12 @@ static void fputs_escaped(FILE *f, const char *str, const char *color)
 {
     static const char *escapes = "       abtnvfr             e";
     for (const char *c = str; *c; ++c) {
-        if (*c < 0) {
-            fputc(*c, f);
-        } else if (*c > 0 && *c <= '\x1b' && escapes[(int)*c] != ' ') { // "\n", etc.
+        if (*c > 0 && *c <= '\x1b' && escapes[(int)*c] != ' ') // "\n", etc.
             fprintf(f, "\033[31m\\%c%s", escapes[(int)*c], color);
-        } else if (!(' ' <= *c && *c <= '~')) { // "\x02", etc.
+        else if (*c >= 0 && !(' ' <= *c && *c <= '~')) // "\x02", etc.
             fprintf(f, "\033[31m\\x%02X%s", *c, color);
-        } else {
+        else
             fputc(*c, f);
-        }
     }
 }
 
@@ -291,13 +288,12 @@ void render(bb_t *bb, int lazy)
 
     // Canonicalize columns and column sizes
     // TODO: make this lazy?
-    int namecols = 0, cols = 0;
+    int cols = 0;
     for (char *valid = &bb->options['0'], *p = &bb->options['0']; p <= &bb->options['9']; ++p) {
         switch (*p) {
-            case 'n': ++namecols;
-            case 's': case 'm': case 'c': case 'a': case 'p':
-                      ++cols; 
-                      *(valid++) = *p;
+            case 'n': case 's': case 'm': case 'c': case 'a': case 'p':
+                ++cols; 
+                *(valid++) = *p;
         }
         if (p >= valid) *p = 0;
     }
@@ -596,8 +592,7 @@ void clear_selection(bb_t *bb)
 {
     for (entry_t *next, *e = bb->firstselected; e; e = next) {
         next = e->next;
-        if (!e->visible)
-            free(e);
+        if (--e->refcount <= 0) free(e);
     }
     bb->firstselected = NULL;
 }
@@ -610,6 +605,7 @@ int select_file(bb_t *bb, entry_t *e)
         bb->firstselected->atme = &e->next;
     e->next = bb->firstselected;
     e->atme = &bb->firstselected;
+    ++e->refcount;
     bb->firstselected = e;
     return 1;
 }
@@ -621,6 +617,7 @@ int deselect_file(bb_t *bb, entry_t *e)
     if (e->next)
         e->next->atme = e->atme;
     *(e->atme) = e->next;
+    --e->refcount;
     e->next = NULL;
     e->atme = NULL;
     return 1;
@@ -674,16 +671,13 @@ void populate_files(bb_t *bb, const char *path)
     if (bb->files) {
         old_inode = bb->files[bb->cursor]->d_ino;
         for (int i = 0; i < bb->nfiles; i++) {
-            entry_t *e = bb->files[i];
-            --e->visible;
-            if (!IS_SELECTED(e))
-                free(e);
+            if (--bb->files[i]->refcount <= 0)
+                free(bb->files[i]);
         }
         free(bb->files);
         bb->files = NULL;
     }
-    int old_cursor = bb->cursor;
-    int old_scroll = bb->scroll;
+    int old_cursor = bb->cursor, old_scroll = bb->scroll;
     bb->nfiles = 0;
     bb->cursor = 0;
 
@@ -729,7 +723,7 @@ void populate_files(bb_t *bb, const char *path)
         if (nselected > 0) {
             for (int probe = ((int)dp->d_ino) % hashsize; selecthash[probe]; probe = (probe + 1) % hashsize) {
                 if (selecthash[probe]->d_ino == dp->d_ino) {
-                    ++selecthash[probe]->visible;
+                    ++selecthash[probe]->refcount;
                     bb->files[bb->nfiles++] = selecthash[probe];
                     goto next_file;
                 }
@@ -759,7 +753,7 @@ void populate_files(bb_t *bb, const char *path)
         entry->d_ino = dp->d_ino;
         entry->d_type = dp->d_type;
         entry->d_isdir = dp->d_type == DT_DIR;
-        ++entry->visible;
+        ++entry->refcount;
         if (!entry->d_isdir && entry->d_type == DT_LNK) {
             struct stat statbuf;
             if (stat(entry->d_fullname, &statbuf) == 0)
@@ -866,6 +860,7 @@ execute_cmd(bb_t *bb, const char *cmd)
                     } else {
                         int f = find_file(bb, value);
                         if (f >= 0) select_file(bb, bb->files[f]);
+                        // TODO: support selecting files in other directories
                     }
                     return BB_DIRTY;
             }
