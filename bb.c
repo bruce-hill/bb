@@ -89,13 +89,14 @@ typedef enum {
  */
 typedef struct entry_s {
     struct entry_s *next, **atme;
-    int refcount;
-    int d_isdir : 1, d_escname : 1, d_esclink : 1;
-    ino_t      d_ino;
-    __uint8_t  d_type;
-    struct stat info;
     char *d_name, *d_linkname;
+    struct stat info;
+    __uint8_t d_type;
     char d_fullname[1];
+    int refcount : 2; // Should only be between 0-2
+    int isdir : 1;
+    int needs_esc : 1;
+    int link_needs_esc : 1;
 } entry_t;
 
 typedef struct bb_s {
@@ -115,7 +116,6 @@ static void init_term(void);
 static void cleanup_and_exit(int sig);
 static void close_term(void);
 static void* memcheck(void *p);
-static int unprintables(char *s);
 static int run_cmd_on_selection(bb_t *bb, const char *cmd);
 static void render(bb_t *bb, int lazy);
 static int compare_files(void *r, const void *v1, const void *v2);
@@ -205,13 +205,6 @@ void* memcheck(void *p)
     return p;
 }
 
-int unprintables(char *s)
-{
-    int count = 0;
-    for ( ; *s; ++s) count += *s < ' ';
-    return count;
-}
-
 int run_cmd_on_selection(bb_t *bb, const char *cmd)
 {
     pid_t child;
@@ -257,17 +250,22 @@ int run_cmd_on_selection(bb_t *bb, const char *cmd)
     return status;
 }
 
-static void fputs_escaped(FILE *f, const char *str, const char *color)
+static int fputs_escaped(FILE *f, const char *str, const char *color)
 {
     static const char *escapes = "       abtnvfr             e";
+    int escaped = 0;
     for (const char *c = str; *c; ++c) {
-        if (*c > 0 && *c <= '\x1b' && escapes[(int)*c] != ' ') // "\n", etc.
+        if (*c > 0 && *c <= '\x1b' && escapes[(int)*c] != ' ') { // "\n", etc.
             fprintf(f, "\033[31m\\%c%s", escapes[(int)*c], color);
-        else if (*c >= 0 && !(' ' <= *c && *c <= '~')) // "\x02", etc.
+            ++escaped;
+        } else if (*c >= 0 && !(' ' <= *c && *c <= '~')) { // "\x02", etc.
             fprintf(f, "\033[31m\\x%02X%s", *c, color);
-        else
+            ++escaped;
+        } else {
             fputc(*c, f);
+        }
     }
+    return escaped;
 }
 
 void render(bb_t *bb, int lazy)
@@ -396,9 +394,9 @@ void render(bb_t *bb, int lazy)
         const char *color;
         if (i == bb->cursor)
             color = CURSOR_COLOR;
-        else if (entry->d_isdir && entry->d_type == DT_LNK)
+        else if (entry->isdir && entry->d_type == DT_LNK)
             color = LINKDIR_COLOR;
-        else if (entry->d_isdir)
+        else if (entry->isdir)
             color = DIR_COLOR;
         else if (entry->d_type == DT_LNK)
             color = LINK_COLOR;
@@ -458,22 +456,20 @@ void render(bb_t *bb, int lazy)
                     break;
 
                 case 'n': {
-                    if (entry->d_escname)
-                        fputs_escaped(tty_out, entry->d_name, color);
-                    else
-                        fputs(entry->d_name, tty_out);
+                    if (entry->needs_esc)
+                        entry->needs_esc &= fputs_escaped(tty_out, entry->d_name, color) > 0;
+                    else fputs(entry->d_name, tty_out);
 
-                    if (entry->d_isdir)
+                    if (entry->isdir)
                         fputs("/", tty_out);
 
                     if (entry->d_linkname) {
                         fputs("\033[2m -> ", tty_out);
-                        if (entry->d_esclink)
-                            fputs_escaped(tty_out, entry->d_linkname, color);
-                        else
-                            fputs(entry->d_linkname, tty_out);
+                        if (entry->link_needs_esc)
+                            entry->link_needs_esc &= fputs_escaped(tty_out, entry->d_linkname, color) > 0;
+                        else fputs(entry->d_linkname, tty_out);
 
-                        if (entry->d_isdir)
+                        if (entry->isdir)
                             fputs("/", tty_out);
 
                         fputs("\033[22m", tty_out);
@@ -528,7 +524,7 @@ int compare_files(void *v, const void *v1, const void *v2)
     const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
     int diff = 0;
     if (!bb->options['i']) {
-        diff = -(f1->d_isdir - f2->d_isdir);
+        diff = -(f1->isdir - f2->isdir);
         if (diff) return -diff;
     }
     if (sort == SORT_NAME) {
@@ -669,7 +665,7 @@ void populate_files(bb_t *bb, const char *path)
     ino_t old_inode = 0;
     // Clear old files (if any)
     if (bb->files) {
-        old_inode = bb->files[bb->cursor]->d_ino;
+        old_inode = bb->files[bb->cursor]->info.st_ino;
         for (int i = 0; i < bb->nfiles; i++) {
             if (--bb->files[i]->refcount <= 0)
                 free(bb->files[i]);
@@ -696,7 +692,7 @@ void populate_files(bb_t *bb, const char *path)
     if (nselected > 0) {
         selecthash = memcheck(calloc((size_t)hashsize, sizeof(entry_t*)));
         for (entry_t *p = bb->firstselected; p; p = p->next) {
-            int probe = ((int)p->d_ino) % hashsize;
+            int probe = ((int)p->info.st_ino) % hashsize;
             while (selecthash[probe])
                 probe = (probe + 1) % hashsize;
             selecthash[probe] = p;
@@ -722,7 +718,7 @@ void populate_files(bb_t *bb, const char *path)
         // Hashed lookup from selected:
         if (nselected > 0) {
             for (int probe = ((int)dp->d_ino) % hashsize; selecthash[probe]; probe = (probe + 1) % hashsize) {
-                if (selecthash[probe]->d_ino == dp->d_ino) {
+                if (selecthash[probe]->info.st_ino == dp->d_ino) {
                     ++selecthash[probe]->refcount;
                     bb->files[bb->nfiles++] = selecthash[probe];
                     goto next_file;
@@ -732,12 +728,9 @@ void populate_files(bb_t *bb, const char *path)
 
         ssize_t linkpathlen = -1;
         linkbuf[0] = 0;
-        int d_esclink = 0;
         if (dp->d_type == DT_LNK) {
             linkpathlen = readlink(dp->d_name, linkbuf, sizeof(linkbuf));
             linkbuf[linkpathlen] = 0;
-            if (linkpathlen > 0)
-                d_esclink = unprintables(linkbuf) > 0;
         }
 
         entry_t *entry = memcheck(calloc(sizeof(entry_t) + pathlen + strlen(dp->d_name) + 2 + (size_t)(linkpathlen + 1), 1));
@@ -750,18 +743,17 @@ void populate_files(bb_t *bb, const char *path)
             entry->d_linkname = entry->d_name + strlen(dp->d_name) + 2;
             strncpy(entry->d_linkname, linkbuf, linkpathlen+1);
         }
-        entry->d_ino = dp->d_ino;
+        entry->needs_esc = 1; // populate on-the-fly
+        entry->link_needs_esc = 1; // populate on-the-fly
         entry->d_type = dp->d_type;
-        entry->d_isdir = dp->d_type == DT_DIR;
+        entry->isdir = dp->d_type == DT_DIR;
         ++entry->refcount;
-        if (!entry->d_isdir && entry->d_type == DT_LNK) {
+        if (!entry->isdir && entry->d_type == DT_LNK) {
             struct stat statbuf;
             if (stat(entry->d_fullname, &statbuf) == 0)
-                entry->d_isdir = S_ISDIR(statbuf.st_mode);
+                entry->isdir = S_ISDIR(statbuf.st_mode);
         }
         entry->next = NULL; entry->atme = NULL;
-        entry->d_escname = unprintables(entry->d_name) > 0;
-        entry->d_esclink = d_esclink;
         lstat(entry->d_fullname, &entry->info);
         bb->files[bb->nfiles++] = entry;
       next_file:
@@ -775,7 +767,7 @@ void populate_files(bb_t *bb, const char *path)
     if (samedir) {
         if (old_inode) {
             for (int i = 0; i < bb->nfiles; i++) {
-                if (bb->files[i]->d_ino == old_inode) {
+                if (bb->files[i]->info.st_ino == old_inode) {
                     set_scroll(bb, old_scroll);
                     set_cursor(bb, i);
                     return;
@@ -791,13 +783,13 @@ void populate_files(bb_t *bb, const char *path)
 
 void sort_files(bb_t *bb)
 {
-    ino_t cursor_inode = bb->files[bb->cursor]->d_ino;
+    ino_t cursor_inode = bb->files[bb->cursor]->info.st_ino;
     qsort_r(&bb->files[1], (size_t)(bb->nfiles-1), sizeof(entry_t*), bb, compare_files);
     if (bb->options['s'] == SORT_RANDOM) {
         entry_t **files = &bb->files[1];
         int ndirs = 0, nents = bb->nfiles - 1;
         for (int i = 0; i < nents; i++) {
-            if (bb->files[i]->d_isdir) ++ndirs;
+            if (bb->files[i]->isdir) ++ndirs;
             else break;
         }
         for (int i = 0; i < ndirs - 1; i++) {
@@ -814,7 +806,7 @@ void sort_files(bb_t *bb)
         }
     }
     for (int i = 0; i < bb->nfiles; i++) {
-        if (bb->files[i]->d_ino == cursor_inode) {
+        if (bb->files[i]->info.st_ino == cursor_inode) {
             set_cursor(bb, i);
             break;
         }
@@ -1284,6 +1276,8 @@ void print_bindings(int verbose)
 
 int main(int argc, char *argv[])
 {
+    printf("%lu\n", sizeof(entry_t));
+    return 0;
     char *initial_path = NULL, *depthstr;
     char sep = '\n';
     int print_dir = 0, print_selection = 0;
