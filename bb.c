@@ -305,7 +305,7 @@ void render(bb_t *bb, int lazy)
     //colnamew = termwidth - 1;
     colnamew = 40;
     int tot = 0;
-    int space = termwidth - 1 - 3*(cols - 1);
+    int space = termwidth - 1 - 3 * cols;
     for (int i = 0; i < cols; i++) {
         switch (bb->options['0' + i]) {
             case 's': bb->colwidths[i] = colsizew; break;
@@ -345,16 +345,25 @@ void render(bb_t *bb, int lazy)
                 fputs(" │ ", tty_out);
                 x += 3;
             }
-            if (bb->options['s'] != bb->options['0' + col]) fputs(" ", tty_out);
-            else if (bb->options['r']) fputs(RSORT_INDICATOR, tty_out);
-            else fputs(SORT_INDICATOR, tty_out);
+            const char *indicator = " ";
+            if (bb->options['s'] == bb->options['0' + col])
+                indicator = bb->options['r'] ? RSORT_INDICATOR : SORT_INDICATOR;
             switch (bb->options['0' + col]) {
-                case 's': fputs("  Size", tty_out); break;
-                case 'p': fputs("Permissions", tty_out); break;
-                case 'm': fputs("     Modified", tty_out); break;
-                case 'a': fputs("     Accessed", tty_out); break;
-                case 'c': fputs("     Created", tty_out); break;
-                case 'n': fputs("Name", tty_out); break;
+                case 'n': fprintf(tty_out, "%sName", indicator); break;
+                case 's': move_cursor(tty_out, x + bb->colwidths[col] - (int)strlen(" Size"), 1);
+                          fprintf(tty_out, "%sSize", indicator);
+                          break;
+                case 'p': fprintf(tty_out, "%sPermissions", indicator);
+                          break;
+                case 'm': move_cursor(tty_out, x + (bb->colwidths[col] - (int)strlen(" Modified"))/2, 1);
+                          fprintf(tty_out, "%sModified", indicator);
+                          break;
+                case 'a': move_cursor(tty_out, x + (bb->colwidths[col] - (int)strlen(" Accessed"))/2, 1);
+                          fprintf(tty_out, "%sAccessed", indicator);
+                          break;
+                case 'c': move_cursor(tty_out, x + (bb->colwidths[col] - (int)strlen(" Created"))/2, 1);
+                          fprintf(tty_out, "%sCreated", indicator);
+                          break;
                 default: continue;
             }
             x += bb->colwidths[col];
@@ -420,21 +429,25 @@ void render(bb_t *bb, int lazy)
                         bytes /= 1024;
                         j++;
                     }
+                    move_cursor(tty_out, x + bb->colwidths[col] - colsizew, y);
                     fprintf(tty_out, "%6.*f%c", j > 0 ? 1 : 0, bytes, units[j]);
                     break;
                 }
 
                 case 'm':
+                    move_cursor(tty_out, x + (bb->colwidths[col] - coldatew)/2, y);
                     strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_mtime)));
                     fputs(buf, tty_out);
                     break;
 
                 case 'c':
+                    move_cursor(tty_out, x + (bb->colwidths[col] - coldatew)/2, y);
                     strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_ctime)));
                     fputs(buf, tty_out);
                     break;
 
                 case 'a':
+                    move_cursor(tty_out, x + (bb->colwidths[col] - coldatew)/2, y);
                     strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_atime)));
                     fputs(buf, tty_out);
                     break;
@@ -489,7 +502,6 @@ void render(bb_t *bb, int lazy)
     move_cursor(tty_out, --x, 0);
     fputs("\033[0;2m]\033[1m", tty_out);
     for (int o = 127, nopts = 0; o > 0; --o) {
-        if (o == 's' || ('0' <= o && o <= '9')) continue;
         if (bb->options[o] <= 0) continue;
         if (nopts > 0) {
             x -= 1;
@@ -900,17 +912,19 @@ execute_cmd(bb_t *bb, const char *cmd)
         }
         case 'o': { // options:
             if (!value) return BB_INVALID;
-            for (char *o = value; *o > 0; o++) {
+            for (char *o = value; *o > 0; ) {
                 switch (o[1]) {
                     case '!': bb->options[(int)*(o++)] = 0; break;
-                    case '~': bb->options[(int)*o] = !bb->options[(int)*o];
+                    case '~': bb->options[(int)*o] = bb->options[(int)*o] ? 0 : '1';
                               o++;
                               break;
                     case '=': bb->options[(int)*o] = o[2];
                               o += 2;
                               break;
-                    default: bb->options[(int)*o] = 1; break;
+                    default: bb->options[(int)*o] = '1'; break;
                 }
+                o++;
+                while (*o == ' ' || *o == ',') ++o;
             }
             populate_files(bb, bb->path);
             return BB_REFRESH;

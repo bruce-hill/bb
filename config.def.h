@@ -103,8 +103,8 @@ const char *startupcmds[] = {
     // Set some default marks:
     "+mark:0", "+mark:~=~", "+mark:h=~", "+mark:/=/", "+mark:c=~/.config",
     "+mark:l=~/.local",
-    // Default column and sorting options: size, modification, permissions, name (sorted, expand to fill)
-    "+opt:0=s1=m2=p3=ns=nD=1",
+    // Default column and sorting options:
+    "+opt:0=s,1=m,2=p,3=n,s=n,D=1",
     NULL, // NULL-terminated array
 };
 
