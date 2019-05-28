@@ -22,21 +22,33 @@
     In order to modify bb's internal state, you can call `bb +cmd`, where "cmd"
     is one of the following commands (or a unique prefix of one):
 
-        cd:<path>                Navigate to <path>
-        columns:<columns>        Change which columns are visible, and in what order
-        deselect:<filename>      Deselect <filename>
-        dots[:yes|:no]           Toggle whether dotfiles are visible
-        goto:<filename>          Move the cursor to <filename> (changing directory if needed)
-        jump:<key>               Jump to the mark associated with <key>
-        mark:<key>[=<path>]      Associate <key> with <path> (or current dir, if blank)
-        move:<num*>              Move the cursor a numeric amount
-        quit                     Quit bb
-        refresh                  Refresh the file listing
-        scroll:<num*>            Scroll the view a numeric amount
-        select:<filename>        Select <filename>
-        sort:<method>            Change the sorting method (uppercase means reverse)
-        spread:<num*>            Spread the selection state at the cursor
-        toggle:<filename>        Toggle the selection status of <filename>
+        cd:<path>                 Navigate to <path>
+        columns:<columns>         Change which columns are visible, and in what order
+        deselect:<filename>       Deselect <filename>
+        dots[:yes|:no]            Toggle whether dotfiles are visible
+        goto:<filename>           Move the cursor to <filename> (changing directory if needed)
+        jump:<key>                Jump to the mark associated with <key>
+        mark:<key>[=<path>]       Associate <key> with <path> (or current dir, if blank)
+        move:<num*>               Move the cursor a numeric amount
+        option:(<o>[=<v>|~|!])+   Set options (see below)
+        quit                      Quit bb
+        refresh                   Refresh the file listing
+        scroll:<num*>             Scroll the view a numeric amount
+        select:<filename>         Select <filename>
+        spread:<num*>             Spread the selection state at the cursor
+        toggle:<filename>         Toggle the selection status of <filename>
+
+    Currently supported options:
+        's': sort, one of (n)ame (s)ize (c)reation (m)odification (a)ccess (p)ermission (r)andom
+        'r': reverse-sort (boolean)
+        '.': show dotfiles (boolean)
+        'i': interleave files and directories (boolean), when false, directories are always at the top
+        '0'-'9': what to put in each of the (maximum of 10) columns (one of: [nscmap])
+        'A'-'J': how wide to make each column (A -> column 0, etc.). 0 means
+            minimum width, 1+ means divide the free space proportionally among all
+            nonzero columns
+    The postfix operator '!' sets an option to 0, '~' toggles an option, '=' assigns an option
+    to the following character value, and no postfix operator sets an option to 1.
 
     Internally, bb will write the commands (NUL terminated) to $BBCMD, if
     $BBCMD is set, and read the file when file browsing resumes. These commands
@@ -91,8 +103,8 @@ const char *startupcmds[] = {
     // Set some default marks:
     "+mark:0", "+mark:~=~", "+mark:h=~", "+mark:/=/", "+mark:c=~/.config",
     "+mark:l=~/.local",
-    // Default column and sorting options:
-    "+columns:smpn", "+sort:n",
+    // Default column and sorting options: size, modification, permissions, name (sorted, expand to fill)
+    "+opt:0=s1=m2=p3=ns=nD=1",
     NULL, // NULL-terminated array
 };
 
@@ -157,9 +169,10 @@ else xdg-open \"$BBCURSOR\"; fi",
     {{'s'}, "read -n1 -p 'Sort \033[1m(a)\033[22mlphabetic "
             "\033[1m(s)\033[22mize \033[1m(m)\033[22modification \033[1m(c)\033[22mcreation "
             "\033[1m(a)\033[22maccess \033[1m(r)\033[22mandom \033[1m(p)\033[22mermissions:\033[0m ' sort "
-            "&& bb \"+sort:$sort\"", "Sort by..."},
-    {{'#'},                  "read -p 'Set columns: ' cols && bb \"+cols:$cols\"", "Set columns"},
-    {{'.'},                  "+dots", "Toggle dotfiles"},
+            "&& bb \"+opt:s=$sort\"", "Sort by..."},
+    {{'#'},                  "read -p 'Set columns: ' cols && bb \"+opt:`echo $cols 0 | fold -w1 | sed 10q | nl -v0 -s= -w1 | paste -sd '\\0' -`\"",
+                             "Set columns"},
+    {{'.'},                  "+opt:.~", "Toggle dotfiles"},
     {{'g', KEY_HOME},        "+move:0", "Go to first file"},
     {{'G', KEY_END},         "+move:100%n", "Go to last file"},
     {{KEY_ESC},              "+deselect:*", "Clear selection"},

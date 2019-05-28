@@ -41,12 +41,11 @@
 #define T_MOUSE_XY    "1000"
 #define T_MOUSE_CELL  "1002"
 #define T_MOUSE_SGR   "1006"
-#define T_MOUSE_URXVT "1015"
 #define T_ALT_SCREEN  "1049"
 #define T_ON(opt)  CSI "?" opt "h"
 #define T_OFF(opt) CSI "?" opt "l"
 
-static const char *T_ENTER_BBMODE =  T_OFF(T_WRAP ";" T_MOUSE_URXVT) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
+static const char *T_ENTER_BBMODE =  T_OFF(T_WRAP ";" T_SHOW_CURSOR) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
 static const char *T_LEAVE_BBMODE =  T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN) T_ON(T_WRAP);
 static const char *T_LEAVE_BBMODE_PARTIAL = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR) T_ON(T_WRAP);
 
@@ -61,11 +60,6 @@ static const char *T_LEAVE_BBMODE_PARTIAL = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";
     fprintf(stderr, "\n"); \
     cleanup_and_exit(1); \
 } while (0)
-
-// This bit toggles 'A' (0) vs 'a' (1)
-#define SORT_DESCENDING 32
-#define IS_REVERSED(method) (!((method) & SORT_DESCENDING))
-#define DESCENDING(method) ((method) | SORT_DESCENDING)
 
 // Types
 typedef enum {
@@ -110,10 +104,9 @@ typedef struct bb_s {
     char path[PATH_MAX];
     int nfiles;
     int scroll, cursor;
-    int showhidden;
-    char columns[16];
-    char sort;
+    char options[128]; // General purpose options
     char *marks[128]; // Mapping from key to directory
+    int colwidths[10];
 } bb_t;
 
 // Functions
@@ -280,7 +273,6 @@ static void fputs_escaped(FILE *f, const char *str, const char *color)
     }
 }
 
-
 void render(bb_t *bb, int lazy)
 {
     static int lastcursor = -1, lastscroll = -1;
@@ -296,23 +288,45 @@ void render(bb_t *bb, int lazy)
             fprintf(tty_out, "\033[3;%dr\033[%dS\033[1;%dr", termheight-1, bb->scroll - lastscroll, termheight);
         }
     }
-    colnamew = termwidth - 1;
-    int namecols = 0;
-    for (char *col = bb->columns; *col; ++col) {
-        switch (*col) {
-            case 's': colnamew -= colsizew;
-                      break;
-            case 'm': case 'c': case 'a':
-                      colnamew -= coldatew;
-                      break;
-            case 'p': colnamew -= colpermw;
-                      break;
-            case 'n': namecols++;
-                      break;
+
+    // Canonicalize columns and column sizes
+    // TODO: make this lazy?
+    int namecols = 0, cols = 0;
+    for (char *valid = &bb->options['0'], *p = &bb->options['0']; p <= &bb->options['9']; ++p) {
+        switch (*p) {
+            case 'n': ++namecols;
+            case 's': case 'm': case 'c': case 'a': case 'p':
+                      ++cols; 
+                      *(valid++) = *p;
         }
+        if (p >= valid) *p = 0;
     }
-    colnamew -= 3*strlen(bb->columns);
-    colnamew /= namecols;
+    memset(bb->colwidths, 0, sizeof(bb->colwidths));
+    //colnamew = termwidth - 1;
+    colnamew = 40;
+    int tot = 0;
+    int space = termwidth - 1 - 3*(cols - 1);
+    for (int i = 0; i < cols; i++) {
+        switch (bb->options['0' + i]) {
+            case 's': bb->colwidths[i] = colsizew; break;
+            case 'm': case 'c': case 'a':
+                      bb->colwidths[i] = coldatew; break;
+            case 'p': bb->colwidths[i] = colpermw; break;
+            case 'n': bb->colwidths[i] = colnamew; break;
+        }
+        int ratio = bb->options['A' + i];
+        if (ratio >= '0') ratio -= '0';
+        if (ratio)
+            tot += ratio;
+        else
+            space -= bb->colwidths[i];
+    }
+    for (int i = 0; i < cols; i++) {
+        int ratio = bb->options['A' + i];
+        if (ratio >= '0') ratio -= '0';
+        if (!ratio) continue;
+        bb->colwidths[i] = MAX(bb->colwidths[i], (space * ratio) / tot);
+    }
 
     if (!lazy) {
         // Path
@@ -322,39 +336,28 @@ void render(bb_t *bb, int lazy)
         fputs(" \033[K\033[0m", tty_out);
 
         // Columns
-        move_cursor(tty_out, 0,1);
-        fputs("\033[41m \033[0;44;30m", tty_out);
-        for (char *col = bb->columns; *col; ++col) {
-            const char *colname;
-            int colwidth = 0;
-            switch (*col) {
-                case 's':
-                    colname = "  Size"; colwidth = colsizew;
-                    break;
-                case 'p':
-                    colname = "Per"; colwidth = colpermw;
-                    break;
-                case 'm':
-                    colname = "     Modified"; colwidth = coldatew;
-                    break;
-                case 'a':
-                    colname = "     Accessed"; colwidth = coldatew;
-                    break;
-                case 'c':
-                    colname = "     Created"; colwidth = coldatew;
-                    break;
-                case 'n':
-                    colname = "Name"; colwidth = colnamew;
-                    break;
-                default:
-                    continue;
+        move_cursor(tty_out, 0, 1);
+        fputs("\033[41m \033[0;44;30m\033[K", tty_out);
+        int x = 1;
+        for (int col = 0; col < cols; col++) {
+            move_cursor(tty_out, x, 1);
+            if (col > 0) {
+                fputs(" │ ", tty_out);
+                x += 3;
             }
-            if (col != bb->columns) fputs(" │ ", tty_out);
-            if (DESCENDING(bb->sort) != *col) fputs(" ", tty_out);
-            else if (IS_REVERSED(bb->sort)) fputs(RSORT_INDICATOR, tty_out);
+            if (bb->options['s'] != bb->options['0' + col]) fputs(" ", tty_out);
+            else if (bb->options['r']) fputs(RSORT_INDICATOR, tty_out);
             else fputs(SORT_INDICATOR, tty_out);
-            for (ssize_t i = fputs(colname, tty_out); i < colwidth-1; i++)
-                fputc(' ', tty_out);
+            switch (bb->options['0' + col]) {
+                case 's': fputs("  Size", tty_out); break;
+                case 'p': fputs("Permissions", tty_out); break;
+                case 'm': fputs("     Modified", tty_out); break;
+                case 'a': fputs("     Accessed", tty_out); break;
+                case 'c': fputs("     Created", tty_out); break;
+                case 'n': fputs("Name", tty_out); break;
+                default: continue;
+            }
+            x += bb->colwidths[col];
         }
         fputs(" \033[K\033[0m", tty_out);
     }
@@ -379,12 +382,11 @@ void render(bb_t *bb, int lazy)
         }
 
         entry_t *entry = files[i];
-        { // Selection box:
-            if (IS_SELECTED(entry))
-                fputs("\033[41m \033[0m", tty_out);
-            else
-                fputs(" ", tty_out);
-        }
+
+        if (IS_SELECTED(entry))
+            fputs("\033[41m \033[0m", tty_out);
+        else
+            fputs(" ", tty_out);
 
         const char *color;
         if (i == bb->cursor)
@@ -400,16 +402,16 @@ void render(bb_t *bb, int lazy)
         fputs(color, tty_out);
 
         int x = 1;
-        for (char *col = bb->columns; *col; ++col) {
+        for (int col = 0; col < cols; col++) {
             fprintf(tty_out, "\033[%d;%dH\033[K", y+1, x+1);
-            if (col != bb->columns) {
+            if (col > 0) {
                 if (i == bb->cursor) fputs(" │", tty_out);
                 else fputs(" \033[37;2m│\033[22m", tty_out);
                 fputs(color, tty_out);
                 fputs(" ", tty_out);
                 x += 3;
             }
-            switch (*col) {
+            switch (bb->options['0' + col]) {
                 case 's': {
                     int j = 0;
                     const char* units = "BKMGTPEZY";
@@ -419,26 +421,22 @@ void render(bb_t *bb, int lazy)
                         j++;
                     }
                     fprintf(tty_out, "%6.*f%c", j > 0 ? 1 : 0, bytes, units[j]);
-                    x += colsizew;
                     break;
                 }
 
                 case 'm':
                     strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_mtime)));
                     fputs(buf, tty_out);
-                    x += coldatew;
                     break;
 
                 case 'c':
                     strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_ctime)));
                     fputs(buf, tty_out);
-                    x += coldatew;
                     break;
 
                 case 'a':
                     strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_atime)));
                     fputs(buf, tty_out);
-                    x += coldatew;
                     break;
 
                 case 'p':
@@ -448,7 +446,6 @@ void render(bb_t *bb, int lazy)
                     buf[3] = '0' + ((entry->info.st_mode >> 0) & 7);
                     buf[4] = '\0';
                     fputs(buf, tty_out);
-                    x += colpermw;
                     break;
 
                 case 'n': {
@@ -456,9 +453,9 @@ void render(bb_t *bb, int lazy)
                         fputs_escaped(tty_out, entry->d_name, color);
                     else
                         fputs(entry->d_name, tty_out);
-                    if (entry->d_isdir) {
+
+                    if (entry->d_isdir)
                         fputs("/", tty_out);
-                    }
 
                     if (entry->d_linkname) {
                         fputs("\033[2m -> ", tty_out);
@@ -466,15 +463,17 @@ void render(bb_t *bb, int lazy)
                             fputs_escaped(tty_out, entry->d_linkname, color);
                         else
                             fputs(entry->d_linkname, tty_out);
-                        if (entry->d_isdir) {
+
+                        if (entry->d_isdir)
                             fputs("/", tty_out);
-                        }
+
                         fputs("\033[22m", tty_out);
                     }
-                    x += colnamew;
                     break;
                 }
+                default: continue;
             }
+            x += bb->colwidths[col];
         }
         fputs(" \033[K\033[0m", tty_out); // Reset color and attributes
     }
@@ -486,18 +485,44 @@ void render(bb_t *bb, int lazy)
     fputs(help, tty_out);
     lastcursor = bb->cursor;
     lastscroll = bb->scroll;
+    int x = termwidth;
+    move_cursor(tty_out, --x, 0);
+    fputs("\033[0;2m]\033[1m", tty_out);
+    for (int o = 127, nopts = 0; o > 0; --o) {
+        if (o == 's' || ('0' <= o && o <= '9')) continue;
+        if (bb->options[o] <= 0) continue;
+        if (nopts > 0) {
+            x -= 1;
+            move_cursor(tty_out, x, 0);
+            fputs("\033[2m,\033[0m", tty_out);
+        }
+        if (bb->options[o] >= ' ') {
+            x -= 3;
+            move_cursor(tty_out, x, 0);
+            fprintf(tty_out, "\033[0;1m%c\033[0m=\033[33m%c\033[0m", (char)o, bb->options[o]);
+        } else if (bb->options[o] > 0) {
+            x -= 1;
+            move_cursor(tty_out, x, 0);
+            fprintf(tty_out, "\033[0;1m%c\033[0m", (char)o);
+        }
+        nopts++;
+    }
+    move_cursor(tty_out, --x, 0);
+    fputs("\033[0;2m[\033[0m", tty_out);
     fflush(tty_out);
-    // TODO: show selection and dotfile setting and anything else?
 }
 
-int compare_files(void *r, const void *v1, const void *v2)
+int compare_files(void *v, const void *v1, const void *v2)
 {
-    char sort = *((char *)r);
-    int sign = IS_REVERSED(sort) ? -1 : 1;
-    sort = DESCENDING(sort);
+    bb_t *bb = (bb_t*)v;
+    char sort = bb->options['s'];
+    int sign = bb->options['r'] ? -1 : 1;
     const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
-    int diff = -(f1->d_isdir - f2->d_isdir);
-    if (diff) return -diff; // Always sort dirs before files
+    int diff = 0;
+    if (!bb->options['i']) {
+        diff = -(f1->d_isdir - f2->d_isdir);
+        if (diff) return -diff;
+    }
     if (sort == SORT_NAME) {
         const char *p1 = f1->d_name, *p2 = f2->d_name;
         while (*p1 && *p2) {
@@ -681,7 +706,7 @@ void populate_files(bb_t *bb, const char *path)
     for (struct dirent *dp; (dp = readdir(dir)) != NULL; ) {
         if (dp->d_name[0] == '.' && dp->d_name[1] == '\0')
             continue;
-        if (!bb->showhidden && dp->d_name[0] == '.' && !(dp->d_name[1] == '.' && dp->d_name[2] == '\0'))
+        if (!bb->options['.'] && dp->d_name[0] == '.' && !(dp->d_name[1] == '.' && dp->d_name[2] == '\0'))
             continue;
         if ((size_t)bb->nfiles >= filecap) {
             filecap += 100;
@@ -761,8 +786,8 @@ void populate_files(bb_t *bb, const char *path)
 void sort_files(bb_t *bb)
 {
     ino_t cursor_inode = bb->files[bb->cursor]->d_ino;
-    qsort_r(&bb->files[1], (size_t)(bb->nfiles-1), sizeof(entry_t*), &bb->sort, compare_files);
-    if (DESCENDING(bb->sort) == SORT_RANDOM) {
+    qsort_r(&bb->files[1], (size_t)(bb->nfiles-1), sizeof(entry_t*), bb, compare_files);
+    if (bb->options['s'] == SORT_RANDOM) {
         entry_t **files = &bb->files[1];
         int ndirs = 0, nents = bb->nfiles - 1;
         for (int i = 0; i < nents; i++) {
@@ -802,20 +827,8 @@ execute_cmd(bb_t *bb, const char *cmd)
         }
         case 'q': // quit
             return BB_QUIT;
-        case 's': // sort:, select:, scroll:, spread:
+        case 's': // select:, scroll:, spread:
             switch (cmd[1]) {
-                case 'o': // sort:
-                    if (!value) return BB_INVALID;
-                    switch (*value) {
-                        case 'n': case 'N': case 's': case 'S':
-                        case 'p': case 'P': case 'm': case 'M':
-                        case 'c': case 'C': case 'a': case 'A':
-                        case 'r': case 'R':
-                            bb->sort = *value;
-                            sort_files(bb);
-                            return BB_REFRESH;
-                    }
-                    return BB_INVALID;
                 case 'c': { // scroll:
                     if (!value) return BB_INVALID;
                     // TODO: figure out the best version of this
@@ -844,48 +857,38 @@ execute_cmd(bb_t *bb, const char *cmd)
                     }
                     return BB_DIRTY;
             }
-        case 'c':
-            switch (cmd[1]) {
-                case 'd': { // cd:
-                    char pbuf[PATH_MAX];
-                  cd:
-                    if (!value) return BB_INVALID;
-                    if (value[0] == '~') {
-                        char *home;
-                        if (!(home = getenv("HOME")))
-                            return BB_INVALID;
-                        strcpy(pbuf, home);
-                        strcat(pbuf, value+1);
-                        value = pbuf;
-                    }
-                    char *rpbuf = realpath(value, NULL);
-                    if (!rpbuf) return BB_INVALID;
-                    if (strcmp(rpbuf, bb->path) == 0) {
-                        free(rpbuf);
-                        return BB_NOP;
-                    }
-                    if (chdir(rpbuf)) {
-                        free(rpbuf);
-                        return BB_INVALID;
-                    }
-                    char *oldpath = memcheck(strdup(bb->path));
-                    populate_files(bb, rpbuf);
-                    free(rpbuf);
-                    if (strcmp(value, "..") == 0) {
-                        int f = find_file(bb, oldpath);
-                        if (f >= 0) set_cursor(bb, f);
-                    }
-                    free(oldpath);
-                    return BB_REFRESH;
-                }
-                case 'o': // cols:
-                    if (!value) return BB_INVALID;
-                    for (int i = 0; i < (int)sizeof(bb->columns)-1 && value[i]; i++) {
-                        bb->columns[i] = value[i];
-                        bb->columns[i+1] = '\0';
-                    }
-                    return BB_REFRESH;
+        case 'c': { // cd:
+            char pbuf[PATH_MAX];
+          cd:
+            if (!value) return BB_INVALID;
+            if (value[0] == '~') {
+                char *home;
+                if (!(home = getenv("HOME")))
+                    return BB_INVALID;
+                strcpy(pbuf, home);
+                strcat(pbuf, value+1);
+                value = pbuf;
             }
+            char *rpbuf = realpath(value, NULL);
+            if (!rpbuf) return BB_INVALID;
+            if (strcmp(rpbuf, bb->path) == 0) {
+                free(rpbuf);
+                return BB_NOP;
+            }
+            if (chdir(rpbuf)) {
+                free(rpbuf);
+                return BB_INVALID;
+            }
+            char *oldpath = memcheck(strdup(bb->path));
+            populate_files(bb, rpbuf);
+            free(rpbuf);
+            if (strcmp(value, "..") == 0) {
+                int f = find_file(bb, oldpath);
+                if (f >= 0) set_cursor(bb, f);
+            }
+            free(oldpath);
+            return BB_REFRESH;
+        }
         case 't': { // toggle:
             if (!value) value = bb->files[bb->cursor]->d_name;
             int f = find_file(bb, value);
@@ -895,28 +898,35 @@ execute_cmd(bb_t *bb, const char *cmd)
             else select_file(bb, e);
             return f == bb->cursor ? BB_NOP : BB_DIRTY;
         }
-        case 'd': { // deselect:, dots:
-            if (cmd[1] == 'o') { // dots:
-                int requested = value ? (value[0] == 'y') : bb->showhidden ^ 1;
-                if (requested == bb->showhidden)
-                    return BB_INVALID;
-                bb->showhidden = requested;
-                populate_files(bb, bb->path);
-                return BB_REFRESH;
-            } else if (value) { // deselect:
-                if (!value) value = bb->files[bb->cursor]->d_name;
-                if (strcmp(value, "*") == 0) {
-                    clear_selection(bb);
-                    return BB_DIRTY;
-                } else {
-                    int f = find_file(bb, value);
-                    if (f >= 0)
-                        select_file(bb, bb->files[f]);
-                    return f == bb->cursor ? BB_NOP : BB_DIRTY;
+        case 'o': { // options:
+            if (!value) return BB_INVALID;
+            for (char *o = value; *o > 0; o++) {
+                switch (o[1]) {
+                    case '!': bb->options[(int)*(o++)] = 0; break;
+                    case '~': bb->options[(int)*o] = !bb->options[(int)*o];
+                              o++;
+                              break;
+                    case '=': bb->options[(int)*o] = o[2];
+                              o += 2;
+                              break;
+                    default: bb->options[(int)*o] = 1; break;
                 }
             }
-            return BB_INVALID;
+            populate_files(bb, bb->path);
+            return BB_REFRESH;
         }
+        case 'd': // deselect:
+            if (!value) value = bb->files[bb->cursor]->d_name;
+            if (strcmp(value, "*") == 0) {
+                clear_selection(bb);
+                return BB_DIRTY;
+            } else {
+                int f = find_file(bb, value);
+                if (f >= 0)
+                    select_file(bb, bb->files[f]);
+                return f == bb->cursor ? BB_NOP : BB_DIRTY;
+            }
+
         case 'g': { // goto:
             if (!value) return BB_INVALID;
             int f = find_file(bb, value);
@@ -1087,27 +1097,16 @@ void explore(bb_t *bb, const char *path)
             if (mouse_y == 1) {
                 // Sort column:
                 int x = 1;
-                for (char *col = bb->columns; *col; ++col) {
-                    if (col != bb->columns) x += 3;
-                    switch (*col) {
-                        case 's': x += colsizew;
-                                  break;
-                        case 'p': x += colpermw;
-                                  break;
-                        case 'm': case 'a': case 'c':
-                                  x += coldatew;
-                                  break;
-                        case 'n': x += colnamew;
-                                  break;
-                    }
-                    if (x >= mouse_x) {
-                        if (DESCENDING(bb->sort) == *col)
-                            bb->sort ^= SORT_DESCENDING;
-                        else
-                            bb->sort = *col;
-                        sort_files(bb);
-                        goto refresh;
-                    }
+                for (int col = 0; col < 10; col++) {
+                    if (col > 0) x += 3;
+                    x += bb->colwidths[col];
+                    if (x < mouse_x) continue;
+                    if (bb->options['s'] == bb->options['0' + col])
+                        bb->options['r'] = !bb->options['r'];
+                    else
+                        bb->options['s'] = bb->options['0' + col];
+                    sort_files(bb);
+                    goto refresh;
                 }
                 goto next_input;
             } else if (mouse_y >= 2 && bb->scroll + (mouse_y - 2) < bb->nfiles) {
@@ -1375,13 +1374,14 @@ int main(int argc, char *argv[])
     signal(SIGXFSZ, cleanup_and_exit);
     signal(SIGVTALRM, cleanup_and_exit);
     signal(SIGPROF, cleanup_and_exit);
+    signal(SIGSEGV, cleanup_and_exit);
 
     char *real = realpath(initial_path, NULL);
     if (!real || chdir(real)) err("Not a valid path: %s\n", initial_path);
 
     bb_t *bb = memcheck(calloc(1, sizeof(bb_t)));
-    strcpy(bb->columns, "n");
-    bb->sort = 'n';
+    bb->options['0'] = 'n';
+    bb->options['s'] = 'n';
     explore(bb, real);
     free(real);
 
