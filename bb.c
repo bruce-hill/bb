@@ -45,9 +45,9 @@
 #define T_ON(opt)  CSI "?" opt "h"
 #define T_OFF(opt) CSI "?" opt "l"
 
-static const char *T_ENTER_BBMODE =  T_OFF(T_WRAP ";" T_SHOW_CURSOR) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
-static const char *T_LEAVE_BBMODE =  T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN) T_ON(T_WRAP);
-static const char *T_LEAVE_BBMODE_PARTIAL = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR) T_ON(T_WRAP);
+static const char *T_ENTER_BBMODE =  T_OFF(T_SHOW_CURSOR) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
+static const char *T_LEAVE_BBMODE =  T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN);
+static const char *T_LEAVE_BBMODE_PARTIAL = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
 
 #define move_cursor(f, x, y) fprintf((f), CSI "%d;%dH", (int)(y)+1, (int)(x)+1)
 
@@ -89,14 +89,15 @@ typedef enum {
  */
 typedef struct entry_s {
     struct entry_s *next, **atme;
-    char *d_name, *d_linkname;
+    char *name, *linkname;
+    // TODO: inline only the relevant fields:
     struct stat info;
-    __uint8_t d_type;
-    char d_fullname[1];
     int refcount : 2; // Should only be between 0-2
     int isdir : 1;
+    int islink : 1;
     int needs_esc : 1;
     int link_needs_esc : 1;
+    char fullname[1]; // Must be last
 } entry_t;
 
 typedef struct bb_s {
@@ -173,6 +174,7 @@ void init_term(void)
     signal(SIGWINCH, update_term_size);
     // Initiate mouse tracking and disable text wrapping:
     fputs(T_ENTER_BBMODE, tty_out);
+    fputs(T_OFF(T_WRAP), tty_out);
 }
 
 void cleanup_and_exit(int sig)
@@ -180,6 +182,7 @@ void cleanup_and_exit(int sig)
     (void)sig;
     close_term();
     fputs(T_OFF(T_ALT_SCREEN), stdout);
+    fputs(T_ON(T_WRAP), stdout);
     fflush(stdout);
     unlink(cmdfilename);
     exit(EXIT_FAILURE);
@@ -188,6 +191,7 @@ void cleanup_and_exit(int sig)
 void close_term(void)
 {
     if (tty_out) {
+        fflush(tty_out);
         tcsetattr(fileno(tty_out), TCSAFLUSH, &orig_termios);
         fclose(tty_out);
         tty_out = NULL;
@@ -195,6 +199,7 @@ void close_term(void)
         tty_in = NULL;
     }
     fputs(T_LEAVE_BBMODE_PARTIAL, stdout);
+    fputs(T_ON(T_WRAP), stdout);
     fflush(stdout);
     signal(SIGWINCH, SIG_IGN);
 }
@@ -228,12 +233,12 @@ int run_cmd_on_selection(bb_t *bb, const char *cmd)
                 space += 100;
                 args = memcheck(realloc(args, space*sizeof(char*)));
             }
-            args[i++] = e->d_fullname;
+            args[i++] = e->fullname;
         }
         args[i] = NULL;
 
-        setenv("BBCURSOR", bb->files[bb->cursor]->d_name, 1);
-        setenv("BBFULLCURSOR", bb->files[bb->cursor]->d_fullname, 1);
+        setenv("BBCURSOR", bb->files[bb->cursor]->name, 1);
+        setenv("BBFULLCURSOR", bb->files[bb->cursor]->fullname, 1);
 
         execvp("sh", args);
         err("Failed to execute command: '%s'", cmd);
@@ -394,12 +399,10 @@ void render(bb_t *bb, int lazy)
         const char *color;
         if (i == bb->cursor)
             color = CURSOR_COLOR;
-        else if (entry->isdir && entry->d_type == DT_LNK)
-            color = LINKDIR_COLOR;
+        else if (entry->islink)
+            color = entry->isdir ? LINKDIR_COLOR : LINK_COLOR;
         else if (entry->isdir)
             color = DIR_COLOR;
-        else if (entry->d_type == DT_LNK)
-            color = LINK_COLOR;
         else
             color = NORMAL_COLOR;
         fputs(color, tty_out);
@@ -457,17 +460,17 @@ void render(bb_t *bb, int lazy)
 
                 case 'n': {
                     if (entry->needs_esc)
-                        entry->needs_esc &= fputs_escaped(tty_out, entry->d_name, color) > 0;
-                    else fputs(entry->d_name, tty_out);
+                        entry->needs_esc &= fputs_escaped(tty_out, entry->name, color) > 0;
+                    else fputs(entry->name, tty_out);
 
                     if (entry->isdir)
                         fputs("/", tty_out);
 
-                    if (entry->d_linkname) {
+                    if (entry->linkname) {
                         fputs("\033[2m -> ", tty_out);
                         if (entry->link_needs_esc)
-                            entry->link_needs_esc &= fputs_escaped(tty_out, entry->d_linkname, color) > 0;
-                        else fputs(entry->d_linkname, tty_out);
+                            entry->link_needs_esc &= fputs_escaped(tty_out, entry->linkname, color) > 0;
+                        else fputs(entry->linkname, tty_out);
 
                         if (entry->isdir)
                             fputs("/", tty_out);
@@ -528,7 +531,7 @@ int compare_files(void *v, const void *v1, const void *v2)
         if (diff) return -diff;
     }
     if (sort == SORT_NAME) {
-        const char *p1 = f1->d_name, *p2 = f2->d_name;
+        const char *p1 = f1->name, *p2 = f2->name;
         while (*p1 && *p2) {
             char c1 = *p1, c2 = *p2;
             if ('A' <= c1 && 'Z' <= c1) c1 = c1 - 'A' + 'a';
@@ -537,7 +540,7 @@ int compare_files(void *v, const void *v1, const void *v2)
             if ('0' <= c1 && c1 <= '9' && '0' <= c2 && c2 <= '9') {
                 long n1 = strtol(p1, (char**)&p1, 10);
                 long n2 = strtol(p2, (char**)&p2, 10);
-                diff = (int)(p1 - f1->d_name) - (int)(p2 - f2->d_name);
+                diff = (int)(p1 - f1->name) - (int)(p2 - f2->name);
                 if (diff != 0)
                     return diff*sign;
                 if (n1 != n2)
@@ -578,7 +581,7 @@ int find_file(bb_t *bb, const char *name)
 {
     for (int i = 0; i < bb->nfiles; i++) {
         entry_t *e = bb->files[i];
-        if (strcmp(name[0] == '/' ? e->d_fullname : e->d_name, name) == 0)
+        if (strcmp(name[0] == '/' ? e->fullname : e->name, name) == 0)
             return i;
     }
     return -1;
@@ -596,7 +599,7 @@ void clear_selection(bb_t *bb)
 int select_file(bb_t *bb, entry_t *e)
 {
     if (IS_SELECTED(e)) return 0;
-    if (strcmp(e->d_name, "..") == 0) return 0;
+    if (strcmp(e->name, "..") == 0) return 0;
     if (bb->firstselected)
         bb->firstselected->atme = &e->next;
     e->next = bb->firstselected;
@@ -735,26 +738,26 @@ void populate_files(bb_t *bb, const char *path)
 
         entry_t *entry = memcheck(calloc(sizeof(entry_t) + pathlen + strlen(dp->d_name) + 2 + (size_t)(linkpathlen + 1), 1));
         if (pathlen > PATH_MAX) err("Path is too big");
-        strncpy(entry->d_fullname, bb->path, pathlen);
-        entry->d_fullname[pathlen] = '/';
-        entry->d_name = &entry->d_fullname[pathlen + 1];
-        strcpy(entry->d_name, dp->d_name);
+        strncpy(entry->fullname, bb->path, pathlen);
+        entry->fullname[pathlen] = '/';
+        entry->name = &entry->fullname[pathlen + 1];
+        strcpy(entry->name, dp->d_name);
         if (linkpathlen >= 0) {
-            entry->d_linkname = entry->d_name + strlen(dp->d_name) + 2;
-            strncpy(entry->d_linkname, linkbuf, linkpathlen+1);
+            entry->linkname = entry->name + strlen(dp->d_name) + 2;
+            strncpy(entry->linkname, linkbuf, linkpathlen+1);
         }
         entry->needs_esc = 1; // populate on-the-fly
         entry->link_needs_esc = 1; // populate on-the-fly
-        entry->d_type = dp->d_type;
         entry->isdir = dp->d_type == DT_DIR;
+        entry->islink = dp->d_type == DT_LNK;
         ++entry->refcount;
-        if (!entry->isdir && entry->d_type == DT_LNK) {
+        if (!entry->isdir && entry->islink) {
             struct stat statbuf;
-            if (stat(entry->d_fullname, &statbuf) == 0)
+            if (stat(entry->fullname, &statbuf) == 0)
                 entry->isdir = S_ISDIR(statbuf.st_mode);
         }
         entry->next = NULL; entry->atme = NULL;
-        lstat(entry->d_fullname, &entry->info);
+        lstat(entry->fullname, &entry->info);
         bb->files[bb->nfiles++] = entry;
       next_file:
         continue;
@@ -845,7 +848,7 @@ execute_cmd(bb_t *bb, const char *cmd)
                     goto move;
 
                 case '\0': case 'e': // select:
-                    if (!value) value = bb->files[bb->cursor]->d_name;
+                    if (!value) value = bb->files[bb->cursor]->name;
                     if (strcmp(value, "*") == 0) {
                         for (int i = 0; i < bb->nfiles; i++)
                             select_file(bb, bb->files[i]);
@@ -889,7 +892,7 @@ execute_cmd(bb_t *bb, const char *cmd)
             return BB_REFRESH;
         }
         case 't': { // toggle:
-            if (!value) value = bb->files[bb->cursor]->d_name;
+            if (!value) value = bb->files[bb->cursor]->name;
             int f = find_file(bb, value);
             if (f < 0) return BB_INVALID;
             entry_t *e = bb->files[f];
@@ -917,7 +920,7 @@ execute_cmd(bb_t *bb, const char *cmd)
             return BB_REFRESH;
         }
         case 'd': // deselect:
-            if (!value) value = bb->files[bb->cursor]->d_name;
+            if (!value) value = bb->files[bb->cursor]->name;
             if (strcmp(value, "*") == 0) {
                 clear_selection(bb);
                 return BB_DIRTY;
@@ -1136,6 +1139,7 @@ void explore(bb_t *bb, const char *path)
         case KEY_CTRL_Z:
             close_term();
             fputs(T_OFF(T_ALT_SCREEN), stdout);
+            fputs(T_ON(T_WRAP), stdout);
             fflush(stdout);
             raise(SIGTSTP);
             init_term();
@@ -1214,6 +1218,7 @@ void explore(bb_t *bb, const char *path)
             close_term();
             if (binding->flags & NORMAL_TERM) {
                 fputs(T_OFF(T_ALT_SCREEN), stdout);
+                fputs(T_ON(T_WRAP), stdout);
                 fflush(stdout);
             }
             if (binding->flags & SHOW_CURSOR)
@@ -1235,6 +1240,7 @@ void explore(bb_t *bb, const char *path)
     fputs(T_LEAVE_BBMODE, tty_out);
     close_term();
     fputs(T_OFF(T_ALT_SCREEN), stdout);
+    fputs(T_ON(T_WRAP), stdout);
     fflush(stdout);
 }
 
@@ -1276,8 +1282,6 @@ void print_bindings(int verbose)
 
 int main(int argc, char *argv[])
 {
-    printf("%lu\n", sizeof(entry_t));
-    return 0;
     char *initial_path = NULL, *depthstr;
     char sep = '\n';
     int print_dir = 0, print_selection = 0;
@@ -1390,7 +1394,7 @@ int main(int argc, char *argv[])
 
     if (bb->firstselected && print_selection) {
         for (entry_t *e = bb->firstselected; e; e = e->next) {
-            const char *p = e->d_fullname;
+            const char *p = e->fullname;
             while (*p) {
                 const char *p2 = strchr(p, '\n');
                 if (!p2) p2 = p + strlen(p);
