@@ -29,7 +29,7 @@
         jump:<key>                Jump to the mark associated with <key>
         mark:<key>[=<path>]       Associate <key> with <path> (or current dir, if blank)
         move:<num*>               Move the cursor a numeric amount
-        option:(<o>[=<v>|~|!])+   Set options (see below)
+        option:(<o>[=<v>|%n])+    Set options (see below)
         quit                      Quit bb
         refresh                   Refresh the file listing
         scroll:<num*>             Scroll the view a numeric amount
@@ -40,14 +40,15 @@
     Currently supported options:
         's': sort, one of (n)ame (s)ize (c)reation (m)odification (a)ccess (p)ermission (r)andom
         'r': reverse-sort (boolean)
-        '.': show dotfiles (boolean)
+        '.': dotfiles visibility (bit 1: "..", bit 2: ".", bit 3: .whatever)
         'i': interleave files and directories (boolean), when false, directories are always at the top
         '0'-'9': what to put in each of the (maximum of 10) columns (one of: [nscmap])
         'A'-'J': how wide to make each column (A -> column 0, etc.). 0 means
             minimum width, 1+ means divide the free space proportionally among all
             nonzero columns
-    The postfix operator '!' sets an option to 0, '~' toggles an option, '=' assigns an option
-    to the following character value, and no postfix operator sets an option to 1.
+    The postfix operator '=' assigns an option to the following character
+    value, and '%'(+/-)n increments or decrements the value and takes the value
+    modulo n, and no postfix operator restores the initial value.
 
     Internally, bb will write the commands (NUL terminated) to $BBCMD, if
     $BBCMD is set, and read the file when file browsing resumes. These commands
@@ -73,7 +74,7 @@
 
 #define SORT_INDICATOR  "↓"
 #define RSORT_INDICATOR "↑"
-#define SELECTED_INDICATOR "\033[33;7m \033[0m"
+#define SELECTED_INDICATOR "\033[31;7m \033[0m"
 #define NOT_SELECTED_INDICATOR " "
 
 #define TITLE_COLOR      "\033[32;1m"
@@ -108,7 +109,7 @@ const char *startupcmds[] = {
     "+mark:0", "+mark:~=~", "+mark:h=~", "+mark:/=/", "+mark:c=~/.config",
     "+mark:l=~/.local",
     // Default column and sorting options:
-    "+opt:0=s,1=m,2=p,3=n,s=n,D=1",
+    "+opt:0=s,1=m,2=p,3=n,s=n,D=1,.=1",
     NULL, // NULL-terminated array
 };
 
@@ -190,14 +191,15 @@ done)/*ENDQUOTE*/, "Regex rename files", AT_CURSOR},
                              "Regex select files"},
     {{'J'},                  "+spread:+1", "Spread selection down"},
     {{'K'},                  "+spread:-1", "Spread selection up"},
+    {{'o'},                  "bb \"+opts:`bb '?Options: '`\"", "Set bb options"},
     {{'s'}, "read -n1 -p 'Sort \033[1m(a)\033[22mlphabetic "
             "\033[1m(s)\033[22mize \033[1m(m)\033[22modification \033[1m(c)\033[22mcreation "
             "\033[1m(a)\033[22maccess \033[1m(r)\033[22mandom \033[1m(p)\033[22mermissions:\033[0m ' sort "
             "&& bb \"+opt:s=$sort\"", "Sort by..."},
-    {{'#'},                  "cols=`bb '?Set columns: '` && "
-                             "bb \"+opt:`echo $cols 0 | fold -w1 | sed 10q | nl -v0 -s= -w1 | paste -sd '\\0' -`\"",
+    {{'#'},                  "cols=`bb '?Set columns: '` && bb '+opt:ABCDEFGHIJ=0' && "
+                             "bb \"+opt:`echo \"$cols          \" | fold -w1 | sed 10q | nl -v0 -s= -w1 | paste -sd '\\0' -`\"",
                              "Set columns"},
-    {{'.'},                  "+opt:.~", "Toggle dotfiles"},
+    {{'.'},                  "bb '+opt:.%8' +refresh", "Toggle dotfiles"},
     {{'g', KEY_HOME},        "+move:0", "Go to first file"},
     {{'G', KEY_END},         "+move:100%n", "Go to last file"},
     {{KEY_ESC},              "+deselect:*", "Clear selection"},

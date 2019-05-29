@@ -33,6 +33,7 @@
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
 #define IS_SELECTED(p) (((p)->atme) != NULL)
+#define OPTNUM(o) ((int)((o) & ~'0'))
 
 static const char *T_ENTER_BBMODE =  T_OFF(T_SHOW_CURSOR) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
 static const char *T_LEAVE_BBMODE =  T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN);
@@ -92,6 +93,7 @@ typedef struct bb_s {
     int nfiles;
     int scroll, cursor;
     char options[128]; // General purpose options
+    char initialopts[128]; // Initial values of the options (after startupcmds)
     char *marks[128]; // Mapping from key to directory
     int colwidths[10];
 } bb_t;
@@ -113,6 +115,7 @@ static int find_file(bb_t *bb, const char *name);
 static void clear_selection(bb_t *bb);
 static void select_file(bb_t *bb, entry_t *e);
 static void deselect_file(bb_t *bb, entry_t *e);
+static void toggle_file(bb_t *bb, entry_t *e);
 static void set_cursor(bb_t *bb, int i);
 static void set_scroll(bb_t *bb, int i);
 static entry_t* load_entry(const char *path);
@@ -227,7 +230,6 @@ int run_cmd_on_selection(bb_t *bb, const char *cmd)
 {
     pid_t child;
     sig_t old_handler = signal(SIGINT, SIG_IGN);
-
     if ((child = fork()) == 0) {
         signal(SIGINT, SIG_DFL);
         // TODO: is there a max number of args? Should this be batched?
@@ -238,14 +240,12 @@ int run_cmd_on_selection(bb_t *bb, const char *cmd)
         args[i++] = "-c";
         args[i++] = (char*)cmd;
 #ifdef __APPLE__
-        args[i++] = "--";
+        args[i++] = "--"; // ensure files like "-i" are not interpreted as flags for sh
 #endif
         entry_t *first = bb->firstselected ? bb->firstselected : bb->files[bb->cursor];
         for (entry_t *e = first; e; e = e->next) {
-            if (i >= space) {
-                space += 100;
-                args = memcheck(realloc(args, space*sizeof(char*)));
-            }
+            if (i >= space)
+                args = memcheck(realloc(args, (space += 100)*sizeof(char*)));
             args[i++] = e->fullname;
         }
         args[i] = NULL;
@@ -263,7 +263,6 @@ int run_cmd_on_selection(bb_t *bb, const char *cmd)
 
     int status;
     waitpid(child, &status, 0);
-
     signal(SIGINT, old_handler);
     return status;
 }
@@ -530,6 +529,7 @@ void render(bb_t *bb, int lazy)
     move_cursor(tty_out, --x, 0);
     fputs("\033[0;2m]\033[1m", tty_out);
     for (int o = 127, nopts = 0; o > 0; --o) {
+        if (bb->options[o] == bb->initialopts[o]) continue;
         if (bb->options[o] <= 0) continue;
         if (nopts > 0) {
             x -= 1;
@@ -562,8 +562,10 @@ int compare_files(void *v, const void *v1, const void *v2)
     char sort = bb->options['s'];
     int sign = bb->options['r'] ? -1 : 1;
     const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
-    // *always* put ".." before everything else
+    // *always* put ".." before everything else, then "."
     int diff = (strcmp(f1->name, "..") == 0) - (strcmp(f2->name, "..") == 0);
+    if (diff) return -diff;
+    diff = (strcmp(f1->name, ".") == 0) - (strcmp(f2->name, ".") == 0);
     if (diff) return -diff;
     if (!bb->options['i']) {
         // Unless interleave mode is on, sort dirs before files
@@ -650,6 +652,7 @@ void select_file(bb_t *bb, entry_t *e)
 {
     if (IS_SELECTED(e)) return;
     if (strcmp(e->name, "..") == 0) return;
+    if (strcmp(e->name, ".") == 0) return;
     if (bb->firstselected)
         bb->firstselected->atme = &e->next;
     e->next = bb->firstselected;
@@ -659,7 +662,7 @@ void select_file(bb_t *bb, entry_t *e)
 }
 
 /*
- * Deselect a file, return 1 if this changed anything, 0 otherwise
+ * Deselect a file
  */
 void deselect_file(bb_t *bb, entry_t *e)
 {
@@ -671,6 +674,15 @@ void deselect_file(bb_t *bb, entry_t *e)
     --e->refcount;
     e->next = NULL;
     e->atme = NULL;
+}
+
+/*
+ * Toggle a file's selection state
+ */
+void toggle_file(bb_t *bb, entry_t *e)
+{
+    if (IS_SELECTED(e)) deselect_file(bb, e);
+    else select_file(bb, e);
 }
 
 /*
@@ -804,10 +816,19 @@ void populate_files(bb_t *bb, const char *path)
     strcpy(pathbuf, path);
     pathbuf[pathlen] = '/';
     for (struct dirent *dp; (dp = readdir(dir)) != NULL; ) {
-        if (dp->d_name[0] == '.' && dp->d_name[1] == '\0')
-            continue;
-        if (!bb->options['.'] && dp->d_name[0] == '.' && !(dp->d_name[1] == '.' && dp->d_name[2] == '\0'))
-            continue;
+        /*
+         * Bit 1: 0 = hide ".." 1 = show ".."
+         * Bit 1: 0 = hide "."  1 = show "."
+         * Bit 2: 0 = hide .anything, 1 = show .anything
+         */
+        if (dp->d_name[0] == '.') {
+            int o = OPTNUM(bb->options['.']);
+            if (dp->d_name[1] == '.' && dp->d_name[2] == '\0') {
+                if (!(o & 1)) continue;
+            } else if (dp->d_name[1] == '\0') {
+                if (!(o & 2)) continue;
+            } else if (!(o & 4)) continue;
+        }
         if ((size_t)bb->nfiles >= filecap) {
             filecap += 100;
             bb->files = memcheck(realloc(bb->files, filecap*sizeof(entry_t*)));
@@ -939,26 +960,39 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
             if (!value) value = bb->files[bb->cursor]->name;
             int f = find_file(bb, value);
             if (f < 0) return BB_INVALID;
-            entry_t *e = bb->files[f];
-            if (IS_SELECTED(e)) deselect_file(bb, e);
-            else select_file(bb, e);
+            toggle_file(bb, bb->files[f]);
             return f == bb->cursor ? BB_NOP : BB_REFRESH;
         }
         case 'o': { // options:
             if (!value) return BB_INVALID;
-            for (char *o = value; *o > 0; ) {
-                switch (o[1]) {
-                    case '!': bb->options[(int)*(o++)] = 0; break;
-                    case '~': bb->options[(int)*o] = bb->options[(int)*o] ? 0 : '1';
-                              o++;
-                              break;
-                    case '=': bb->options[(int)*o] = o[2];
-                              o += 2;
-                              break;
-                    default: bb->options[(int)*o] = '1'; break;
+
+            for (char *key = value; *key; ) {
+                char *op = key;
+                while (*op != '\0' && *op != '^' && *op != '=' && *op != '%')
+                    ++op;
+                char *nextkey = op;
+                for ( ; key < op; key++)
+                    switch (*op) {
+                        case '\0': case ' ': case ',':
+                            bb->options[(int)*key] = bb->initialopts[(int)*key];
+                            break;
+                        case '%': {
+                            int n = (int)strtol(op+1, &nextkey, 10);
+                            if (n < 0)
+                                bb->options[(int)*key] = (char)((OPTNUM(bb->options[(int)*key]) - n - 1) % (-n));
+                            else
+                                bb->options[(int)*key] = (char)((OPTNUM(bb->options[(int)*key]) + 1) % n);
+                            bb->options[(int)*key] += '0';
+                            break;
+                        }
+                        case '=':
+                            bb->options[(int)*key] = op[1] == '0' ? 0 : op[1];
+                            nextkey = op + 2;
+                            break;
+                        default: bb->options[(int)*key] = '1'; break;
                 }
-                o++;
-                while (*o == ' ' || *o == ',') ++o;
+                key = nextkey;
+                while (*key == ' ' || *key == ',') ++key;
             }
             populate_files(bb, bb->path);
             return BB_REFRESH;
@@ -970,8 +1004,8 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                 return BB_REFRESH;
             } else {
                 int f = find_file(bb, value);
-                if (f >= 0)
-                    select_file(bb, bb->files[f]);
+                if (f < 0) return BB_INVALID;
+                select_file(bb, bb->files[f]);
                 return f == bb->cursor ? BB_NOP : BB_REFRESH;
             }
 
@@ -987,8 +1021,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
             if (!lastslash) return BB_INVALID;
             *lastslash = '\0'; // Split in two
             char *real = realpath(path, NULL);
-            if (!real || chdir(real))
-                err("Not a valid path: %s\n", path);
+            if (!real || chdir(real)) return BB_INVALID;
             populate_files(bb, real);
             free(real); // estate
             if (lastslash[1]) {
@@ -1025,10 +1058,8 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                     if (cmd[0] == 's') { // spread:
                         int sel = IS_SELECTED(bb->files[oldcur]);
                         for (int i = bb->cursor; i != oldcur; i += (oldcur > i ? 1 : -1)) {
-                            if (sel && !IS_SELECTED(bb->files[i]))
-                                select_file(bb, bb->files[i]);
-                            else if (!sel && IS_SELECTED(bb->files[i]))
-                                deselect_file(bb, bb->files[i]);
+                            if (sel != IS_SELECTED(bb->files[i]))
+                                toggle_file(bb, bb->files[i]);
                         }
                         if (abs(oldcur - bb->cursor) > 1)
                             return BB_REFRESH;
@@ -1080,6 +1111,7 @@ void bb_browse(bb_t *bb, const char *path)
             check_cmds = 1;
         }
     }
+    memcpy(bb->initialopts, bb->options, sizeof(bb->initialopts));
 
   refresh:
     lazy = 0;
@@ -1132,7 +1164,6 @@ void bb_browse(bb_t *bb, const char *path)
         unlink(cmdfilename);
         cmdpos = 0;
         check_cmds = 0;
-        //if (!lazy) goto redraw;
     }
 
     int key;
@@ -1154,8 +1185,10 @@ void bb_browse(bb_t *bb, const char *path)
                     if (x < mouse_x) continue;
                     if (bb->options['s'] == bb->options['0' + col])
                         bb->options['r'] = !bb->options['r'];
-                    else
+                    else {
                         bb->options['s'] = bb->options['0' + col];
+                        bb->options['r'] = 0;
+                    }
                     qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), bb, compare_files);
                     goto refresh;
                 }
@@ -1163,10 +1196,7 @@ void bb_browse(bb_t *bb, const char *path)
             } else if (mouse_y >= 2 && bb->scroll + (mouse_y - 2) < bb->nfiles) {
                 int clicked = bb->scroll + (mouse_y - 2);
                 if (mouse_x == 0) {
-                    if (IS_SELECTED(bb->files[clicked]))
-                        deselect_file(bb, bb->files[clicked]);
-                    else
-                        select_file(bb, bb->files[clicked]);
+                    toggle_file(bb, bb->files[clicked]);
                     goto redraw;
                 }
                 set_cursor(bb, clicked);
