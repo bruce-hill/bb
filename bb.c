@@ -562,6 +562,7 @@ int compare_files(void *v, const void *v1, const void *v2)
     char sort = bb->options['s'];
     int sign = bb->options['r'] ? -1 : 1;
     const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
+    // *always* put ".." before everything else
     int diff = (strcmp(f1->name, "..") == 0) - (strcmp(f2->name, "..") == 0);
     if (diff) return -diff;
     if (!bb->options['i']) {
