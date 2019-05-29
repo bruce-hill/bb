@@ -13,8 +13,7 @@
     When the scripts are run, the following values are provided as environment variables:
 
         $@ (the list of arguments): the full paths of the selected files
-        $BBCURSOR: the (short) name of the file under the cursor
-        $BBFULLCURSOR: the full path name of the file under the cursor
+        $BBCURSOR: the full name of the file under the cursor
         $BB_DEPTH: the number of `bb` instances deep (in case you want to run a
             shell and have that shell print something special in the prompt)
         $BBCMD: a file to which `bb` commands can be written (used internally)
@@ -62,28 +61,33 @@
         half a screen height down, and 100%n means the last file)
 
  */
-#include "keys.h"
+#include "bterm.h"
 
 // Configurable options:
 #define KEY_DELAY 50
 #define SCROLLOFF MIN(5, (termheight-4)/2)
 
+#define QUOTE(s) #s
+
 #define CMDFILE_FORMAT "/tmp/bb.XXXXXX"
 
 #define SORT_INDICATOR  "↓"
 #define RSORT_INDICATOR "↑"
+#define SELECTED_INDICATOR "\033[33;1m★\033[0m"
+#define NOT_SELECTED_INDICATOR "\033[1m \033[0m"
 
-#define NORMAL_COLOR  "\033[0m"
-#define CURSOR_COLOR  "\033[0;30;43m"
-#define LINKDIR_COLOR "\033[0;36m"
-#define DIR_COLOR     "\033[0;34m"
-#define LINK_COLOR    "\033[0;33m"
+#define TITLE_COLOR      "\033[32;1m"
+#define NORMAL_COLOR     "\033[37m"
+#define CURSOR_COLOR     "\033[1;30;43m"
+#define LINK_COLOR       "\033[35m"
+#define DIR_COLOR        "\033[34m"
+#define EXECUTABLE_COLOR "\033[31m"
 
 #define PIPE_SELECTION_TO " printf '%s\\n' \"$@\" | "
-#define PAUSE " read -n1 -p '\033[2m...press any key to continue...\033[0m\033[?25l'"
+#define PAUSE " read -n1 -p '\033[2mPress any key to continue...\033[0m\033[?25l'"
 
 #define NORMAL_TERM     (1<<0)
-#define SHOW_CURSOR     (1<<1)
+#define AT_CURSOR       (1<<1)
 
 #define MAX_REBINDINGS 8
 
@@ -108,6 +112,8 @@ const char *startupcmds[] = {
     NULL, // NULL-terminated array
 };
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdollar-in-identifier-extension"
 extern binding_t bindings[];
 binding_t bindings[] = {
     //////////////////////////////////////////////////////////////////////////
@@ -115,7 +121,7 @@ binding_t bindings[] = {
     // Please note that these are sh scripts, not bash scripts, so bash-isms
     // won't work unless you make your script use `bash -c "<your script>"`
     //////////////////////////////////////////////////////////////////////////
-    {{'?'},                  "bb -b | less -r", "Show the help menu", NORMAL_TERM},
+    {{'?'},                  "bb -b | $PAGER -r", "Show the help menu", NORMAL_TERM},
     {{KEY_CTRL_H},           "<placeholder>", "Figure out what key does"},
     {{'q', 'Q'},             "+quit", "Quit"},
     {{'k', KEY_ARROW_UP},    "+move:-1", "Move up"},
@@ -126,42 +132,60 @@ binding_t bindings[] = {
     {{'e'},                  "$EDITOR \"$@\"", "Edit file in $EDITOR", NORMAL_TERM},
     {{'\r', KEY_MOUSE_DOUBLE_LEFT},
 #ifdef __APPLE__
-"if test -d \"$BBCURSOR\"; then bb \"+cd:$BBCURSOR\";\n\
-elif test -x \"$BBCURSOR\"; then \"$BBCURSOR\";\n\
-    read -n1 -p '\n\033[2m...press any key to continue...\033[0m';\n\
-elif file -bI \"$BBCURSOR\" | grep '^\\(text/\\|inode/empty\\)' >/dev/null; then $EDITOR \"$BBCURSOR\";\n\
-else open \"$BBCURSOR\"; fi",
+        QUOTE(
+if test -d "$BBCURSOR"; then bb "+cd:$BBCURSOR";
+elif test -x "$BBCURSOR"; then "$BBCURSOR"; read -p 'Press any key to continue...' -n1;
+elif file -bI "$BBCURSOR" | grep '^\(text/\|inode/empty\)' >/dev/null; then $EDITOR "$BBCURSOR";
+else open "$BBCURSOR"; fi
+        )/*ENDQUOTE*/,
 #else
-"if test -d \"$BBCURSOR\"; then bb \"+cd:$BBCURSOR\";\n\
-elif file -bi \"$BBCURSOR\" | grep '^\\(text/\\|inode/empty\\)' >/dev/null; then $EDITOR \"$BBCURSOR\";\n\
-else xdg-open \"$BBCURSOR\"; fi",
+        QUOTE(
+if test -d "$BBCURSOR"; then bb "+cd:$BBCURSOR";
+elif file -bi "$BBCURSOR" | grep '^\(text/\|inode/empty\)' >/dev/null; then $EDITOR "$BBCURSOR";
+else xdg-open "$BBCURSOR"; fi
+        )/*ENDQUOTE*/,
 #endif
         "Open file", NORMAL_TERM},
     {{'f'},                  "bb \"+g:`fzf`\"", "Fuzzy search for file", NORMAL_TERM},
     {{'/'},                  "bb \"+g:`ls -a|fzf`\"", "Fuzzy select file", NORMAL_TERM},
-    {{'L'}, PIPE_SELECTION_TO "less", "List all selected files", NORMAL_TERM},
-    {{'d', KEY_DELETE},      "rm -rfi \"$@\"; bb '+d:*' +r", "Delete files", SHOW_CURSOR},
+    {{'L'}, PIPE_SELECTION_TO "$PAGER", "List all selected files", NORMAL_TERM},
+    {{'d', KEY_DELETE},      "rm -rfi \"$@\"; bb '+d:*' +r", "Delete files", AT_CURSOR},
     {{'D'},                  "rm -rf \"$@\"; bb '+d:*' +r", "Delete files without confirmation"},
-    {{'M'},                  "mv -i \"$@\" .; bb '+d:*' +r", "Move files to current folder", SHOW_CURSOR},
-    {{'c'},                  "cp -i \"$@\" .; bb +r", "Copy files to current folder", SHOW_CURSOR},
+    {{'M'},                  "mv -i \"$@\" .; bb '+d:*' +r", "Move files to current folder"},
+    {{'c'},                  "cp -i \"$@\" .; bb +r", "Copy files to current folder"},
     {{'C'},                  "for f; do cp \"$f\" \"$f.copy\"; done; bb +r", "Clone files"},
-    {{'n'},                  "read -p 'New file: ' name && touch \"$name\"; bb +r \"+goto:$name\"", "New file", SHOW_CURSOR},
-    {{'N'},                  "read -p 'New dir: ' name && mkdir \"$name\"; bb +r \"+goto:$name\"", "New folder", SHOW_CURSOR},
-    {{'|'},                  "read -p '|' cmd && " PIPE_SELECTION_TO "sh -c \"$cmd\" && " PAUSE "; bb +r",
-                             "Pipe selected files to a command", SHOW_CURSOR},
-    {{':'},                  "read -p ':' cmd && sh -c \"$cmd\" -- \"$@\"; " PAUSE "; bb +r",
-                             "Run a command", SHOW_CURSOR},
-    {{'>'},                  "sh", "Open a shell", NORMAL_TERM},
-    {{'m'}, "read -n1 -p 'Mark: ' m && bb \"+mark:$m;$PWD\"", "Set mark", SHOW_CURSOR},
-    {{'\''}, "read -n1 -p 'Jump: ' j && bb \"+jump:$j\"", "Jump to mark", SHOW_CURSOR},
-    {{'r'},                  "for f; do read -p \"Rename $f: \" renamed && mv \"$f\" \"$renamed\"; done; "
-                             "bb '+d:*' +r",
-                             "Rename files", SHOW_CURSOR},
-    {{'R'},                  "read -p 'Rename pattern: ' patt && "
-                             "for f; do mv -i \"$f\" \"`echo \"$f\" | sed \"$patt\"`\"; done &&" PAUSE,
-                             "Regex rename files", SHOW_CURSOR},
+    {{'n'},                  "name=`bb '?New file: '` && touch \"$name\"; bb +r \"+goto:$name\"", "New file"},
+    {{'N'},                  "name=`bb '?New dir: '` && mkdir \"$name\"; bb +r \"+goto:$name\"", "New folder"},
+    {{'|'},                  "cmd=`bb '?|'` && " PIPE_SELECTION_TO "sh -c \"$cmd\" && " PAUSE "; bb +r",
+                             "Pipe selected files to a command"},
+    {{':'},                  "$SHELL -c \"`bb '?:'`\" -- \"$@\"; " PAUSE "; bb +refresh",
+                             "Run a command"},
+    {{'>'},                  "$SHELL", "Open a shell", NORMAL_TERM},
+    {{'m'}, "read -n1 -p 'Mark: ' m && bb \"+mark:$m;$PWD\"", "Set mark"},
+    {{'\''}, "read -n1 -p 'Jump: ' j && bb \"+jump:$j\"", "Jump to mark"},
+
+    {{'r'}, QUOTE(
+bb '+deselect:*' +refresh; 
+for f; do 
+    if renamed="$(dirname "$f")/$(bb '?Rename: ' "$(basename "$f")")" &&
+        test "$f" != "$renamed" && mv -i "$f" "$renamed"; then 
+        test $BBSELECTED && bb "+select:$renamed"; 
+    elif test $BBSELECTED; then bb "+select:$f"; fi 
+done)/*ENDQUOTE*/, "Rename files", AT_CURSOR},
+
+    {{'R'}, QUOTE(
+if patt="`bb '?Rename pattern: ' 's/'`"; then true; else bb +r; exit; fi;
+if sed -E "$patt" </dev/null; then true; else read -p 'Press any key to continue...' -n1; bb +r; exit; fi;
+bb '+deselect:*' +refresh; 
+for f; do 
+    renamed="`dirname "$f"`/`basename "$f" | sed -E "$patt"`"; 
+    if test "$f" != "$renamed" && mv -i "$f" "$renamed"; then 
+        test $BBSELECTED && bb "+select:$renamed"; 
+    elif test $BBSELECTED; then bb "+select:$f"; fi 
+done)/*ENDQUOTE*/, "Regex rename files", AT_CURSOR},
+    
     // TODO debug:
-    {{'P'},                  "read -p 'Select pattern: ' patt && "
+    {{'P'},                  "patt=`bb '?Select pattern: '` && "
                              "for f; do echo \"$f\" | grep \"$patt\" >/dev/null 2>/dev/null && bb \"+sel:$f\"; done",
                              "Regex select files"},
     {{'J'},                  "+spread:+1", "Spread selection down"},
@@ -170,7 +194,8 @@ else xdg-open \"$BBCURSOR\"; fi",
             "\033[1m(s)\033[22mize \033[1m(m)\033[22modification \033[1m(c)\033[22mcreation "
             "\033[1m(a)\033[22maccess \033[1m(r)\033[22mandom \033[1m(p)\033[22mermissions:\033[0m ' sort "
             "&& bb \"+opt:s=$sort\"", "Sort by..."},
-    {{'#'},                  "read -p 'Set columns: ' cols && bb \"+opt:`echo $cols 0 | fold -w1 | sed 10q | nl -v0 -s= -w1 | paste -sd '\\0' -`\"",
+    {{'#'},                  "cols=`bb '?Set columns: '` && "
+                             "bb \"+opt:`echo $cols 0 | fold -w1 | sed 10q | nl -v0 -s= -w1 | paste -sd '\\0' -`\"",
                              "Set columns"},
     {{'.'},                  "+opt:.~", "Toggle dotfiles"},
     {{'g', KEY_HOME},        "+move:0", "Go to first file"},
@@ -186,3 +211,6 @@ else xdg-open \"$BBCURSOR\"; fi",
     {{KEY_MOUSE_WHEEL_UP},   "+scroll:-3", "Scroll up"},
     {0}, // Array must be 0-terminated
 };
+#pragma clang diagnostic pop
+
+// vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1

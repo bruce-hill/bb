@@ -22,9 +22,9 @@
 #include <unistd.h>
 
 #include "config.h"
-#include "keys.h"
+#include "bterm.h"
 
-#define BB_VERSION "0.9.1"
+#define BB_VERSION "0.10.0"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -34,22 +34,9 @@
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
 #define IS_SELECTED(p) (((p)->atme) != NULL)
 
-// Terminal escape sequences:
-#define CSI           "\033["
-#define T_WRAP        "7"
-#define T_SHOW_CURSOR "25"
-#define T_MOUSE_XY    "1000"
-#define T_MOUSE_CELL  "1002"
-#define T_MOUSE_SGR   "1006"
-#define T_ALT_SCREEN  "1049"
-#define T_ON(opt)  CSI "?" opt "h"
-#define T_OFF(opt) CSI "?" opt "l"
-
 static const char *T_ENTER_BBMODE =  T_OFF(T_SHOW_CURSOR) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
 static const char *T_LEAVE_BBMODE =  T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN);
 static const char *T_LEAVE_BBMODE_PARTIAL = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
-
-#define move_cursor(f, x, y) fprintf((f), CSI "%d;%dH", (int)(y)+1, (int)(x)+1)
 
 #define err(...) do { \
     close_term(); \
@@ -92,11 +79,10 @@ typedef struct entry_s {
     char *name, *linkname;
     // TODO: inline only the relevant fields:
     struct stat info;
+    mode_t linkedmode;
     int refcount : 2; // Should only be between 0-2
-    int isdir : 1;
-    int islink : 1;
-    int needs_esc : 1;
-    int link_needs_esc : 1;
+    int no_esc : 1;
+    int link_no_esc : 1;
     char fullname[1]; // Must be last
 } entry_t;
 
@@ -111,6 +97,8 @@ typedef struct bb_s {
     int colwidths[10];
 } bb_t;
 
+typedef enum { BB_NOP = 0, BB_INVALID, BB_REFRESH, BB_QUIT } bb_result_t;
+
 // Functions
 static void update_term_size(int sig);
 static void init_term(void);
@@ -118,6 +106,8 @@ static void cleanup_and_exit(int sig);
 static void close_term(void);
 static void* memcheck(void *p);
 static int run_cmd_on_selection(bb_t *bb, const char *cmd);
+static int fputs_escaped(FILE *f, const char *str, const char *color);
+static const char *color_of(mode_t mode);
 static void render(bb_t *bb, int lazy);
 static int compare_files(void *r, const void *v1, const void *v2);
 static int find_file(bb_t *bb, const char *name);
@@ -126,8 +116,10 @@ static int select_file(bb_t *bb, entry_t *e);
 static int deselect_file(bb_t *bb, entry_t *e);
 static void set_cursor(bb_t *bb, int i);
 static void set_scroll(bb_t *bb, int i);
+static entry_t *load_entry(const char *path);
 static void populate_files(bb_t *bb, const char *path);
 static void sort_files(bb_t *bb);
+static bb_result_t execute_cmd(bb_t *bb, const char *cmd);
 static void explore(bb_t *bb, const char *path);
 static void print_bindings(int verbose);
 
@@ -169,7 +161,8 @@ void init_term(void)
     bb_termios.c_cflag |= (unsigned long)CS8;
     bb_termios.c_cc[VMIN] = 0;
     bb_termios.c_cc[VTIME] = 0;
-    tcsetattr(fileno(tty_out), TCSAFLUSH, &bb_termios);
+    if (tcsetattr(fileno(tty_out), TCSAFLUSH, &bb_termios) == -1)
+        err("Couldn't tcsetattr");
     update_term_size(0);
     signal(SIGWINCH, update_term_size);
     // Initiate mouse tracking and disable text wrapping:
@@ -181,9 +174,6 @@ void cleanup_and_exit(int sig)
 {
     (void)sig;
     close_term();
-    fputs(T_OFF(T_ALT_SCREEN), stdout);
-    fputs(T_ON(T_WRAP), stdout);
-    fflush(stdout);
     unlink(cmdfilename);
     exit(EXIT_FAILURE);
 }
@@ -191,17 +181,20 @@ void cleanup_and_exit(int sig)
 void close_term(void)
 {
     if (tty_out) {
-        fflush(tty_out);
         tcsetattr(fileno(tty_out), TCSAFLUSH, &orig_termios);
+        fputs(T_LEAVE_BBMODE_PARTIAL, tty_out);
+        fputs(T_ON(T_WRAP), tty_out);
+        fflush(tty_out);
         fclose(tty_out);
         tty_out = NULL;
         fclose(tty_in);
         tty_in = NULL;
+    } else {
+        fputs(T_LEAVE_BBMODE_PARTIAL, stdout);
+        fputs(T_ON(T_WRAP), stdout);
+        fflush(stdout);
     }
-    fputs(T_LEAVE_BBMODE_PARTIAL, stdout);
-    fputs(T_ON(T_WRAP), stdout);
-    fflush(stdout);
-    signal(SIGWINCH, SIG_IGN);
+    signal(SIGWINCH, SIG_DFL);
 }
 
 void* memcheck(void *p)
@@ -237,8 +230,8 @@ int run_cmd_on_selection(bb_t *bb, const char *cmd)
         }
         args[i] = NULL;
 
-        setenv("BBCURSOR", bb->files[bb->cursor]->name, 1);
-        setenv("BBFULLCURSOR", bb->files[bb->cursor]->fullname, 1);
+        setenv("BBSELECTED", bb->firstselected ? "1" : "", 1);
+        setenv("BBCURSOR", bb->files[bb->cursor]->fullname, 1);
 
         execvp("sh", args);
         err("Failed to execute command: '%s'", cmd);
@@ -255,7 +248,7 @@ int run_cmd_on_selection(bb_t *bb, const char *cmd)
     return status;
 }
 
-static int fputs_escaped(FILE *f, const char *str, const char *color)
+int fputs_escaped(FILE *f, const char *str, const char *color)
 {
     static const char *escapes = "       abtnvfr             e";
     int escaped = 0;
@@ -271,6 +264,18 @@ static int fputs_escaped(FILE *f, const char *str, const char *color)
         }
     }
     return escaped;
+}
+
+const char *color_of(mode_t mode)
+{
+    if (S_ISDIR(mode))
+        return DIR_COLOR;
+    else if (S_ISLNK(mode))
+        return LINK_COLOR;
+    else if (mode & (S_IXUSR | S_IXGRP | S_IXOTH))
+        return EXECUTABLE_COLOR;
+    else
+        return NORMAL_COLOR;
 }
 
 void render(bb_t *bb, int lazy)
@@ -330,13 +335,14 @@ void render(bb_t *bb, int lazy)
     if (!lazy) {
         // Path
         move_cursor(tty_out, 0, 0);
-        const char *color = "\033[0;1;37m";
+        const char *color = TITLE_COLOR;
+        fputs(color, tty_out);
         fputs_escaped(tty_out, bb->path, color);
         fputs(" \033[K\033[0m", tty_out);
 
         // Columns
         move_cursor(tty_out, 0, 1);
-        fputs("\033[41m \033[0;44;30m\033[K", tty_out);
+        fputs(" \033[0;44;30m\033[K", tty_out);
         int x = 1;
         for (int col = 0; col < cols; col++) {
             move_cursor(tty_out, x, 1);
@@ -391,20 +397,9 @@ void render(bb_t *bb, int lazy)
 
         entry_t *entry = files[i];
 
-        if (IS_SELECTED(entry))
-            fputs("\033[41m \033[0m", tty_out);
-        else
-            fputs(" ", tty_out);
+        fputs(IS_SELECTED(entry) ? SELECTED_INDICATOR : NOT_SELECTED_INDICATOR, tty_out);
 
-        const char *color;
-        if (i == bb->cursor)
-            color = CURSOR_COLOR;
-        else if (entry->islink)
-            color = entry->isdir ? LINKDIR_COLOR : LINK_COLOR;
-        else if (entry->isdir)
-            color = DIR_COLOR;
-        else
-            color = NORMAL_COLOR;
+        const char *color = (i == bb->cursor) ? CURSOR_COLOR : color_of(entry->info.st_mode);
         fputs(color, tty_out);
 
         int x = 1;
@@ -459,20 +454,22 @@ void render(bb_t *bb, int lazy)
                     break;
 
                 case 'n': {
-                    if (entry->needs_esc)
-                        entry->needs_esc &= fputs_escaped(tty_out, entry->name, color) > 0;
-                    else fputs(entry->name, tty_out);
+                    if (entry->no_esc) fputs(entry->name, tty_out);
+                    else entry->no_esc |= !fputs_escaped(tty_out, entry->name, color);
 
-                    if (entry->isdir)
+                    if (S_ISDIR(S_ISLNK(entry->info.st_mode) ? entry->linkedmode : entry->info.st_mode))
                         fputs("/", tty_out);
 
                     if (entry->linkname) {
-                        fputs("\033[2m -> ", tty_out);
-                        if (entry->link_needs_esc)
-                            entry->link_needs_esc &= fputs_escaped(tty_out, entry->linkname, color) > 0;
-                        else fputs(entry->linkname, tty_out);
+                        if (i != bb->cursor)
+                            fputs("\033[37m", tty_out);
+                        fputs("\033[2m -> \033[22;3m", tty_out);
+                        color = i == bb->cursor ? CURSOR_COLOR : color_of(entry->linkedmode);
+                        fputs(color, tty_out);
+                        if (entry->link_no_esc) fputs(entry->linkname, tty_out);
+                        else entry->link_no_esc |= !fputs_escaped(tty_out, entry->linkname, color);
 
-                        if (entry->isdir)
+                        if (S_ISDIR(entry->linkedmode))
                             fputs("/", tty_out);
 
                         fputs("\033[22m", tty_out);
@@ -527,8 +524,10 @@ int compare_files(void *v, const void *v1, const void *v2)
     const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
     int diff = 0;
     if (!bb->options['i']) {
-        diff = -(f1->isdir - f2->isdir);
-        if (diff) return -diff;
+        // Unless interleave mode is on, sort dirs before files
+        int d1 = S_ISDIR(f1->info.st_mode) || (S_ISLNK(f1->info.st_mode) && S_ISDIR(f1->linkedmode));
+        int d2 = S_ISDIR(f2->info.st_mode) || (S_ISLNK(f2->info.st_mode) && S_ISDIR(f2->linkedmode));
+        if (d1 != d2) return d2 - d1;
     }
     if (sort == SORT_NAME) {
         const char *p1 = f1->name, *p2 = f2->name;
@@ -591,9 +590,10 @@ void clear_selection(bb_t *bb)
 {
     for (entry_t *next, *e = bb->firstselected; e; e = next) {
         next = e->next;
+        *(e->atme) = NULL;
+        e->atme = NULL;
         if (--e->refcount <= 0) free(e);
     }
-    bb->firstselected = NULL;
 }
 
 int select_file(bb_t *bb, entry_t *e)
@@ -663,6 +663,32 @@ void set_scroll(bb_t *bb, int newscroll)
     if (bb->cursor < 0) bb->cursor = 0;
 }
 
+entry_t *load_entry(const char *path)
+{
+    ssize_t linkpathlen = -1;
+    char linkbuf[PATH_MAX];
+    struct stat linkedstat, filestat;
+    if (lstat(path, &filestat) == -1) return NULL;
+    if (S_ISLNK(filestat.st_mode)) {
+        linkpathlen = readlink(path, linkbuf, sizeof(linkbuf));
+        if (linkpathlen < 0) err("Couldn't read link: '%s'", path);
+        linkbuf[linkpathlen] = 0;
+        if (stat(path, &linkedstat) == -1) memset(&linkedstat, 0, sizeof(linkedstat));
+    }
+    size_t entry_size = sizeof(entry_t) + (strlen(path) + 1) + (size_t)(linkpathlen + 1);
+    entry_t *entry = memcheck(calloc(entry_size, 1));
+    char *end = stpcpy(entry->fullname, path);
+    if (linkpathlen >= 0)
+        entry->linkname = strcpy(end + 1, linkbuf);
+    entry->name = strrchr(entry->fullname, '/');
+    if (!entry->name) err("No slash found in '%s'", entry->fullname);
+    ++entry->name;
+    if (S_ISLNK(filestat.st_mode))
+        entry->linkedmode = linkedstat.st_mode;
+    entry->info = filestat;
+    return entry;
+}
+
 void populate_files(bb_t *bb, const char *path)
 {
     ino_t old_inode = 0;
@@ -707,7 +733,9 @@ void populate_files(bb_t *bb, const char *path)
         err("Couldn't open dir: %s", bb->path);
     size_t pathlen = strlen(bb->path);
     size_t filecap = 0;
-    char linkbuf[PATH_MAX+1];
+    char pathbuf[PATH_MAX];
+    strcpy(pathbuf, path);
+    pathbuf[pathlen] = '/';
     for (struct dirent *dp; (dp = readdir(dir)) != NULL; ) {
         if (dp->d_name[0] == '.' && dp->d_name[1] == '\0')
             continue;
@@ -729,35 +757,10 @@ void populate_files(bb_t *bb, const char *path)
             }
         }
 
-        ssize_t linkpathlen = -1;
-        linkbuf[0] = 0;
-        if (dp->d_type == DT_LNK) {
-            linkpathlen = readlink(dp->d_name, linkbuf, sizeof(linkbuf));
-            linkbuf[linkpathlen] = 0;
-        }
-
-        entry_t *entry = memcheck(calloc(sizeof(entry_t) + pathlen + strlen(dp->d_name) + 2 + (size_t)(linkpathlen + 1), 1));
-        if (pathlen > PATH_MAX) err("Path is too big");
-        strncpy(entry->fullname, bb->path, pathlen);
-        entry->fullname[pathlen] = '/';
-        entry->name = &entry->fullname[pathlen + 1];
-        strcpy(entry->name, dp->d_name);
-        if (linkpathlen >= 0) {
-            entry->linkname = entry->name + strlen(dp->d_name) + 2;
-            strncpy(entry->linkname, linkbuf, linkpathlen+1);
-        }
-        entry->needs_esc = 1; // populate on-the-fly
-        entry->link_needs_esc = 1; // populate on-the-fly
-        entry->isdir = dp->d_type == DT_DIR;
-        entry->islink = dp->d_type == DT_LNK;
+        strcpy(&pathbuf[pathlen+1], dp->d_name);
+        entry_t *entry = load_entry(pathbuf);
+        if (!entry) err("Failed to load entry: '%s'", pathbuf);
         ++entry->refcount;
-        if (!entry->isdir && entry->islink) {
-            struct stat statbuf;
-            if (stat(entry->fullname, &statbuf) == 0)
-                entry->isdir = S_ISDIR(statbuf.st_mode);
-        }
-        entry->next = NULL; entry->atme = NULL;
-        lstat(entry->fullname, &entry->info);
         bb->files[bb->nfiles++] = entry;
       next_file:
         continue;
@@ -791,9 +794,12 @@ void sort_files(bb_t *bb)
     if (bb->options['s'] == SORT_RANDOM) {
         entry_t **files = &bb->files[1];
         int ndirs = 0, nents = bb->nfiles - 1;
-        for (int i = 0; i < nents; i++) {
-            if (bb->files[i]->isdir) ++ndirs;
-            else break;
+        if (!bb->options['i']) {
+            for (int i = 0; i < nents; i++) {
+                if (S_ISDIR(bb->files[i]->info.st_mode)
+                    || (S_ISLNK(bb->files[i]->info.st_mode) && S_ISDIR(bb->files[i]->linkedmode)))
+                    ++ndirs;
+            }
         }
         for (int i = 0; i < ndirs - 1; i++) {
             int j = i + rand() / (RAND_MAX / (ndirs - 1 - i));
@@ -816,8 +822,7 @@ void sort_files(bb_t *bb)
     }
 }
 
-static enum { BB_NOP = 0, BB_INVALID, BB_REFRESH, BB_DIRTY, BB_QUIT }
-execute_cmd(bb_t *bb, const char *cmd)
+bb_result_t execute_cmd(bb_t *bb, const char *cmd)
 {
     char *value = strchr(cmd, ':');
     if (value) ++value;
@@ -857,7 +862,7 @@ execute_cmd(bb_t *bb, const char *cmd)
                         if (f >= 0) select_file(bb, bb->files[f]);
                         // TODO: support selecting files in other directories
                     }
-                    return BB_DIRTY;
+                    return BB_REFRESH;
             }
         case 'c': { // cd:
             char pbuf[PATH_MAX];
@@ -898,7 +903,7 @@ execute_cmd(bb_t *bb, const char *cmd)
             entry_t *e = bb->files[f];
             if (IS_SELECTED(e)) deselect_file(bb, e);
             else select_file(bb, e);
-            return f == bb->cursor ? BB_NOP : BB_DIRTY;
+            return f == bb->cursor ? BB_NOP : BB_REFRESH;
         }
         case 'o': { // options:
             if (!value) return BB_INVALID;
@@ -923,12 +928,12 @@ execute_cmd(bb_t *bb, const char *cmd)
             if (!value) value = bb->files[bb->cursor]->name;
             if (strcmp(value, "*") == 0) {
                 clear_selection(bb);
-                return BB_DIRTY;
+                return BB_REFRESH;
             } else {
                 int f = find_file(bb, value);
                 if (f >= 0)
                     select_file(bb, bb->files[f]);
-                return f == bb->cursor ? BB_NOP : BB_DIRTY;
+                return f == bb->cursor ? BB_NOP : BB_REFRESH;
             }
 
         case 'g': { // goto:
@@ -987,7 +992,7 @@ execute_cmd(bb_t *bb, const char *cmd)
                                 deselect_file(bb, bb->files[i]);
                         }
                         if (abs(oldcur - bb->cursor) > 1)
-                            return BB_DIRTY;
+                            return BB_REFRESH;
                     }
                     return BB_NOP;
                 }
@@ -1002,7 +1007,7 @@ execute_cmd(bb_t *bb, const char *cmd)
             }
             return BB_INVALID;
         }
-        default: break;
+        default: err("UNKNOWN COMMAND: '%s'", cmd); break;
     }
     return BB_INVALID;
 }
@@ -1066,9 +1071,9 @@ void explore(bb_t *bb, const char *path)
             switch (execute_cmd(bb, cmd)) {
                 case BB_INVALID:
                     break;
-                case BB_DIRTY:
-                    lazy = 0;
                 case BB_NOP:
+                    free(cmd);
+                    fclose(cmdfile);
                     goto redraw;
                 case BB_REFRESH:
                     free(cmd);
@@ -1090,7 +1095,7 @@ void explore(bb_t *bb, const char *path)
 
     int key;
   get_keyboard_input:
-    key = term_getkey(fileno(tty_in), &mouse_x, &mouse_y, KEY_DELAY);
+    key = bgetkey(tty_in, &mouse_x, &mouse_y, KEY_DELAY);
     switch (key) {
         case KEY_MOUSE_LEFT: {
             struct timespec clicktime;
@@ -1137,10 +1142,8 @@ void explore(bb_t *bb, const char *path)
             goto quit; // Unreachable
 
         case KEY_CTRL_Z:
+            fputs(T_OFF(T_ALT_SCREEN), tty_out);
             close_term();
-            fputs(T_OFF(T_ALT_SCREEN), stdout);
-            fputs(T_ON(T_WRAP), stdout);
-            fflush(stdout);
             raise(SIGTSTP);
             init_term();
             fputs(T_ON(T_ALT_SCREEN), tty_out);
@@ -1150,11 +1153,11 @@ void explore(bb_t *bb, const char *path)
         case KEY_CTRL_H: {
             move_cursor(tty_out, 0,termheight-1);
             fputs("\033[K\033[33;1mPress any key...\033[0m", tty_out);
-            while ((key = term_getkey(fileno(tty_in), &mouse_x, &mouse_y, 1000)) == -1)
+            while ((key = bgetkey(tty_in, &mouse_x, &mouse_y, 1000)) == -1)
                 ;
             move_cursor(tty_out, 0,termheight-1);
             fputs("\033[K\033[1m<\033[33m", tty_out);
-            const char *name = keyname(key);
+            const char *name = bkeyname(key);
             if (name) fputs(name, tty_out);
             else if (' ' <= key && key <= '~')
                 fputc((char)key, tty_out);
@@ -1207,7 +1210,6 @@ void explore(bb_t *bb, const char *path)
             if (binding->command[0] == '+') {
                 switch (execute_cmd(bb, binding->command + 1)) {
                     case BB_INVALID: break;
-                    case BB_DIRTY: lazy = 0;
                     case BB_NOP: goto redraw;
                     case BB_REFRESH: goto refresh;
                     case BB_QUIT: goto quit;
@@ -1215,14 +1217,15 @@ void explore(bb_t *bb, const char *path)
                 goto get_keyboard_input;
             }
             move_cursor(tty_out, 0, termheight-1);
-            close_term();
             if (binding->flags & NORMAL_TERM) {
-                fputs(T_OFF(T_ALT_SCREEN), stdout);
-                fputs(T_ON(T_WRAP), stdout);
-                fflush(stdout);
+                fputs(T_OFF(T_ALT_SCREEN), tty_out);
+                fputs(T_ON(T_WRAP), tty_out);
             }
-            if (binding->flags & SHOW_CURSOR)
-                fputs(T_ON(T_SHOW_CURSOR), stdout);
+            if (binding->flags & AT_CURSOR && !bb->firstselected) {
+                move_cursor(tty_out, 0, 3 + bb->cursor - bb->scroll);
+                fputs("\033[K", tty_out);
+            }
+            close_term();
             run_cmd_on_selection(bb, binding->command);
             init_term();
             if (binding->flags & NORMAL_TERM)
@@ -1239,9 +1242,6 @@ void explore(bb_t *bb, const char *path)
     populate_files(bb, NULL);
     fputs(T_LEAVE_BBMODE, tty_out);
     close_term();
-    fputs(T_OFF(T_ALT_SCREEN), stdout);
-    fputs(T_ON(T_WRAP), stdout);
-    fflush(stdout);
 }
 
 void print_bindings(int verbose)
@@ -1259,7 +1259,7 @@ void print_bindings(int verbose)
         for (int j = 0; bindings[i].keys[j]; j++) {
             if (j > 0) *(p++) = ',';
             int key = bindings[i].keys[j];
-            const char *name = keyname(key);
+            const char *name = bkeyname(key);
             if (name)
                 p = stpcpy(p, name);
             else if (' ' <= key && key <= '~')
@@ -1327,6 +1327,17 @@ int main(int argc, char *argv[])
 
     int i;
     for (i = 1; i < argc; i++) {
+        if (argv[i][0] == '?') {
+            fclose(cmdfile);
+            init_term();
+            char *line = breadline(tty_in, tty_out, argv[i] + 1, argv[i+1]);
+            close_term();
+            if (!line) return 1;
+            fputs(line, stdout);
+            free(line);
+            fflush(stdout);
+            return 0;
+        }
         if (argv[i][0] == '+') {
             fwrite(argv[i]+1, sizeof(char), strlen(argv[i]+1)+1, cmdfile);
             continue;
@@ -1371,9 +1382,13 @@ int main(int argc, char *argv[])
     if (cmdfile)
         fclose(cmdfile);
 
-    if (!initial_path) {
+    if (!initial_path)
         return 0;
-    }
+
+    // Default values
+    setenv("SHELL", "bash", 0);
+    setenv("EDITOR", "nano", 0);
+    setenv("PAGER", "less", 0);
 
     signal(SIGTERM, cleanup_and_exit);
     signal(SIGINT, cleanup_and_exit);

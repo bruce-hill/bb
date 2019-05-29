@@ -13,7 +13,7 @@ clean:
 config.h:
 	cp config.def.h config.h
 
-$(NAME): $(NAME).c keys.h config.h
+$(NAME): $(NAME).c bterm.h config.h
 	$(CC) $(NAME).c $(LIBS) $(CFLAGS) $(G) -o $(NAME)
 
 test: $(NAME)
