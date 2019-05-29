@@ -59,13 +59,7 @@ typedef enum {
     SORT_CTIME = 'c',
     SORT_ATIME = 'a',
     SORT_RANDOM = 'r',
-    RSORT_NAME = 'N',
-    RSORT_SIZE = 'S',
-    RSORT_PERM = 'P',
-    RSORT_MTIME = 'M',
-    RSORT_CTIME = 'C',
-    RSORT_ATIME = 'A',
-    RSORT_RANDOM = 'R',
+    SORT_SELECTED = '+',
 } sortmethod_t;
 
 /* entry_t uses intrusive linked lists.  This means entries can only belong to
@@ -134,8 +128,7 @@ static FILE *tty_out = NULL, *tty_in = NULL;
 static int termwidth, termheight;
 static int mouse_x, mouse_y;
 static char *cmdfilename = NULL;
-static const int colsizew = 7, coldatew = 19, colpermw = 4;
-static int colnamew;
+static const int colsizew = 7, coldatew = 19, colpermw = 4, colnamew = 40, colselw = 1;
 static struct timespec lastclick = {0, 0};
 
 
@@ -331,37 +324,31 @@ void render(bb_t *bb, int lazy)
     int cols = 0;
     for (char *valid = &bb->options['0'], *p = &bb->options['0']; p <= &bb->options['9']; ++p) {
         switch (*p) {
-            case 'n': case 's': case 'm': case 'c': case 'a': case 'p':
+            case 'n': case 's': case 'm': case 'c': case 'a': case 'p': case '+':
                 ++cols; 
                 *(valid++) = *p;
         }
         if (p >= valid) *p = 0;
     }
-    memset(bb->colwidths, 0, sizeof(bb->colwidths));
-    //colnamew = termwidth - 1;
-    colnamew = 40;
-    int tot = 0;
-    int space = termwidth - 1 - 3 * cols;
+    int tot = 0, space = termwidth - 1 - 3*cols;
     for (int i = 0; i < cols; i++) {
         switch (bb->options['0' + i]) {
-            case 's': bb->colwidths[i] = colsizew; break;
-            case 'm': case 'c': case 'a':
-                      bb->colwidths[i] = coldatew; break;
-            case 'p': bb->colwidths[i] = colpermw; break;
+            case 'a': case 'c': case 'm': bb->colwidths[i] = coldatew; break;
             case 'n': bb->colwidths[i] = colnamew; break;
+            case 'p': bb->colwidths[i] = colpermw; break;
+            case 's': bb->colwidths[i] = colsizew; break;
+            case '+': bb->colwidths[i] = colselw; break;
+            default: bb->colwidths[i] = 0; break;
         }
-        int ratio = bb->options['A' + i];
-        if (ratio >= '0') ratio -= '0';
-        if (ratio)
-            tot += ratio;
-        else
-            space -= bb->colwidths[i];
+        int ratio = OPTNUM(bb->options['A' + i]);
+        if (ratio == 0) space -= bb->colwidths[i];
+        else tot += ratio;
     }
-    for (int i = 0; i < cols; i++) {
-        int ratio = bb->options['A' + i];
-        if (ratio >= '0') ratio -= '0';
-        if (!ratio) continue;
-        bb->colwidths[i] = MAX(bb->colwidths[i], (space * ratio) / tot);
+    if (tot > 0) {
+        for (int i = 0; i < cols; i++) {
+            int ratio = OPTNUM(bb->options['A' + i]);
+            bb->colwidths[i] = MAX(bb->colwidths[i], (space * ratio) / tot);
+        }
     }
 
     if (!lazy) {
@@ -374,31 +361,33 @@ void render(bb_t *bb, int lazy)
 
         // Columns
         move_cursor(tty_out, 0, 1);
-        fputs(" \033[0;44;30m\033[K", tty_out);
-        int x = 1;
+        fputs("\033[0;44;30m\033[K", tty_out);
+        int x = 0;
         for (int col = 0; col < cols; col++) {
             move_cursor(tty_out, x, 1);
             if (col > 0) {
-                fputs(" │ ", tty_out);
-                x += 3;
+                fputs("│\033[K", tty_out);
+                x += 1;
             }
             const char *indicator = " ";
             if (bb->options['s'] == bb->options['0' + col])
                 indicator = bb->options['r'] ? RSORT_INDICATOR : SORT_INDICATOR;
             switch (bb->options['0' + col]) {
+                case '+': fprintf(tty_out, "%s+", indicator); break;
                 case 'n': fprintf(tty_out, "%sName", indicator); break;
-                case 's': move_cursor(tty_out, x + bb->colwidths[col] - (int)strlen(" Size"), 1);
+                case 's': move_cursor(tty_out, x + MAX(0, bb->colwidths[col] - (int)strlen(" Size")), 1);
                           fprintf(tty_out, "%sSize", indicator);
                           break;
-                case 'p': fprintf(tty_out, "%sPermissions", indicator);
+                case 'p': move_cursor(tty_out, x + MAX(0, (bb->colwidths[col] - (int)strlen(" Permissions"))/2), 1);
+                          fprintf(tty_out, "%sPermissions", indicator);
                           break;
-                case 'm': move_cursor(tty_out, x + (bb->colwidths[col] - (int)strlen(" Modified"))/2, 1);
+                case 'm': move_cursor(tty_out, x + MAX(0, (bb->colwidths[col] - (int)strlen(" Modified"))/2), 1);
                           fprintf(tty_out, "%sModified", indicator);
                           break;
-                case 'a': move_cursor(tty_out, x + (bb->colwidths[col] - (int)strlen(" Accessed"))/2, 1);
+                case 'a': move_cursor(tty_out, x + MAX(0, (bb->colwidths[col] - (int)strlen(" Accessed"))/2), 1);
                           fprintf(tty_out, "%sAccessed", indicator);
                           break;
-                case 'c': move_cursor(tty_out, x + (bb->colwidths[col] - (int)strlen(" Created"))/2, 1);
+                case 'c': move_cursor(tty_out, x + MAX(0, (bb->colwidths[col] - (int)strlen(" Created"))/2), 1);
                           fprintf(tty_out, "%sCreated", indicator);
                           break;
                 default: continue;
@@ -436,17 +425,20 @@ void render(bb_t *bb, int lazy)
         if (i == bb->cursor) strcat(color, CURSOR_COLOR);
         fputs(color, tty_out);
 
-        int x = 1;
+        int x = 0;
         for (int col = 0; col < cols; col++) {
             fprintf(tty_out, "\033[%d;%dH\033[K", y+1, x+1);
             if (col > 0) {
-                if (i == bb->cursor) fputs(" │", tty_out);
-                else fputs(" \033[37;2m│\033[22m", tty_out);
+                if (i == bb->cursor) fputs("│", tty_out);
+                else fputs("\033[37;2m│\033[22m", tty_out);
                 fputs(color, tty_out);
-                fputs(" ", tty_out);
-                x += 3;
+                x += 1;
             }
             switch (bb->options['0' + col]) {
+                case '+':
+                    fputs(IS_SELECTED(entry) ? SELECTED_INDICATOR : NOT_SELECTED_INDICATOR, tty_out);
+                    fputs(color, tty_out);
+                    break;
                 case 's': {
                     int j = 0;
                     const char* units = "BKMGTPEZY";
@@ -479,12 +471,11 @@ void render(bb_t *bb, int lazy)
                     break;
 
                 case 'p':
-                    buf[0] = ' ';
-                    buf[1] = '0' + ((entry->info.st_mode >> 6) & 7);
-                    buf[2] = '0' + ((entry->info.st_mode >> 3) & 7);
-                    buf[3] = '0' + ((entry->info.st_mode >> 0) & 7);
-                    buf[4] = '\0';
-                    fputs(buf, tty_out);
+                    move_cursor(tty_out, x + (bb->colwidths[col] - colpermw)/2, y);
+                    fprintf(tty_out, " %c%c%c", 
+                        '0' + ((entry->info.st_mode >> 6) & 7),
+                        '0' + ((entry->info.st_mode >> 3) & 7),
+                        '0' + ((entry->info.st_mode >> 0) & 7));
                     break;
 
                 case 'n': {
@@ -507,7 +498,7 @@ void render(bb_t *bb, int lazy)
                         if (S_ISDIR(entry->linkedmode))
                             fputs("/", tty_out);
 
-                        fputs("\033[22m", tty_out);
+                        fputs("\033[22;23m", tty_out);
                     }
                     break;
                 }
@@ -567,6 +558,10 @@ int compare_files(void *v, const void *v1, const void *v2)
     if (diff) return -diff;
     diff = (strcmp(f1->name, ".") == 0) - (strcmp(f2->name, ".") == 0);
     if (diff) return -diff;
+    if (sort == '+') {
+        diff = -(IS_SELECTED(f1) - IS_SELECTED(f2)) * sign;
+        if (diff) return diff;
+    }
     if (!bb->options['i']) {
         // Unless interleave mode is on, sort dirs before files
         int d1 = S_ISDIR(f1->info.st_mode) || (S_ISLNK(f1->info.st_mode) && S_ISDIR(f1->linkedmode));
@@ -574,52 +569,63 @@ int compare_files(void *v, const void *v1, const void *v2)
         if (d1 != d2) return d2 - d1;
     }
     switch (sort) {
+        case SORT_SELECTED:
+            goto sort_by_name;
         case SORT_NAME: {
-            const char *p1 = f1->name, *p2 = f2->name;
-            while (*p1 && *p2) {
-                char c1 = *p1, c2 = *p2;
+            const char *n1, *n2;
+          sort_by_name:
+            n1 = f1->name;
+            n2 = f2->name;
+            while (*n1 && *n2) {
+                char c1 = *n1, c2 = *n2;
                 if ('A' <= c1 && 'Z' <= c1) c1 = c1 - 'A' + 'a';
                 if ('A' <= c2 && 'Z' <= c2) c2 = c2 - 'A' + 'a';
                 diff = (c1 - c2);
                 if ('0' <= c1 && c1 <= '9' && '0' <= c2 && c2 <= '9') {
-                    long n1 = strtol(p1, (char**)&p1, 10);
-                    long n2 = strtol(p2, (char**)&p2, 10);
-                    diff = (int)(p1 - f1->name) - (int)(p2 - f2->name);
+                    long i1 = strtol(n1, (char**)&n1, 10);
+                    long i2 = strtol(n2, (char**)&n2, 10);
+                    diff = (int)(n1 - f1->name) - (int)(n2 - f2->name);
                     if (diff != 0)
                         return diff*sign;
-                    if (n1 != n2)
-                        return (n1 > n2 ? 1 : -1)*sign;
+                    if (i1 != i2)
+                        return (i1 > i2 ? 1 : -1)*sign;
                 } else if (diff) {
                     return diff*sign;
                 } else {
-                    ++p1; ++p2;
+                    ++n1; ++n2;
                 }
             }
-            return (*p1 - *p2)*sign;
+            return (*n1 - *n2)*sign;
         }
         case SORT_PERM:
-            return -((f1->info.st_mode & 0x3FF) - (f2->info.st_mode & 0x3FF))*sign;
+            diff = -((f1->info.st_mode & 0x3FF) - (f2->info.st_mode & 0x3FF))*sign;
+            break;
         case SORT_SIZE:
-            return f1->info.st_size > f2->info.st_size ? -sign : sign;
+            diff = f1->info.st_size > f2->info.st_size ? -sign : sign;
+            break;
         case SORT_MTIME:
             if (f1->info.st_mtimespec.tv_sec == f2->info.st_mtimespec.tv_sec)
-                return f1->info.st_mtimespec.tv_nsec > f2->info.st_mtimespec.tv_nsec ? -sign : sign;
+                diff = f1->info.st_mtimespec.tv_nsec > f2->info.st_mtimespec.tv_nsec ? -sign : sign;
             else
-                return f1->info.st_mtimespec.tv_sec > f2->info.st_mtimespec.tv_sec ? -sign : sign;
+                diff = f1->info.st_mtimespec.tv_sec > f2->info.st_mtimespec.tv_sec ? -sign : sign;
+            break;
         case SORT_CTIME:
             if (f1->info.st_ctimespec.tv_sec == f2->info.st_ctimespec.tv_sec)
-                return f1->info.st_ctimespec.tv_nsec > f2->info.st_ctimespec.tv_nsec ? -sign : sign;
+                diff = f1->info.st_ctimespec.tv_nsec > f2->info.st_ctimespec.tv_nsec ? -sign : sign;
             else
-                return f1->info.st_ctimespec.tv_sec > f2->info.st_ctimespec.tv_sec ? -sign : sign;
+                diff = f1->info.st_ctimespec.tv_sec > f2->info.st_ctimespec.tv_sec ? -sign : sign;
+            break;
         case SORT_ATIME:
             if (f1->info.st_atimespec.tv_sec == f2->info.st_atimespec.tv_sec)
-                return f1->info.st_atimespec.tv_nsec > f2->info.st_atimespec.tv_nsec ? -sign : sign;
+                diff = f1->info.st_atimespec.tv_nsec > f2->info.st_atimespec.tv_nsec ? -sign : sign;
             else
-                return f1->info.st_atimespec.tv_sec > f2->info.st_atimespec.tv_sec ? -sign : sign;
+                diff = f1->info.st_atimespec.tv_sec > f2->info.st_atimespec.tv_sec ? -sign : sign;
+            break;
         case SORT_RANDOM:
             return f1->shufflepos - f2->shufflepos;
     }
-    return 0;
+    if (diff == 0) goto sort_by_name;
+    return diff;
 }
 
 int find_file(bb_t *bb, const char *name)
@@ -887,13 +893,13 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
     char *value = strchr(cmd, ':');
     if (value) ++value;
     switch (cmd[0]) {
-        case 'r': { // refresh
+        case 'r': { // +refresh
             populate_files(bb, bb->path);
             return BB_REFRESH;
         }
-        case 'q': // quit
+        case 'q': // +quit
             return BB_QUIT;
-        case 's': // select:, scroll:, spread:
+        case 's': // +select:, +scroll:, +spread:
             switch (cmd[1]) {
                 case 'c': { // scroll:
                     if (!value) return BB_INVALID;
@@ -909,10 +915,10 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                     return BB_NOP;
                 }
 
-                case 'p': // spread:
+                case 'p': // +spread:
                     goto move;
 
-                case '\0': case 'e': // select:
+                case '\0': case 'e': // +select:
                     if (!value) value = bb->files[bb->cursor]->name;
                     if (strcmp(value, "*") == 0) {
                         for (int i = 0; i < bb->nfiles; i++)
@@ -924,7 +930,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                     }
                     return BB_REFRESH;
             }
-        case 'c': { // cd:
+        case 'c': { // +cd:
             char pbuf[PATH_MAX];
           cd:
             if (!value) return BB_INVALID;
@@ -956,14 +962,14 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
             free(oldpath);
             return BB_REFRESH;
         }
-        case 't': { // toggle:
+        case 't': { // +toggle:
             if (!value) value = bb->files[bb->cursor]->name;
             int f = find_file(bb, value);
             if (f < 0) return BB_INVALID;
             toggle_file(bb, bb->files[f]);
             return f == bb->cursor ? BB_NOP : BB_REFRESH;
         }
-        case 'o': { // options:
+        case 'o': { // +options:
             if (!value) return BB_INVALID;
 
             for (char *key = value; *key; ) {
@@ -997,7 +1003,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
             populate_files(bb, bb->path);
             return BB_REFRESH;
         }
-        case 'd': // deselect:
+        case 'd': // +deselect:
             if (!value) value = bb->files[bb->cursor]->name;
             if (strcmp(value, "*") == 0) {
                 clear_selection(bb);
@@ -1009,7 +1015,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                 return f == bb->cursor ? BB_NOP : BB_REFRESH;
             }
 
-        case 'g': { // goto:
+        case 'g': { // +goto:
             if (!value) return BB_INVALID;
             int f = find_file(bb, value);
             if (f >= 0) {
@@ -1030,9 +1036,9 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
             }
             return BB_REFRESH;
         }
-        case 'm': { // move:, mark:
+        case 'm': { // +move:, +mark:
             switch (cmd[1]) {
-                case 'a': { // mark:
+                case 'a': { // +mark:
                     if (!value) return BB_INVALID;
                     char key = value[0];
                     if (key < 0) return BB_INVALID;
@@ -1044,7 +1050,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                     bb->marks[(int)key] = memcheck(strdup(value));
                     return BB_NOP;
                 }
-                default: { // move:
+                default: { // +move:
                     int oldcur, isdelta, n;
                   move:
                     if (!value) return BB_INVALID;
@@ -1055,7 +1061,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                         n = (n * (value[1] == 'n' ? bb->nfiles : termheight)) / 100;
                     if (isdelta) set_cursor(bb, bb->cursor + n);
                     else set_cursor(bb, n);
-                    if (cmd[0] == 's') { // spread:
+                    if (cmd[0] == 's') { // +spread:
                         int sel = IS_SELECTED(bb->files[oldcur]);
                         for (int i = bb->cursor; i != oldcur; i += (oldcur > i ? 1 : -1)) {
                             if (sel != IS_SELECTED(bb->files[i]))
@@ -1068,7 +1074,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                 }
             }
         }
-        case 'j': { // jump:
+        case 'j': { // +jump:
             if (!value) return BB_INVALID;
             char key = value[0];
             if (bb->marks[(int)key]) {
@@ -1176,27 +1182,29 @@ void bb_browse(bb_t *bb, const char *path)
             double dt_ms = 1e3*(double)(clicktime.tv_sec - lastclick.tv_sec);
             dt_ms += 1e-6*(double)(clicktime.tv_nsec - lastclick.tv_nsec);
             lastclick = clicktime;
-            if (mouse_y == 1) {
-                // Sort column:
-                int x = 1;
-                for (int col = 0; col < 10; col++) {
-                    if (col > 0) x += 3;
-                    x += bb->colwidths[col];
-                    if (x < mouse_x) continue;
-                    if (bb->options['s'] == bb->options['0' + col])
-                        bb->options['r'] = !bb->options['r'];
-                    else {
-                        bb->options['s'] = bb->options['0' + col];
-                        bb->options['r'] = 0;
-                    }
-                    qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), bb, compare_files);
-                    goto refresh;
+            // Get column:
+            char column = '?';
+            for (int col = 0, x = 0; col < 10; col++) {
+                if (col > 0) x += 1;
+                x += bb->colwidths[col];
+                if (x >= mouse_x) {
+                    column = bb->options['0' + col];
+                    break;
                 }
-                goto next_input;
-            } else if (mouse_y >= 2 && bb->scroll + (mouse_y - 2) < bb->nfiles) {
+            }
+            if (mouse_y == 1) {
+                if (bb->options['s'] == column)
+                    bb->options['r'] = !bb->options['r'];
+                else bb->options['r'] = 0;
+                bb->options['s'] = column;
+                qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), bb, compare_files);
+                goto refresh;
+            } else if (2 <= mouse_y && mouse_y <= termheight - 2) {
                 int clicked = bb->scroll + (mouse_y - 2);
-                if (mouse_x == 0) {
+                if (clicked > bb->nfiles - 1) goto next_input;
+                if (column == '+') {
                     toggle_file(bb, bb->files[clicked]);
+                    lazy = 0;
                     goto redraw;
                 }
                 set_cursor(bb, clicked);

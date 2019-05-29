@@ -74,8 +74,8 @@
 
 #define SORT_INDICATOR  "↓"
 #define RSORT_INDICATOR "↑"
-#define SELECTED_INDICATOR "\033[31;7m \033[0m"
-#define NOT_SELECTED_INDICATOR " "
+#define SELECTED_INDICATOR "\033[31;7m  \033[0m"
+#define NOT_SELECTED_INDICATOR "  "
 
 #define TITLE_COLOR      "\033[32;1m"
 #define NORMAL_COLOR     "\033[37m"
@@ -109,7 +109,7 @@ const char *startupcmds[] = {
     "+mark:0", "+mark:~=~", "+mark:h=~", "+mark:/=/", "+mark:c=~/.config",
     "+mark:l=~/.local",
     // Default column and sorting options:
-    "+opt:0=s,1=m,2=p,3=n,s=n,D=1,.=1",
+    "+opt:0=+,1=s,2=m,3=p,4=n,s=n,E=1,.=1",
     NULL, // NULL-terminated array
 };
 
