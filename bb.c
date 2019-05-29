@@ -58,7 +58,6 @@ typedef enum {
     SORT_CTIME = 'c',
     SORT_ATIME = 'a',
     SORT_RANDOM = 'r',
-
     RSORT_NAME = 'N',
     RSORT_SIZE = 'S',
     RSORT_PERM = 'P',
@@ -77,12 +76,12 @@ typedef enum {
 typedef struct entry_s {
     struct entry_s *next, **atme;
     char *name, *linkname;
-    // TODO: inline only the relevant fields:
     struct stat info;
     mode_t linkedmode;
     int refcount : 2; // Should only be between 0-2
     int no_esc : 1;
     int link_no_esc : 1;
+    int shufflepos;
     char fullname[1]; // Must be last
 } entry_t;
 
@@ -102,12 +101,12 @@ typedef enum { BB_NOP = 0, BB_INVALID, BB_REFRESH, BB_QUIT } bb_result_t;
 // Functions
 static void update_term_size(int sig);
 static void init_term(void);
-static void cleanup_and_exit(int sig);
 static void close_term(void);
+static void cleanup_and_exit(int sig);
 static void* memcheck(void *p);
 static int run_cmd_on_selection(bb_t *bb, const char *cmd);
 static int fputs_escaped(FILE *f, const char *str, const char *color);
-static const char *color_of(mode_t mode);
+static const char* color_of(mode_t mode);
 static void render(bb_t *bb, int lazy);
 static int compare_files(void *r, const void *v1, const void *v2);
 static int find_file(bb_t *bb, const char *name);
@@ -116,7 +115,7 @@ static int select_file(bb_t *bb, entry_t *e);
 static int deselect_file(bb_t *bb, entry_t *e);
 static void set_cursor(bb_t *bb, int i);
 static void set_scroll(bb_t *bb, int i);
-static entry_t *load_entry(const char *path);
+static entry_t* load_entry(const char *path);
 static void populate_files(bb_t *bb, const char *path);
 static void sort_files(bb_t *bb);
 static bb_result_t execute_cmd(bb_t *bb, const char *cmd);
@@ -170,14 +169,6 @@ void init_term(void)
     fputs(T_OFF(T_WRAP), tty_out);
 }
 
-void cleanup_and_exit(int sig)
-{
-    (void)sig;
-    close_term();
-    unlink(cmdfilename);
-    exit(EXIT_FAILURE);
-}
-
 void close_term(void)
 {
     if (tty_out) {
@@ -195,6 +186,14 @@ void close_term(void)
         fflush(stdout);
     }
     signal(SIGWINCH, SIG_DFL);
+}
+
+void cleanup_and_exit(int sig)
+{
+    (void)sig;
+    close_term();
+    unlink(cmdfilename);
+    exit(EXIT_FAILURE);
 }
 
 void* memcheck(void *p)
@@ -266,7 +265,7 @@ int fputs_escaped(FILE *f, const char *str, const char *color)
     return escaped;
 }
 
-const char *color_of(mode_t mode)
+const char* color_of(mode_t mode)
 {
     if (S_ISDIR(mode))
         return DIR_COLOR;
@@ -532,30 +531,30 @@ int compare_files(void *v, const void *v1, const void *v2)
         int d2 = S_ISDIR(f2->info.st_mode) || (S_ISLNK(f2->info.st_mode) && S_ISDIR(f2->linkedmode));
         if (d1 != d2) return d2 - d1;
     }
-    if (sort == SORT_NAME) {
-        const char *p1 = f1->name, *p2 = f2->name;
-        while (*p1 && *p2) {
-            char c1 = *p1, c2 = *p2;
-            if ('A' <= c1 && 'Z' <= c1) c1 = c1 - 'A' + 'a';
-            if ('A' <= c2 && 'Z' <= c2) c2 = c2 - 'A' + 'a';
-            diff = (c1 - c2);
-            if ('0' <= c1 && c1 <= '9' && '0' <= c2 && c2 <= '9') {
-                long n1 = strtol(p1, (char**)&p1, 10);
-                long n2 = strtol(p2, (char**)&p2, 10);
-                diff = (int)(p1 - f1->name) - (int)(p2 - f2->name);
-                if (diff != 0)
-                    return diff*sign;
-                if (n1 != n2)
-                    return (n1 > n2 ? 1 : -1)*sign;
-            } else if (diff) {
-                return diff*sign;
-            } else {
-                ++p1; ++p2;
-            }
-        }
-        return (*p1 - *p2)*sign;
-    }
     switch (sort) {
+        case SORT_NAME: {
+            const char *p1 = f1->name, *p2 = f2->name;
+            while (*p1 && *p2) {
+                char c1 = *p1, c2 = *p2;
+                if ('A' <= c1 && 'Z' <= c1) c1 = c1 - 'A' + 'a';
+                if ('A' <= c2 && 'Z' <= c2) c2 = c2 - 'A' + 'a';
+                diff = (c1 - c2);
+                if ('0' <= c1 && c1 <= '9' && '0' <= c2 && c2 <= '9') {
+                    long n1 = strtol(p1, (char**)&p1, 10);
+                    long n2 = strtol(p2, (char**)&p2, 10);
+                    diff = (int)(p1 - f1->name) - (int)(p2 - f2->name);
+                    if (diff != 0)
+                        return diff*sign;
+                    if (n1 != n2)
+                        return (n1 > n2 ? 1 : -1)*sign;
+                } else if (diff) {
+                    return diff*sign;
+                } else {
+                    ++p1; ++p2;
+                }
+            }
+            return (*p1 - *p2)*sign;
+        }
         case SORT_PERM:
             return -((f1->info.st_mode & 0x3FF) - (f2->info.st_mode & 0x3FF))*sign;
         case SORT_SIZE:
@@ -575,6 +574,8 @@ int compare_files(void *v, const void *v1, const void *v2)
                 return f1->info.st_atimespec.tv_nsec > f2->info.st_atimespec.tv_nsec ? -sign : sign;
             else
                 return f1->info.st_atimespec.tv_sec > f2->info.st_atimespec.tv_sec ? -sign : sign;
+        case SORT_RANDOM:
+            return f1->shufflepos - f2->shufflepos;
     }
     return 0;
 }
@@ -666,7 +667,7 @@ void set_scroll(bb_t *bb, int newscroll)
     if (bb->cursor < 0) bb->cursor = 0;
 }
 
-entry_t *load_entry(const char *path)
+entry_t* load_entry(const char *path)
 {
     ssize_t linkpathlen = -1;
     char linkbuf[PATH_MAX];
@@ -771,6 +772,9 @@ void populate_files(bb_t *bb, const char *path)
     closedir(dir);
     free(selecthash);
     if (bb->nfiles == 0) err("No files found (not even '..')");
+    // TODO: this may have some weird aliasing issues, but eh, it's simple and effective
+    for (int i = 0; i < bb->nfiles; i++)
+        bb->files[i]->shufflepos = rand();
 
     sort_files(bb);
     if (samedir) {
@@ -794,29 +798,6 @@ void sort_files(bb_t *bb)
 {
     ino_t cursor_inode = bb->files[bb->cursor]->info.st_ino;
     qsort_r(&bb->files[1], (size_t)(bb->nfiles-1), sizeof(entry_t*), bb, compare_files);
-    if (bb->options['s'] == SORT_RANDOM) {
-        entry_t **files = &bb->files[1];
-        int ndirs = 0, nents = bb->nfiles - 1;
-        if (!bb->options['i']) {
-            for (int i = 0; i < nents; i++) {
-                if (S_ISDIR(bb->files[i]->info.st_mode)
-                    || (S_ISLNK(bb->files[i]->info.st_mode) && S_ISDIR(bb->files[i]->linkedmode)))
-                    ++ndirs;
-            }
-        }
-        for (int i = 0; i < ndirs - 1; i++) {
-            int j = i + rand() / (RAND_MAX / (ndirs - 1 - i));
-            entry_t *tmp = files[j];
-            files[j] = files[i];
-            files[i] = tmp;
-        }
-        for (int i = ndirs; i < nents - 1; i++) {
-            int j = i + rand() / (RAND_MAX / (nents - 1 - i));
-            entry_t *tmp = files[j];
-            files[j] = files[i];
-            files[i] = tmp;
-        }
-    }
     for (int i = 0; i < bb->nfiles; i++) {
         if (bb->files[i]->info.st_ino == cursor_inode) {
             set_cursor(bb, i);
