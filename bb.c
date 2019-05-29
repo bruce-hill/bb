@@ -399,7 +399,9 @@ void render(bb_t *bb, int lazy)
 
         fputs(IS_SELECTED(entry) ? SELECTED_INDICATOR : NOT_SELECTED_INDICATOR, tty_out);
 
-        const char *color = (i == bb->cursor) ? CURSOR_COLOR : color_of(entry->info.st_mode);
+        char color[128];
+        strcpy(color, color_of(entry->info.st_mode));
+        if (i == bb->cursor) strcat(color, CURSOR_COLOR);
         fputs(color, tty_out);
 
         int x = 1;
@@ -464,7 +466,8 @@ void render(bb_t *bb, int lazy)
                         if (i != bb->cursor)
                             fputs("\033[37m", tty_out);
                         fputs("\033[2m -> \033[22;3m", tty_out);
-                        color = i == bb->cursor ? CURSOR_COLOR : color_of(entry->linkedmode);
+                        strcpy(color, color_of(entry->linkedmode));
+                        if (i == bb->cursor) strcat(color, CURSOR_COLOR);
                         fputs(color, tty_out);
                         if (entry->link_no_esc) fputs(entry->linkname, tty_out);
                         else entry->link_no_esc |= !fputs_escaped(tty_out, entry->linkname, color);

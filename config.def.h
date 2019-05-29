@@ -73,12 +73,12 @@
 
 #define SORT_INDICATOR  "↓"
 #define RSORT_INDICATOR "↑"
-#define SELECTED_INDICATOR "\033[33;1m★\033[0m"
-#define NOT_SELECTED_INDICATOR "\033[1m \033[0m"
+#define SELECTED_INDICATOR "\033[33;7m \033[0m"
+#define NOT_SELECTED_INDICATOR " "
 
 #define TITLE_COLOR      "\033[32;1m"
 #define NORMAL_COLOR     "\033[37m"
-#define CURSOR_COLOR     "\033[1;30;43m"
+#define CURSOR_COLOR     "\033[43;30;1m"
 #define LINK_COLOR       "\033[35m"
 #define DIR_COLOR        "\033[34m"
 #define EXECUTABLE_COLOR "\033[31m"
