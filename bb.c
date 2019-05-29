@@ -111,15 +111,14 @@ static void render(bb_t *bb, int lazy);
 static int compare_files(void *r, const void *v1, const void *v2);
 static int find_file(bb_t *bb, const char *name);
 static void clear_selection(bb_t *bb);
-static int select_file(bb_t *bb, entry_t *e);
-static int deselect_file(bb_t *bb, entry_t *e);
+static void select_file(bb_t *bb, entry_t *e);
+static void deselect_file(bb_t *bb, entry_t *e);
 static void set_cursor(bb_t *bb, int i);
 static void set_scroll(bb_t *bb, int i);
 static entry_t* load_entry(const char *path);
 static void populate_files(bb_t *bb, const char *path);
-static void sort_files(bb_t *bb);
 static bb_result_t execute_cmd(bb_t *bb, const char *cmd);
-static void explore(bb_t *bb, const char *path);
+static void bb_browse(bb_t *bb, const char *path);
 static void print_bindings(int verbose);
 
 // Config options
@@ -137,6 +136,9 @@ static int colnamew;
 static struct timespec lastclick = {0, 0};
 
 
+/*
+ * Hanlder for SIGWINCH events
+ */
 void update_term_size(int sig)
 {
     (void)sig;
@@ -146,6 +148,10 @@ void update_term_size(int sig)
     termheight = sz.ws_row;
 }
 
+/*
+ * Initialize the terminal files for /dev/tty and set up some desired
+ * attributes like passing Ctrl-c as a key instead of interrupting
+ */
 void init_term(void)
 {
     tty_in = fopen("/dev/tty", "r");
@@ -169,6 +175,9 @@ void init_term(void)
     fputs(T_OFF(T_WRAP), tty_out);
 }
 
+/*
+ * Close the /dev/tty terminals and restore some of the attributes.
+ */
 void close_term(void)
 {
     if (tty_out) {
@@ -188,6 +197,9 @@ void close_term(void)
     signal(SIGWINCH, SIG_DFL);
 }
 
+/*
+ * Close safely in a way that doesn't gunk up the terminal.
+ */
 void cleanup_and_exit(int sig)
 {
     (void)sig;
@@ -196,12 +208,21 @@ void cleanup_and_exit(int sig)
     exit(EXIT_FAILURE);
 }
 
+/*
+ * Memory allocation failures are unrecoverable in bb, so this wrapper just
+ * prints an error message and exits if that happens.
+ */
 void* memcheck(void *p)
 {
     if (!p) err("Allocation failure");
     return p;
 }
 
+/*
+ * Run a command with the selected files passed as sequential arguments to the
+ * command (or pass the cursor file if none are selected).
+ * Return the exit status of the command.
+ */
 int run_cmd_on_selection(bb_t *bb, const char *cmd)
 {
     pid_t child;
@@ -247,6 +268,11 @@ int run_cmd_on_selection(bb_t *bb, const char *cmd)
     return status;
 }
 
+/*
+ * Print a string, but replacing bytes like '\n' with a red-colored "\n".
+ * The color argument is what color to put back after the red.
+ * Returns the number of bytes that were escaped.
+ */
 int fputs_escaped(FILE *f, const char *str, const char *color)
 {
     static const char *escapes = "       abtnvfr             e";
@@ -265,6 +291,9 @@ int fputs_escaped(FILE *f, const char *str, const char *color)
     return escaped;
 }
 
+/*
+ * Returns the color of a file listing, given its mode.
+ */
 const char* color_of(mode_t mode)
 {
     if (S_ISDIR(mode))
@@ -277,6 +306,11 @@ const char* color_of(mode_t mode)
         return NORMAL_COLOR;
 }
 
+/*
+ * Draw everything to the screen.
+ * If lazy is true, then use terminal scrolling to move the file listing
+ * around and only update the files that have changed.
+ */
 void render(bb_t *bb, int lazy)
 {
     static int lastcursor = -1, lastscroll = -1;
@@ -518,13 +552,18 @@ void render(bb_t *bb, int lazy)
     fflush(tty_out);
 }
 
+/*
+ * Used for sorting, this function compares files according to the sorting-related options,
+ * like bb->options['s'], bb->options['i'], and bb->options['r']
+ */
 int compare_files(void *v, const void *v1, const void *v2)
 {
     bb_t *bb = (bb_t*)v;
     char sort = bb->options['s'];
     int sign = bb->options['r'] ? -1 : 1;
     const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
-    int diff = 0;
+    int diff = (strcmp(f1->name, "..") == 0) - (strcmp(f2->name, "..") == 0);
+    if (diff) return -diff;
     if (!bb->options['i']) {
         // Unless interleave mode is on, sort dirs before files
         int d1 = S_ISDIR(f1->info.st_mode) || (S_ISLNK(f1->info.st_mode) && S_ISDIR(f1->linkedmode));
@@ -590,6 +629,9 @@ int find_file(bb_t *bb, const char *name)
     return -1;
 }
 
+/*
+ * Deselect all files
+ */
 void clear_selection(bb_t *bb)
 {
     for (entry_t *next, *e = bb->firstselected; e; e = next) {
@@ -600,32 +642,39 @@ void clear_selection(bb_t *bb)
     }
 }
 
-int select_file(bb_t *bb, entry_t *e)
+/*
+ * Select a file
+ */
+void select_file(bb_t *bb, entry_t *e)
 {
-    if (IS_SELECTED(e)) return 0;
-    if (strcmp(e->name, "..") == 0) return 0;
+    if (IS_SELECTED(e)) return;
+    if (strcmp(e->name, "..") == 0) return;
     if (bb->firstselected)
         bb->firstselected->atme = &e->next;
     e->next = bb->firstselected;
     e->atme = &bb->firstselected;
     ++e->refcount;
     bb->firstselected = e;
-    return 1;
 }
 
-int deselect_file(bb_t *bb, entry_t *e)
+/*
+ * Deselect a file, return 1 if this changed anything, 0 otherwise
+ */
+void deselect_file(bb_t *bb, entry_t *e)
 {
     (void)bb;
-    if (!IS_SELECTED(e)) return 0;
+    if (!IS_SELECTED(e)) return;
     if (e->next)
         e->next->atme = e->atme;
     *(e->atme) = e->next;
     --e->refcount;
     e->next = NULL;
     e->atme = NULL;
-    return 1;
 }
 
+/*
+ * Set bb's file cursor to the given index (and adjust the scroll as necessary)
+ */
 void set_cursor(bb_t *bb, int newcur)
 {
     if (newcur > bb->nfiles - 1) newcur = bb->nfiles - 1;
@@ -644,6 +693,9 @@ void set_cursor(bb_t *bb, int newcur)
     if (bb->scroll < 0) bb->scroll = 0;
 }
 
+/*
+ * Set bb's scroll to the given index (and adjust the cursor as necessary)
+ */
 void set_scroll(bb_t *bb, int newscroll)
 {
     newscroll = MIN(newscroll, bb->nfiles - (termheight-4) - 1);
@@ -667,6 +719,12 @@ void set_scroll(bb_t *bb, int newscroll)
     if (bb->cursor < 0) bb->cursor = 0;
 }
 
+/*
+ * Load a file's info into an entry_t and return it (if found).
+ * The returned entry must be free()ed by the caller.
+ * Warning: this does not deduplicate entries, and it's best if there aren't
+ * duplicate entries hanging around.
+ */
 entry_t* load_entry(const char *path)
 {
     ssize_t linkpathlen = -1;
@@ -693,6 +751,10 @@ entry_t* load_entry(const char *path)
     return entry;
 }
 
+/*
+ * Remove all the files currently stored in bb->files and if `path` is non-NULL,
+ * update `bb` with a listing of the files in `path`
+ */
 void populate_files(bb_t *bb, const char *path)
 {
     ino_t old_inode = 0;
@@ -776,7 +838,7 @@ void populate_files(bb_t *bb, const char *path)
     for (int i = 0; i < bb->nfiles; i++)
         bb->files[i]->shufflepos = rand();
 
-    sort_files(bb);
+    qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), bb, compare_files);
     if (samedir) {
         if (old_inode) {
             for (int i = 0; i < bb->nfiles; i++) {
@@ -794,18 +856,10 @@ void populate_files(bb_t *bb, const char *path)
     }
 }
 
-void sort_files(bb_t *bb)
-{
-    ino_t cursor_inode = bb->files[bb->cursor]->info.st_ino;
-    qsort_r(&bb->files[1], (size_t)(bb->nfiles-1), sizeof(entry_t*), bb, compare_files);
-    for (int i = 0; i < bb->nfiles; i++) {
-        if (bb->files[i]->info.st_ino == cursor_inode) {
-            set_cursor(bb, i);
-            break;
-        }
-    }
-}
-
+/*
+ * Run a bb internal command (e.g. "+refresh") and return an indicator of what
+ * needs to happen next.
+ */
 bb_result_t execute_cmd(bb_t *bb, const char *cmd)
 {
     char *value = strchr(cmd, ':');
@@ -996,7 +1050,10 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
     return BB_INVALID;
 }
 
-void explore(bb_t *bb, const char *path)
+/*
+ * Use bb to browse a path.
+ */
+void bb_browse(bb_t *bb, const char *path)
 {
     static long cmdpos = 0;
     int lastwidth = termwidth, lastheight = termheight;
@@ -1098,7 +1155,7 @@ void explore(bb_t *bb, const char *path)
                         bb->options['r'] = !bb->options['r'];
                     else
                         bb->options['s'] = bb->options['0' + col];
-                    sort_files(bb);
+                    qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), bb, compare_files);
                     goto refresh;
                 }
                 goto next_input;
@@ -1228,6 +1285,9 @@ void explore(bb_t *bb, const char *path)
     close_term();
 }
 
+/*
+ * Print the current key bindings
+ */
 void print_bindings(int verbose)
 {
     struct winsize sz = {0};
@@ -1388,7 +1448,7 @@ int main(int argc, char *argv[])
     bb_t *bb = memcheck(calloc(1, sizeof(bb_t)));
     bb->options['0'] = 'n';
     bb->options['s'] = 'n';
-    explore(bb, real);
+    bb_browse(bb, real);
     free(real);
 
     if (bb->firstselected && print_selection) {

@@ -120,9 +120,8 @@ static inline int nextchar(int fd, int timeout)
     return -1;
 }
 
-/**
+/*
  * Get one key of input from the given file. Returns -1 on failure.
- *
  * If mouse_x or mouse_y are non-null and a mouse event occurs, they will be
  * set to the position of the mouse (0-indexed).
  */
@@ -228,7 +227,7 @@ int bgetkey(FILE *in, int *mouse_x, int *mouse_y, int timeout)
     return -1;
 }
 
-/**
+/*
  * Return the name of a key, if one exists and is different from the key itself
  * (i.e. bkeyname('c') == NULL, bkeyname(' ') == "Space")
  */
