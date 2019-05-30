@@ -129,7 +129,7 @@ static entry_t* load_entry(const char *path);
 static void populate_files(bb_t *bb, const char *path);
 static bb_result_t execute_cmd(bb_t *bb, const char *cmd);
 static void bb_browse(bb_t *bb, const char *path);
-static void print_bindings(int verbose);
+static void print_bindings(void);
 
 // Config options
 extern binding_t bindings[];
@@ -1303,16 +1303,16 @@ void bb_browse(bb_t *bb, const char *path)
 /*
  * Print the current key bindings
  */
-void print_bindings(int verbose)
+void print_bindings(void)
 {
     struct winsize sz = {0};
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &sz);
-    int _width = sz.ws_col;
-    if (_width == 0) _width = 80;
+    int width = sz.ws_col;
+    if (width == 0) width = 80;
 
     char buf[1024];
     char *kb = "Key Bindings";
-    printf("\n\033[33;1;4m\033[%dG%s\033[0m\n\n", (_width-(int)strlen(kb))/2, kb);
+    printf("\n\033[33;1;4m\033[%dG%s\033[0m\n\n", (width-(int)strlen(kb))/2, kb);
     for (int i = 0; bindings[i].keys[0]; i++) {
         char *p = buf;
         for (int j = 0; bindings[i].keys[j]; j++) {
@@ -1327,13 +1327,8 @@ void print_bindings(int verbose)
                 p += sprintf(p, "\033[31m\\x%02X", key);
         }
         *p = '\0';
-        printf("\033[1m\033[%dG%s\033[0m", _width/2 - 1 - (int)strlen(buf), buf);
-        printf("\033[0m\033[%dG\033[34;1m%s\033[0m", _width/2 + 1, bindings[i].description);
-        if (verbose) {
-            printf("\n\033[%dG\033[0;32m", MAX(1, (_width - (int)strlen(bindings[i].command))/2));
-            fputs_escaped(stdout, bindings[i].command, "\033[0;32m");
-            fflush(stdout);
-        }
+        printf("\033[1m\033[%dG%s\033[0m", width/2 - 1 - (int)strlen(buf), buf);
+        printf("\033[0m\033[%dG\033[34;1m%s\033[0m", width/2 + 1, bindings[i].description);
         printf("\033[0m\n");
     }
     printf("\n");
@@ -1405,7 +1400,7 @@ int main(int argc, char *argv[])
         if (strcmp(argv[i], "--help") == 0) {
           usage:
             printf("bb - an itty bitty console TUI file browser\n");
-            printf("Usage: bb [-h/--help] [-s] [-b] [-0] [path]\n");
+            printf("Usage: bb [-h/--help] [-s] [-b] [-d] [-0] (+command)* [path]\n");
             return 0;
         }
         if (strcmp(argv[i], "--version") == 0) {
@@ -1428,9 +1423,7 @@ int main(int argc, char *argv[])
                               break;
                     case 's': print_selection = 1;
                               break;
-                    case 'b': print_bindings(0);
-                              return 0;
-                    case 'B': print_bindings(1);
+                    case 'b': print_bindings();
                               return 0;
                 }
             }

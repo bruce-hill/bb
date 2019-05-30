@@ -8,7 +8,8 @@ bb \- A bitty browser for command line file management
 [\fI-d\fR]
 [\fI-s\fR]
 [\fI-0\fR]
-[\fI-c commands... \fR]
+[\fI-b\rR]
+[\fI+command... \fR]
 [\fIdirectory\fR]
 .SH DESCRIPTION
 \fBbb\fR is a tiny TUI console application for browsing and managing files.
@@ -19,12 +20,18 @@ Print the current directory on exit.
 .B \-s
 Print the selected files on exit.
 
-.B \-s
+.B \-0
 If printing the selected files on exit, use NULL-terminated strings instead of
 newline-separated.
 
-.B \-c commands...
-From within \fBbb\fR, running \fBbb -c ...\fR will execute an internal bb
+.B \-d
+Print the current directory on exit.
+
+.B \-b
+Print the bb key bindings and exit.
+
+.B \+command
+From within \fBbb\fR, running \fBbb +command\fR will execute an internal bb
 command for modifying bb's state.
 
 .B directory
@@ -47,8 +54,8 @@ cleared by pressing \fBEscape\fR.
 
 .TP
 .B Mouse:
-Clicking on a file will select it. Double clicking will open it. Clicking on
-the far left character of a file's row will toggle selection of that file.
+Clicking on a file will move the cursor to it. Double clicking will open it.
+Clicking on the '*' column of a file will toggle that file's selection.
 
 .SH EXAMPLES
 .TP
@@ -58,14 +65,14 @@ Begin browsing in /usr/local/
 
 .TP
 .B
-bb -s -0 | xargs -0 zip archive.zip
-Select some files to add to a zip archive.
-
-.TP
-.B
 alias bb="cd '`/usr/local/bin/bb -d || pwd`'"
 Create an alias to launch \fBbb\fR and change directory to wherever it's located
 when you exit (unless you exit with Ctrl-c).
+
+.TP
+.B
+bb -s -0 | xargs -0 zip archive.zip
+Select some files to add to a zip archive.
 
 .SH AUTHOR
 Bruce Hill (bruce@bruce-hill.com)
