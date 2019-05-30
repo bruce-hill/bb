@@ -411,7 +411,7 @@ void render(bb_t *bb, int lazy)
 
         if (i == bb->scroll && bb->nfiles == 0) {
             const char *s = "...no files here...";
-            fprintf(tty_out, "\033[37;2m%s\033[0m\033[K", s);
+            fprintf(tty_out, "\033[37;2m%s\033[0m\033[K\033[J", s);
             break;
         }
 
@@ -421,12 +421,6 @@ void render(bb_t *bb, int lazy)
         }
 
         entry_t *entry = files[i];
-
-        fputs(IS_SELECTED(entry) ? SELECTED_INDICATOR : NOT_SELECTED_INDICATOR, tty_out);
-
-        char color[128];
-        strcpy(color, color_of(entry->info.st_mode));
-        if (i == bb->cursor) strcat(color, CURSOR_COLOR);
         if (i == bb->cursor) fputs(CURSOR_COLOR, tty_out);
 
         int x = 0;
@@ -435,8 +429,7 @@ void render(bb_t *bb, int lazy)
             if (col > 0) {
                 if (i == bb->cursor) fputs("│", tty_out);
                 else fputs("\033[37;2m│\033[22m", tty_out);
-                if (i == bb->cursor) fputs(CURSOR_COLOR, tty_out);
-                //fputs(color, tty_out);
+                fputs(i == bb->cursor ? CURSOR_COLOR : "\033[0m", tty_out);
                 x += 1;
             }
             int k = bb->options.aligns[col] == 'c' ? 1 : (bb->options.aligns[col] == 'r' ? 2 : 0);
@@ -498,6 +491,10 @@ void render(bb_t *bb, int lazy)
                     break;
 
                 case 'n': {
+                    char color[128];
+                    strcpy(color, color_of(entry->info.st_mode));
+                    if (i == bb->cursor) strcat(color, CURSOR_COLOR);
+
                     move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - (int)strlen(entry->name)))/2), y);
                     fputs(color, tty_out);
 
@@ -523,6 +520,7 @@ void render(bb_t *bb, int lazy)
                         fputs("\033[22;23m", tty_out);
                     }
                     fputs(i == bb->cursor ? CURSOR_COLOR : "\033[0m", tty_out);
+                    fputs("\033[K", tty_out);
                     break;
                 }
                 default: break;
