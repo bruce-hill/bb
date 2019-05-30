@@ -1234,36 +1234,6 @@ void bb_browse(bb_t *bb, const char *path)
             lazy = 0;
             goto redraw;
 
-        case KEY_CTRL_H: {
-            move_cursor(tty_out, 0,termheight-1);
-            fputs("\033[K\033[33;1mPress any key...\033[0m", tty_out);
-            while ((key = bgetkey(tty_in, &mouse_x, &mouse_y, 1000)) == -1)
-                ;
-            move_cursor(tty_out, 0,termheight-1);
-            fputs("\033[K\033[1m<\033[33m", tty_out);
-            const char *name = bkeyname(key);
-            if (name) fputs(name, tty_out);
-            else if (' ' <= key && key <= '~')
-                fputc((char)key, tty_out);
-            else
-                fprintf(tty_out, "\033[31m\\x%02X", key);
-
-            fputs("\033[0;1m> is bound to: \033[34;1m", tty_out);
-            for (int i = 0; bindings[i].keys[0] > 0; i++) {
-                for (int j = 0; bindings[i].keys[j]; j++) {
-                    if (key == bindings[i].keys[j]) {
-                        fputs(bindings[i].description, tty_out);
-                        fputs("\033[0m", tty_out);
-                        fflush(tty_out);
-                        goto next_input;
-                    }
-                }
-            }
-            fputs("--- nothing ---\033[0m", tty_out);
-            fflush(tty_out);
-            goto next_input;
-        }
-
         case -1:
             goto next_input;
 

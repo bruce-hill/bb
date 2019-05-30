@@ -113,7 +113,6 @@ binding_t bindings[] = {
     // won't work unless you make your script use `bash -c "<your script>"`
     //////////////////////////////////////////////////////////////////////////
     {{'?'},                  "bb -b | $PAGER -r", "Show the help menu", NORMAL_TERM},
-    {{KEY_CTRL_H},           "<placeholder>", "Figure out what key does"},
     {{'q', 'Q'},             "+quit", "Quit"},
     {{'k', KEY_ARROW_UP},    "+move:-1", "Move up"},
     {{'j', KEY_ARROW_DOWN},  "+move:+1", "Move down"},
