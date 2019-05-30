@@ -141,8 +141,8 @@ static FILE *tty_out = NULL, *tty_in = NULL;
 static int termwidth, termheight;
 static int mouse_x, mouse_y;
 static char *cmdfilename = NULL;
-static const int colsizew = 7, coldatew = 19, colpermw = 4, colnamew = 40,
-             colselw = 1, coldirw = 1, colrandw = 2;
+static const int colsizew = 7, coldatew = 19, colpermw = 5, colnamew = 40,
+             colselw = 2, coldirw = 1, colrandw = 2;
 static struct timespec lastclick = {0, 0};
 
 
@@ -411,12 +411,13 @@ void render(bb_t *bb, int lazy)
 
         if (i == bb->scroll && bb->nfiles == 0) {
             const char *s = "...no files here...";
-            fprintf(tty_out, "\033[37;2m%s\033[0m", s);
+            fprintf(tty_out, "\033[37;2m%s\033[0m\033[K", s);
+            break;
         }
 
         if (i >= bb->nfiles) {
-            fputs("\033[K", tty_out);
-            continue;
+            fputs("\033[J", tty_out);
+            break;
         }
 
         entry_t *entry = files[i];
@@ -426,7 +427,7 @@ void render(bb_t *bb, int lazy)
         char color[128];
         strcpy(color, color_of(entry->info.st_mode));
         if (i == bb->cursor) strcat(color, CURSOR_COLOR);
-        fputs(color, tty_out);
+        if (i == bb->cursor) fputs(CURSOR_COLOR, tty_out);
 
         int x = 0;
         for (int col = 0; bb->options.columns[col]; col++) {
@@ -434,7 +435,8 @@ void render(bb_t *bb, int lazy)
             if (col > 0) {
                 if (i == bb->cursor) fputs("│", tty_out);
                 else fputs("\033[37;2m│\033[22m", tty_out);
-                fputs(color, tty_out);
+                if (i == bb->cursor) fputs(CURSOR_COLOR, tty_out);
+                //fputs(color, tty_out);
                 x += 1;
             }
             int k = bb->options.aligns[col] == 'c' ? 1 : (bb->options.aligns[col] == 'r' ? 2 : 0);
@@ -442,7 +444,7 @@ void render(bb_t *bb, int lazy)
                 case '*':
                     move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - colselw))/2), y);
                     fputs(IS_SELECTED(entry) ? SELECTED_INDICATOR : NOT_SELECTED_INDICATOR, tty_out);
-                    fputs(color, tty_out);
+                    fputs(i == bb->cursor ? CURSOR_COLOR : "\033[0m", tty_out);
                     break;
 
                 case '/':
@@ -455,7 +457,8 @@ void render(bb_t *bb, int lazy)
 
                 case 'r':
                     move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - colrandw))/2), y);
-                    fprintf(tty_out, "\033[48;5;%dm  \033[0m%s", 232 + (entry->shufflepos / (RAND_MAX / (255-232))), color);
+                    fprintf(tty_out, "\033[48;5;%dm  \033[0m%s", 232 + (entry->shufflepos / (RAND_MAX / (255-232))),
+                            i == bb->cursor ? CURSOR_COLOR : "\033[0m");
                     break;
 
                 case 's': {
@@ -496,6 +499,7 @@ void render(bb_t *bb, int lazy)
 
                 case 'n': {
                     move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - (int)strlen(entry->name)))/2), y);
+                    fputs(color, tty_out);
 
                     if (entry->no_esc) fputs(entry->name, tty_out);
                     else entry->no_esc |= !fputs_escaped(tty_out, entry->name, color);
@@ -518,6 +522,7 @@ void render(bb_t *bb, int lazy)
 
                         fputs("\033[22;23m", tty_out);
                     }
+                    fputs(i == bb->cursor ? CURSOR_COLOR : "\033[0m", tty_out);
                     break;
                 }
                 default: break;
@@ -1251,11 +1256,13 @@ void bb_browse(bb_t *bb, const char *path)
                     if (key == bindings[i].keys[j]) {
                         fputs(bindings[i].description, tty_out);
                         fputs("\033[0m", tty_out);
+                        fflush(tty_out);
                         goto next_input;
                     }
                 }
             }
             fputs("--- nothing ---\033[0m", tty_out);
+            fflush(tty_out);
             goto next_input;
         }
 

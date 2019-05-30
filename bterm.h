@@ -272,7 +272,7 @@ const char *bkeyname(int key)
         case KEY_CTRL_E: return "Ctrl-e";
         case KEY_CTRL_F: return "Ctrl-f";
         case KEY_CTRL_G: return "Ctrl-g";
-        case KEY_BACKSPACE: return "Backspace";
+        case KEY_CTRL_H: return "Ctrl-h";
         case KEY_TAB: return "Tab";
         case KEY_CTRL_J: return "Ctrl-j";
         case KEY_CTRL_K: return "Ctrl-k";

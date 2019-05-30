@@ -64,7 +64,7 @@
 
 #define SORT_INDICATOR  "↓"
 #define RSORT_INDICATOR "↑"
-#define SELECTED_INDICATOR "\033[31;7m  \033[0m"
+#define SELECTED_INDICATOR " \033[31;7m \033[0m"
 #define NOT_SELECTED_INDICATOR "  "
 
 #define TITLE_COLOR      "\033[32;1m"
