@@ -29,7 +29,7 @@
         jump:<key>                Jump to the mark associated with <key>
         mark:<key>[=<path>]       Associate <key> with <path> (or current dir, if blank)
         move:<num*>               Move the cursor a numeric amount
-        option:(<o>[=<v>|%n])+    Set options (see below)
+        option:(<k>=<v>)+         Set space-separated options (see below)
         quit                      Quit bb
         refresh                   Refresh the file listing
         scroll:<num*>             Scroll the view a numeric amount
@@ -38,8 +38,7 @@
         toggle:<filename>         Toggle the selection status of <filename>
 
     Currently supported options:
-        's': sort, one of (n)ame (s)ize (c)reation (m)odification (a)ccess (p)ermission (r)andom
-        'r': reverse-sort (boolean)
+        'sort': a list of things to sort by.
         '.': dotfiles visibility (bit 1: "..", bit 2: ".", bit 3: .whatever)
         'i': interleave files and directories (boolean), when false, directories are always at the top
         '0'-'9': what to put in each of the (maximum of 10) columns (one of: [nscmap])
@@ -109,7 +108,7 @@ const char *startupcmds[] = {
     "+mark:0", "+mark:~=~", "+mark:h=~", "+mark:/=/", "+mark:c=~/.config",
     "+mark:l=~/.local",
     // Default column and sorting options:
-    "+opt:0=+,1=s,2=m,3=p,4=n,s=n,E=1,.=1",
+    "+opt:sort=+/+n col=*smpn aligns=ccccl",
     NULL, // NULL-terminated array
 };
 
