@@ -21,33 +21,24 @@
     In order to modify bb's internal state, you can call `bb +cmd`, where "cmd"
     is one of the following commands (or a unique prefix of one):
 
+        .:(0|1|~)                 Whether to show "." in each directory
+        ..:(0|1|~)                Whether to show ".." in each directory
+        align:<col-aligns>        Direction of column text alignment ('r' for right, 'c' for center, and 'l' for left)
         cd:<path>                 Navigate to <path>
         columns:<columns>         Change which columns are visible, and in what order
         deselect:<filename>       Deselect <filename>
-        dots[:yes|:no]            Toggle whether dotfiles are visible
+        dotfiles:(0|1|~)          Whether dotfiles are visible
         goto:<filename>           Move the cursor to <filename> (changing directory if needed)
         jump:<key>                Jump to the mark associated with <key>
         mark:<key>[=<path>]       Associate <key> with <path> (or current dir, if blank)
         move:<num*>               Move the cursor a numeric amount
-        option:(<k>=<v>)+         Set space-separated options (see below)
         quit                      Quit bb
         refresh                   Refresh the file listing
         scroll:<num*>             Scroll the view a numeric amount
         select:<filename>         Select <filename>
+        sort:([+-]method)+        List of sortings (if equal on one, move to the next)
         spread:<num*>             Spread the selection state at the cursor
         toggle:<filename>         Toggle the selection status of <filename>
-
-    Currently supported options:
-        'sort': a list of things to sort by.
-        '.': dotfiles visibility (bit 1: "..", bit 2: ".", bit 3: .whatever)
-        'i': interleave files and directories (boolean), when false, directories are always at the top
-        '0'-'9': what to put in each of the (maximum of 10) columns (one of: [nscmap])
-        'A'-'J': how wide to make each column (A -> column 0, etc.). 0 means
-            minimum width, 1+ means divide the free space proportionally among all
-            nonzero columns
-    The postfix operator '=' assigns an option to the following character
-    value, and '%'(+/-)n increments or decrements the value and takes the value
-    modulo n, and no postfix operator restores the initial value.
 
     Internally, bb will write the commands (NUL terminated) to $BBCMD, if
     $BBCMD is set, and read the file when file browsing resumes. These commands
@@ -108,7 +99,7 @@ const char *startupcmds[] = {
     "+mark:0", "+mark:~=~", "+mark:h=~", "+mark:/=/", "+mark:c=~/.config",
     "+mark:l=~/.local",
     // Default column and sorting options:
-    "+opt:sort=+/+n col=*smpn aligns=ccccl",
+    "+sort:+/+n", "+col:*smpn", "+..",
     NULL, // NULL-terminated array
 };
 
@@ -190,15 +181,13 @@ done)/*ENDQUOTE*/, "Regex rename files", AT_CURSOR},
                              "Regex select files"},
     {{'J'},                  "+spread:+1", "Spread selection down"},
     {{'K'},                  "+spread:-1", "Spread selection up"},
-    {{'o'},                  "bb \"+opts:`bb '?Options: '`\"", "Set bb options"},
+    {{'b'},                  "bb \"+`bb '?bb +'`\"", "Run a bb command"},
     {{'s'}, "read -n1 -p 'Sort \033[1m(a)\033[22mlphabetic "
             "\033[1m(s)\033[22mize \033[1m(m)\033[22modification \033[1m(c)\033[22mcreation "
             "\033[1m(a)\033[22maccess \033[1m(r)\033[22mandom \033[1m(p)\033[22mermissions:\033[0m ' sort "
-            "&& bb \"+opt:s=$sort\"", "Sort by..."},
-    {{'#'},                  "cols=`bb '?Set columns: '` && bb '+opt:ABCDEFGHIJ=0' && "
-                             "bb \"+opt:`echo \"$cols          \" | fold -w1 | sed 10q | nl -v0 -s= -w1 | paste -sd '\\0' -`\"",
-                             "Set columns"},
-    {{'.'},                  "bb '+opt:.%8' +refresh", "Toggle dotfiles"},
+            "&& bb \"+sort:+$sort\"", "Sort by..."},
+    {{'#'},                  "bb \"+col:`bb '?Set columns: '`\"", "Set columns"},
+    {{'.'},                  "bb +dotfiles", "Toggle dotfiles"},
     {{'g', KEY_HOME},        "+move:0", "Go to first file"},
     {{'G', KEY_END},         "+move:100%n", "Go to last file"},
     {{KEY_ESC},              "+deselect:*", "Clear selection"},

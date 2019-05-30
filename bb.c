@@ -100,7 +100,7 @@ typedef struct bb_s {
     char path[PATH_MAX];
     int nfiles;
     int scroll, cursor;
-    options_t options, initialopts;
+    options_t options;
     char *marks[128]; // Mapping from key to directory
 } bb_t;
 
@@ -377,7 +377,7 @@ void render(bb_t *bb, int lazy)
                 fputs("│\033[K", tty_out);
                 x += 1;
             }
-            int k = bb->options.aligns[col] == 'l' ? 0 : (bb->options.aligns[col] == 'r' ? 2 : 1);
+            int k = bb->options.aligns[col] == 'c' ? 1 : (bb->options.aligns[col] == 'r' ? 2 : 0);
             const char *indicator = " ";
             char *found;
             if ((found = strchr(bb->options.sort, bb->options.columns[col])))
@@ -437,7 +437,7 @@ void render(bb_t *bb, int lazy)
                 fputs(color, tty_out);
                 x += 1;
             }
-            int k = bb->options.aligns[col] == 'l' ? 0 : (bb->options.aligns[col] == 'r' ? 2 : 1);
+            int k = bb->options.aligns[col] == 'c' ? 1 : (bb->options.aligns[col] == 'r' ? 2 : 0);
             switch (bb->options.columns[col]) {
                 case '*':
                     move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - colselw))/2), y);
@@ -875,104 +875,61 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
 {
     char *value = strchr(cmd, ':');
     if (value) ++value;
+#define set_bool(target) do { if (!value || value[0] == '~') { target = !target; } else { target = value[0] == '1'; } } while (0)
     switch (cmd[0]) {
-        case 'r': { // +refresh
+        case '.': { // +..:, +.:
+            if (cmd[1] == '.') // +..:
+                set_bool(bb->options.show_dotdot);
+            else // +.:
+                set_bool(bb->options.show_dot);
             populate_files(bb, bb->path);
             return BB_REFRESH;
         }
-        case 'q': // +quit
-            return BB_QUIT;
-        case 's': // +select:, +scroll:, +spread:
-            switch (cmd[1]) {
-                case 'c': { // scroll:
-                    if (!value) return BB_INVALID;
-                    // TODO: figure out the best version of this
-                    int isdelta = value[0] == '+' || value[0] == '-';
-                    int n = (int)strtol(value, &value, 10);
-                    if (*value == '%')
-                        n = (n * (value[1] == 'n' ? bb->nfiles : termheight)) / 100;
-                    if (isdelta)
-                        set_scroll(bb, bb->scroll + n);
-                    else
-                        set_scroll(bb, n);
-                    return BB_NOP;
-                }
-
-                case 'p': // +spread:
-                    goto move;
-
-                case '\0': case 'e': // +select:
-                    if (!value) value = bb->files[bb->cursor]->name;
-                    if (strcmp(value, "*") == 0) {
-                        for (int i = 0; i < bb->nfiles; i++)
-                            select_file(bb, bb->files[i]);
-                    } else {
-                        int f = find_file(bb, value);
-                        if (f >= 0) select_file(bb, bb->files[f]);
-                        // TODO: support selecting files in other directories
-                    }
-                    return BB_REFRESH;
-            }
-        case 'c': { // +cd:
-            char pbuf[PATH_MAX];
-          cd:
+        case 'a': { // +align:
             if (!value) return BB_INVALID;
-            if (value[0] == '~') {
-                char *home;
-                if (!(home = getenv("HOME")))
-                    return BB_INVALID;
-                strcpy(pbuf, home);
-                strcat(pbuf, value+1);
-                value = pbuf;
-            }
-            char *rpbuf = realpath(value, NULL);
-            if (!rpbuf) return BB_INVALID;
-            if (strcmp(rpbuf, bb->path) == 0) {
-                free(rpbuf);
-                return BB_NOP;
-            }
-            if (chdir(rpbuf)) {
-                free(rpbuf);
-                return BB_INVALID;
-            }
-            char *oldpath = memcheck(strdup(bb->path));
-            populate_files(bb, rpbuf);
-            free(rpbuf);
-            if (strcmp(value, "..") == 0) {
-                int f = find_file(bb, oldpath);
-                if (f >= 0) set_cursor(bb, f);
-            }
-            free(oldpath);
+            strncpy(bb->options.aligns, value, MAX_COLS);
             return BB_REFRESH;
         }
-        case 't': { // +toggle:
-            if (!value) value = bb->files[bb->cursor]->name;
-            int f = find_file(bb, value);
-            if (f < 0) return BB_INVALID;
-            toggle_file(bb, bb->files[f]);
-            return f == bb->cursor ? BB_NOP : BB_REFRESH;
-        }
-        case 'o': { // +options:
-            if (!value) return BB_INVALID;
-            char *cmdscratch = memcheck(strdup(value));
-            char *v, *nextv = cmdscratch;
-            while ((v = strsep(&nextv, " ")) != NULL) {
-                if (!*v) continue;
-                char *k;
-                if ((k = strsep(&v, "=")) == NULL)
-                    v = "1";
-#define matches(s) (strncmp(k, (s), strlen(k)) == 0)
-                if (matches("..")) {
-                    bb->options.show_dotdot = v[0] == '1';
-                } else if (matches(".*")) {
-                    bb->options.show_dotfiles = v[0] == '1';
-                } else if (matches(".")) {
-                    bb->options.show_dot = v[0] == '1';
-                } else if (matches("columns") || matches("cols")) {
-                    strncpy(bb->options.columns, v, MAX_COLS);
-                    for (int i = 0; i < v[i] && i < MAX_COLS; i++) {
+        case 'c': { // +cd:, +columns:
+            switch (cmd[1]) {
+                case 'd': { // +cd:
+                    char pbuf[PATH_MAX];
+                  cd:
+                    if (!value) return BB_INVALID;
+                    if (value[0] == '~') {
+                        char *home;
+                        if (!(home = getenv("HOME")))
+                            return BB_INVALID;
+                        strcpy(pbuf, home);
+                        strcat(pbuf, value+1);
+                        value = pbuf;
+                    }
+                    char *rpbuf = realpath(value, NULL);
+                    if (!rpbuf) return BB_INVALID;
+                    if (strcmp(rpbuf, bb->path) == 0) {
+                        free(rpbuf);
+                        return BB_NOP;
+                    }
+                    if (chdir(rpbuf)) {
+                        free(rpbuf);
+                        return BB_INVALID;
+                    }
+                    char *oldpath = memcheck(strdup(bb->path));
+                    populate_files(bb, rpbuf);
+                    free(rpbuf);
+                    if (strcmp(value, "..") == 0) {
+                        int f = find_file(bb, oldpath);
+                        if (f >= 0) set_cursor(bb, f);
+                    }
+                    free(oldpath);
+                    return BB_REFRESH;
+                }
+                case 'o': { // +columns:
+                    if (!value) return BB_INVALID;
+                    strncpy(bb->options.columns, value, MAX_COLS);
+                    for (int i = 0; i < value[i] && i < MAX_COLS; i++) {
                         int *colw = &bb->options.colwidths[i];
-                        switch (v[i]) {
+                        switch (value[i]) {
                             case 'c': case 'm': case 'a': *colw = coldatew; break;
                             case 's': *colw = colsizew; break;
                             case 'p': *colw = colpermw; break;
@@ -982,30 +939,32 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                             case '/': *colw = coldirw; break;
                         }
                     }
-                } else if (matches("sort")) {
-                    set_sort(bb, v);
-                } else if (matches("aligns")) {
-                    strncpy(bb->options.aligns, v, MAX_COLS);
-                } else {
+                    return BB_REFRESH;
                 }
-#undef matches
             }
-            free(cmdscratch);
-            populate_files(bb, bb->path);
-            return BB_REFRESH;
+            return BB_INVALID;
         }
-        case 'd': // +deselect:
-            if (!value) value = bb->files[bb->cursor]->name;
-            if (strcmp(value, "*") == 0) {
-                clear_selection(bb);
-                return BB_REFRESH;
-            } else {
-                int f = find_file(bb, value);
-                if (f < 0) return BB_INVALID;
-                select_file(bb, bb->files[f]);
-                return f == bb->cursor ? BB_NOP : BB_REFRESH;
+        case 'd': { // +deselect:, +dotfiles:
+            switch (cmd[1]) {
+                case 'e': { // +deselect:
+                    if (!value) value = bb->files[bb->cursor]->name;
+                    if (strcmp(value, "*") == 0) {
+                        clear_selection(bb);
+                        return BB_REFRESH;
+                    } else {
+                        int f = find_file(bb, value);
+                        if (f < 0) return BB_INVALID;
+                        select_file(bb, bb->files[f]);
+                        return f == bb->cursor ? BB_NOP : BB_REFRESH;
+                    }
+                }
+                case 'o': { // +dotfiles:
+                    set_bool(bb->options.show_dotfiles);
+                    populate_files(bb, bb->path);
+                    return BB_REFRESH;
+                }
             }
-
+        }
         case 'g': { // +goto:
             if (!value) return BB_INVALID;
             int f = find_file(bb, value);
@@ -1026,6 +985,15 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                 if (f >= 0) set_cursor(bb, f);
             }
             return BB_REFRESH;
+        }
+        case 'j': { // +jump:
+            if (!value) return BB_INVALID;
+            char key = value[0];
+            if (bb->marks[(int)key]) {
+                value = bb->marks[(int)key];
+                goto cd;
+            }
+            return BB_INVALID;
         }
         case 'm': { // +move:, +mark:
             switch (cmd[1]) {
@@ -1065,14 +1033,55 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                 }
             }
         }
-        case 'j': { // +jump:
-            if (!value) return BB_INVALID;
-            char key = value[0];
-            if (bb->marks[(int)key]) {
-                value = bb->marks[(int)key];
-                goto cd;
+        case 'q': // +quit
+            return BB_QUIT;
+        case 'r': { // +refresh
+            populate_files(bb, bb->path);
+            return BB_REFRESH;
+        }
+        case 's': // +scroll:, +select:, +sort:, +spread:
+            switch (cmd[1]) {
+                case 'c': { // scroll:
+                    if (!value) return BB_INVALID;
+                    // TODO: figure out the best version of this
+                    int isdelta = value[0] == '+' || value[0] == '-';
+                    int n = (int)strtol(value, &value, 10);
+                    if (*value == '%')
+                        n = (n * (value[1] == 'n' ? bb->nfiles : termheight)) / 100;
+                    if (isdelta)
+                        set_scroll(bb, bb->scroll + n);
+                    else
+                        set_scroll(bb, n);
+                    return BB_NOP;
+                }
+
+                case '\0': case 'e': // +select:
+                    if (!value) value = bb->files[bb->cursor]->name;
+                    if (strcmp(value, "*") == 0) {
+                        for (int i = 0; i < bb->nfiles; i++)
+                            select_file(bb, bb->files[i]);
+                    } else {
+                        int f = find_file(bb, value);
+                        if (f >= 0) select_file(bb, bb->files[f]);
+                        // TODO: support selecting files in other directories
+                    }
+                    return BB_REFRESH;
+
+                case 'o': // +sort:
+                    if (!value) return BB_INVALID;
+                    set_sort(bb, value);
+                    qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), bb, compare_files);
+                    return BB_REFRESH;
+
+                case 'p': // +spread:
+                    goto move;
             }
-            return BB_INVALID;
+        case 't': { // +toggle:
+            if (!value) value = bb->files[bb->cursor]->name;
+            int f = find_file(bb, value);
+            if (f < 0) return BB_INVALID;
+            toggle_file(bb, bb->files[f]);
+            return f == bb->cursor ? BB_NOP : BB_REFRESH;
         }
         default: err("UNKNOWN COMMAND: '%s'", cmd); break;
     }
@@ -1105,7 +1114,6 @@ void bb_browse(bb_t *bb, const char *path)
             check_cmds = 1;
         }
     }
-    memcpy(&bb->initialopts, &bb->options, sizeof(bb->initialopts));
 
     init_term();
     fputs(T_ON(T_ALT_SCREEN), tty_out);
