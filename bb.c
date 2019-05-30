@@ -30,38 +30,34 @@
 #define PATH_MAX 4096
 #endif
 
+#define MAX_COLS 12
+#define MAX_SORT (2*MAX_COLS)
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
 #define IS_SELECTED(p) (((p)->atme) != NULL)
 #define LOWERCASE(c) ('A' <= (c) && (c) <= 'Z' ? ((c) + 'a' - 'A') : (c))
 
-static const char *T_ENTER_BBMODE =  T_OFF(T_SHOW_CURSOR) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
-static const char *T_LEAVE_BBMODE =  T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN);
-static const char *T_LEAVE_BBMODE_PARTIAL = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
-
 #define err(...) do { \
-    close_term(); \
-    fputs(T_OFF(T_ALT_SCREEN), stdout); \
-    fflush(stdout); \
+    cleanup(); \
     fprintf(stderr, __VA_ARGS__); \
     if (errno) fprintf(stderr, "\n%s", strerror(errno)); \
     fprintf(stderr, "\n"); \
-    cleanup_and_exit(1); \
+    exit(EXIT_FAILURE); \
 } while (0)
 
 // Types
 typedef enum {
-    SORT_NONE = 0,
-    SORT_DIR = '/',
-    SORT_NAME = 'n',
-    SORT_SIZE = 's',
-    SORT_PERM = 'p',
-    SORT_MTIME = 'm',
-    SORT_CTIME = 'c',
-    SORT_ATIME = 'a',
-    SORT_RANDOM = 'r',
-    SORT_SELECTED = '*',
-} sortmethod_t;
+    COL_NONE = 0,
+    COL_DIR = '/',
+    COL_NAME = 'n',
+    COL_SIZE = 's',
+    COL_PERM = 'p',
+    COL_MTIME = 'm',
+    COL_CTIME = 'c',
+    COL_ATIME = 'a',
+    COL_RANDOM = 'r',
+    COL_SELECTED = '*',
+} column_t;
 
 /* entry_t uses intrusive linked lists.  This means entries can only belong to
  * one list at a time, in this case the list of selected entries. 'atme' is an
@@ -80,9 +76,6 @@ typedef struct entry_s {
     int shufflepos;
     char fullname[1]; // Must be last
 } entry_t;
-
-#define MAX_COLS 12
-#define MAX_SORT (2*MAX_COLS)
 
 typedef struct {
     char sort[MAX_SORT+1];
@@ -111,6 +104,7 @@ static void update_term_size(int sig);
 static void init_term(void);
 static void close_term(void);
 static void cleanup_and_exit(int sig);
+static void cleanup(void);
 static void* memcheck(void *p);
 static int run_cmd_on_selection(bb_t *bb, const char *cmd);
 static int fputs_escaped(FILE *f, const char *str, const char *color);
@@ -134,6 +128,11 @@ static void print_bindings(void);
 // Config options
 extern binding_t bindings[];
 extern const char *startupcmds[];
+
+// Constants
+static const char *T_ENTER_BBMODE =  T_OFF(T_SHOW_CURSOR) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
+static const char *T_LEAVE_BBMODE =  T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN);
+static const char *T_LEAVE_BBMODE_PARTIAL = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
 
 // Global variables
 static struct termios orig_termios, bb_termios;
@@ -212,10 +211,27 @@ void close_term(void)
  */
 void cleanup_and_exit(int sig)
 {
-    (void)sig;
+    static volatile sig_atomic_t error_in_progress = 0;
+    if (error_in_progress)
+        raise(sig);
+    error_in_progress = 1;
+    cleanup();
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+/*
+ * Close the terminal, reset the screen, and delete the cmdfile
+ */
+void cleanup(void)
+{
+    if (cmdfilename) {
+        unlink(cmdfilename);
+        cmdfilename = NULL;
+    }
     close_term();
-    unlink(cmdfilename);
-    exit(EXIT_FAILURE);
+    fputs(T_OFF(T_ALT_SCREEN), stdout);
+    fflush(stdout);
 }
 
 /*
@@ -361,15 +377,15 @@ void render(bb_t *bb, int lazy)
         for (int col = 0; bb->options.columns[col]; col++) {
             const char *title = NULL;
             switch (bb->options.columns[col]) {
-                case '*': title = "*"; break;
-                case '/': title = "/"; break;
-                case 'r': title = "Random"; break;
-                case 'n': title = "Name"; break;
-                case 's': title = "Size"; break;
-                case 'p': title = "Permissions"; break;
-                case 'm': title = "Modified"; break;
-                case 'a': title = "Accessed"; break;
-                case 'c': title = "Created"; break;
+                case COL_SELECTED: title = "*"; break;
+                case COL_DIR: title = "/"; break;
+                case COL_RANDOM: title = "Random"; break;
+                case COL_NAME: title = "Name"; break;
+                case COL_SIZE: title = "Size"; break;
+                case COL_PERM: title = "Permissions"; break;
+                case COL_MTIME: title = "Modified"; break;
+                case COL_ATIME: title = "Accessed"; break;
+                case COL_CTIME: title = "Created"; break;
                 default: title = ""; break;
             }
             move_cursor(tty_out, x, 1);
@@ -434,13 +450,13 @@ void render(bb_t *bb, int lazy)
             }
             int k = bb->options.aligns[col] == 'c' ? 1 : (bb->options.aligns[col] == 'r' ? 2 : 0);
             switch (bb->options.columns[col]) {
-                case '*':
+                case COL_SELECTED:
                     move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - colselw))/2), y);
                     fputs(IS_SELECTED(entry) ? SELECTED_INDICATOR : NOT_SELECTED_INDICATOR, tty_out);
                     fputs(i == bb->cursor ? CURSOR_COLOR : "\033[0m", tty_out);
                     break;
 
-                case '/':
+                case COL_DIR:
                     move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - coldirw))/2), y);
                     if (S_ISDIR(S_ISLNK(entry->info.st_mode) ? entry->linkedmode : entry->info.st_mode))
                         fputs("/", tty_out);
@@ -448,13 +464,13 @@ void render(bb_t *bb, int lazy)
                         fputs(" ", tty_out);
                     break;
 
-                case 'r':
+                case COL_RANDOM:
                     move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - colrandw))/2), y);
                     fprintf(tty_out, "\033[48;5;%dm  \033[0m%s", 232 + (entry->shufflepos / (RAND_MAX / (255-232))),
                             i == bb->cursor ? CURSOR_COLOR : "\033[0m");
                     break;
 
-                case 's': {
+                case COL_SIZE: {
                     int j = 0;
                     const char* units = "BKMGTPEZY";
                     double bytes = (double)entry->info.st_size;
@@ -467,30 +483,30 @@ void render(bb_t *bb, int lazy)
                     break;
                 }
 
-                case 'm':
+                case COL_MTIME:
                     move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - coldatew))/2), y);
                     strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_mtime)));
                     fputs(buf, tty_out);
                     break;
 
-                case 'c':
+                case COL_CTIME:
                     move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - coldatew))/2), y);
                     strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_ctime)));
                     fputs(buf, tty_out);
                     break;
 
-                case 'a':
+                case COL_ATIME:
                     move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - coldatew))/2), y);
                     strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_atime)));
                     fputs(buf, tty_out);
                     break;
 
-                case 'p':
+                case COL_PERM:
                     move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - colpermw))/2), y);
                     fprintf(tty_out, " %03o", entry->info.st_mode & 0777);
                     break;
 
-                case 'n': {
+                case COL_NAME: {
                     char color[128];
                     strcpy(color, color_of(entry->info.st_mode));
                     if (i == bb->cursor) strcat(color, CURSOR_COLOR);
@@ -558,16 +574,16 @@ int compare_files(void *v, const void *v1, const void *v2)
             continue;
         }
         switch (*sort) {
-            case SORT_DIR: {
+            case COL_DIR: {
                 int d1 = S_ISDIR(f1->info.st_mode) || (S_ISLNK(f1->info.st_mode) && S_ISDIR(f1->linkedmode));
                 int d2 = S_ISDIR(f2->info.st_mode) || (S_ISLNK(f2->info.st_mode) && S_ISDIR(f2->linkedmode));
                 diff = compare(d1, d2);
                 break;
             }
-            case SORT_SELECTED:
+            case COL_SELECTED:
                 diff = compare(IS_SELECTED(f1), IS_SELECTED(f2));
                 break;
-            case SORT_NAME: {
+            case COL_NAME: {
                 /* This sorting method is not identical to strverscmp(). Notably, bb's sort
                  * will order: [0, 1, 9, 00, 01, 09, 10, 000, 010] instead of strverscmp()'s
                  * order: [000, 00, 01, 010, 09, 0, 1, 9, 10]. I believe bb's sort is consistent
@@ -601,22 +617,22 @@ int compare_files(void *v, const void *v1, const void *v2)
                 diff = -compare(LOWERCASE(*n1), LOWERCASE(*n2));
                 break;
             }
-            case SORT_PERM:
+            case COL_PERM:
                 diff = compare((f1->info.st_mode & 0x3FF), (f2->info.st_mode & 0x3FF));
                 break;
-            case SORT_SIZE:
+            case COL_SIZE:
                 diff = compare(f1->info.st_size, f2->info.st_size);
                 break;
-            case SORT_MTIME:
+            case COL_MTIME:
                 diff = compare_time(f1->info.st_mtimespec, f2->info.st_mtimespec);
                 break;
-            case SORT_CTIME:
+            case COL_CTIME:
                 diff = compare_time(f1->info.st_ctimespec, f2->info.st_ctimespec);
                 break;
-            case SORT_ATIME:
+            case COL_ATIME:
                 diff = compare_time(f1->info.st_atimespec, f2->info.st_atimespec);
                 break;
-            case SORT_RANDOM:
+            case COL_RANDOM:
                 diff = f1->shufflepos - f2->shufflepos;
                 break;
         }
@@ -878,7 +894,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
 {
     char *value = strchr(cmd, ':');
     if (value) ++value;
-#define set_bool(target) do { if (!value || value[0] == '~') { target = !target; } else { target = value[0] == '1'; } } while (0)
+#define set_bool(target) do { if (!value) { target = !target; } else { target = value[0] == '1'; } } while (0)
     switch (cmd[0]) {
         case '.': { // +..:, +.:
             if (cmd[1] == '.') // +..:
@@ -933,13 +949,14 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                     for (int i = 0; i < value[i] && i < MAX_COLS; i++) {
                         int *colw = &bb->options.colwidths[i];
                         switch (value[i]) {
-                            case 'c': case 'm': case 'a': *colw = coldatew; break;
-                            case 's': *colw = colsizew; break;
-                            case 'p': *colw = colpermw; break;
-                            case 'n': *colw = colnamew; break;
-                            case '*': *colw = colselw; break;
-                            case 'r': *colw = colrandw; break;
-                            case '/': *colw = coldirw; break;
+                            case COL_CTIME: case COL_MTIME: case COL_ATIME:
+                                *colw = coldatew; break;
+                            case COL_SIZE: *colw = colsizew; break;
+                            case COL_PERM: *colw = colpermw; break;
+                            case COL_NAME: *colw = colnamew; break;
+                            case COL_SELECTED: *colw = colselw; break;
+                            case COL_RANDOM: *colw = colrandw; break;
+                            case COL_DIR: *colw = coldirw; break;
                         }
                     }
                     return BB_REFRESH;
@@ -1206,7 +1223,7 @@ void bb_browse(bb_t *bb, const char *path)
             } else if (2 <= mouse_y && mouse_y <= termheight - 2) {
                 int clicked = bb->scroll + (mouse_y - 2);
                 if (clicked > bb->nfiles - 1) goto next_input;
-                if (column[1] == SORT_SELECTED) {
+                if (column[1] == COL_SELECTED) {
                     toggle_file(bb, bb->files[clicked]);
                     lazy = 0;
                     goto redraw;
@@ -1223,7 +1240,6 @@ void bb_browse(bb_t *bb, const char *path)
 
         case KEY_CTRL_C:
             cleanup_and_exit(SIGINT);
-            goto quit; // Unreachable
 
         case KEY_CTRL_Z:
             fputs(T_OFF(T_ALT_SCREEN), tty_out);
@@ -1297,7 +1313,7 @@ void bb_browse(bb_t *bb, const char *path)
   quit:
     populate_files(bb, NULL);
     fputs(T_LEAVE_BBMODE, tty_out);
-    close_term();
+    cleanup();
 }
 
 /*
@@ -1442,6 +1458,7 @@ int main(int argc, char *argv[])
     setenv("EDITOR", "nano", 0);
     setenv("PAGER", "less", 0);
 
+    atexit(cleanup);
     signal(SIGTERM, cleanup_and_exit);
     signal(SIGINT, cleanup_and_exit);
     signal(SIGXCPU, cleanup_and_exit);
@@ -1454,8 +1471,8 @@ int main(int argc, char *argv[])
     if (!real || chdir(real)) err("Not a valid path: %s\n", initial_path);
 
     bb_t *bb = memcheck(calloc(1, sizeof(bb_t)));
-    bb->options.columns[0] = 'n';
-    bb->options.sort[0] = 'n';
+    bb->options.columns[0] = COL_NAME;
+    strcpy(bb->options.sort, "+/+n");
     bb_browse(bb, real);
     free(real);
 

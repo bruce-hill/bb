@@ -21,13 +21,13 @@
     In order to modify bb's internal state, you can call `bb +cmd`, where "cmd"
     is one of the following commands (or a unique prefix of one):
 
-        .:(0|1|~)                 Whether to show "." in each directory
-        ..:(0|1|~)                Whether to show ".." in each directory
+        .:[01]                    Whether to show "." in each directory
+        ..:[01]                   Whether to show ".." in each directory
         align:<col-aligns>        Direction of column text alignment ('r' for right, 'c' for center, and 'l' for left)
         cd:<path>                 Navigate to <path>
         columns:<columns>         Change which columns are visible, and in what order
         deselect:<filename>       Deselect <filename>
-        dotfiles:(0|1|~)          Whether dotfiles are visible
+        dotfiles:[01]             Whether dotfiles are visible
         goto:<filename>           Move the cursor to <filename> (changing directory if needed)
         jump:<key>                Jump to the mark associated with <key>
         mark:<key>[=<path>]       Associate <key> with <path> (or current dir, if blank)
