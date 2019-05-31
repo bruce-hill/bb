@@ -67,7 +67,7 @@
 #define SELECTED_INDICATOR " \033[31;7m \033[0m"
 #define NOT_SELECTED_INDICATOR "  "
 
-#define TITLE_COLOR      "\033[32;1m"
+#define TITLE_COLOR      "\033[37;1m"
 #define NORMAL_COLOR     "\033[37m"
 #define CURSOR_COLOR     "\033[43;30;1m"
 #define LINK_COLOR       "\033[35m"
@@ -99,7 +99,7 @@ const char *startupcmds[] = {
     "+mark:0", "+mark:~=~", "+mark:h=~", "+mark:/=/", "+mark:c=~/.config",
     "+mark:l=~/.local",
     // Default column and sorting options:
-    "+sort:+/+n", "+col:*smpn", "+..",
+    "+sort:+n", "+col:*smpn", "+..",
     NULL, // NULL-terminated array
 };
 

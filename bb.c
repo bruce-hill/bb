@@ -63,7 +63,6 @@
 // Types
 typedef enum {
     COL_NONE = 0,
-    COL_DIR = '/',
     COL_NAME = 'n',
     COL_SIZE = 's',
     COL_PERM = 'p',
@@ -114,6 +113,7 @@ typedef struct bb_s {
     unsigned int show_dotdot : 1;
     unsigned int show_dot : 1;
     unsigned int show_dotfiles : 1;
+    unsigned int interleave_dirs : 1;
 } bb_t;
 
 typedef enum { BB_OK = 0, BB_INVALID, BB_QUIT } bb_result_t;
@@ -166,7 +166,7 @@ static int termwidth, termheight;
 static int mouse_x, mouse_y;
 static char *cmdfilename = NULL;
 static const int colsizew = 9, coldatew = 21, colpermw = 5, colnamew = 40,
-             colselw = 2, coldirw = 1, colrandw = 2;
+             colselw = 2, colrandw = 2;
 static struct timespec lastclick = {0, 0};
 
 
@@ -391,7 +391,6 @@ void render(bb_t *bb)
             const char *title = NULL;
             switch (bb->columns[col]) {
                 case COL_SELECTED: title = "*"; break;
-                case COL_DIR: title = "/"; break;
                 case COL_RANDOM: title = "Random"; break;
                 case COL_NAME: title = "Name"; break;
                 case COL_SIZE: title = "Size"; break;
@@ -408,16 +407,11 @@ void render(bb_t *bb)
             }
             int k = bb->aligns[col] == 'c' ? 1 : (bb->aligns[col] == 'r' ? 2 : 0);
             const char *indicator = " ";
-            char *found;
-            if ((found = strchr(bb->sort, bb->columns[col])))
-                indicator = found[-1] == '-' ? RSORT_INDICATOR : SORT_INDICATOR;
-            move_cursor(tty_out, x + MAX(0, ((bb->colwidths[col] - (int)strlen(title) - 1)*k)/2), 1);
             if (bb->columns[col] == bb->sort[1])
-                fputs("\033[1m", tty_out);
+                indicator = bb->sort[0] == '-' ? RSORT_INDICATOR : SORT_INDICATOR;
+            move_cursor(tty_out, x + MAX(0, ((bb->colwidths[col] - (int)strlen(title) - 1)*k)/2), 1);
             fputs(indicator, tty_out);
             fputs(title, tty_out);
-            if (bb->columns[col] == bb->sort[1])
-                fputs("\033[22m", tty_out);
             x += bb->colwidths[col];
         }
         fputs(" \033[K\033[0m", tty_out);
@@ -467,12 +461,6 @@ void render(bb_t *bb)
                     move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - colselw))/2), y);
                     fputs(IS_SELECTED(entry) ? SELECTED_INDICATOR : NOT_SELECTED_INDICATOR, tty_out);
                     fputs(i == bb->cursor ? CURSOR_COLOR : "\033[0m", tty_out);
-                    break;
-
-                case COL_DIR:
-                    move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - coldirw))/2), y);
-                    if (E_ISDIR(entry)) fputs("/", tty_out);
-                    else fputs(" ", tty_out);
                     break;
 
                 case COL_RANDOM:
@@ -580,10 +568,16 @@ int compare_files(const void *v1, const void *v2, void *v)
 #define COMPARE_TIME(t1, t2) COMPARE((t1).tv_sec, (t2).tv_sec) COMPARE((t1).tv_nsec, (t2).tv_nsec)
     bb_t *bb = (bb_t*)v;
     const entry_t *e1 = *((const entry_t**)v1), *e2 = *((const entry_t**)v2);
+
+    if (!bb->interleave_dirs) {
+        // Ingore sign
+        if (E_ISDIR(e1) != E_ISDIR(e2))
+            return E_ISDIR(e1) < E_ISDIR(e2) ? 1 : -1;
+    }
+
     for (char *sort = bb->sort + 1; *sort; sort += 2) {
         int sign = sort[-1] == '-' ? -1 : 1;
         switch (*sort) {
-            case COL_DIR: COMPARE(E_ISDIR(e1), E_ISDIR(e2)); break;
             case COL_SELECTED: COMPARE(IS_SELECTED(e1), IS_SELECTED(e2)); break;
             case COL_NAME: {
                 /* This sorting method is not identical to strverscmp(). Notably, bb's sort
@@ -972,7 +966,6 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                             case COL_NAME: *colw = colnamew; break;
                             case COL_SELECTED: *colw = colselw; break;
                             case COL_RANDOM: *colw = colrandw; break;
-                            case COL_DIR: *colw = coldirw; break;
                         }
                     }
                     bb->dirty = 1;
@@ -1018,6 +1011,11 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
             cd_to(bb, pbuf);
             if (e->index >= 0)
                 set_cursor(bb, e->index);
+            return BB_OK;
+        }
+        case 'i': { // +interleave
+            set_bool(bb->interleave_dirs);
+            sort_files(bb);
             return BB_OK;
         }
         case 'j': { // +jump:
