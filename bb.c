@@ -155,8 +155,8 @@ extern binding_t bindings[];
 extern const char *startupcmds[];
 
 // Constants
-static const char *T_ENTER_BBMODE =  T_OFF(T_SHOW_CURSOR) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_WRAP);
-static const char *T_LEAVE_BBMODE =  T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN) T_ON(T_SHOW_CURSOR ";" T_WRAP);
+static const char *T_ENTER_BBMODE = T_OFF(T_SHOW_CURSOR) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_WRAP);
+static const char *T_LEAVE_BBMODE = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN) T_ON(T_SHOW_CURSOR ";" T_WRAP);
 static const char *T_LEAVE_BBMODE_PARTIAL = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR) T_ON(T_WRAP);
 
 // Global variables
@@ -165,7 +165,7 @@ static FILE *tty_out = NULL, *tty_in = NULL;
 static int termwidth, termheight;
 static int mouse_x, mouse_y;
 static char *cmdfilename = NULL;
-static const int colsizew = 7, coldatew = 19, colpermw = 5, colnamew = 40,
+static const int colsizew = 9, coldatew = 21, colpermw = 5, colnamew = 40,
              colselw = 2, coldirw = 1, colrandw = 2;
 static struct timespec lastclick = {0, 0};
 
@@ -490,25 +490,25 @@ void render(bb_t *bb)
                         j++;
                     }
                     move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - colsizew))/2), y);
-                    fprintf(tty_out, "%6.*f%c", j > 0 ? 1 : 0, bytes, units[j]);
+                    fprintf(tty_out, " %6.*f%c ", j > 0 ? 1 : 0, bytes, units[j]);
                     break;
                 }
 
                 case COL_MTIME:
                     move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - coldatew))/2), y);
-                    strftime(buf, sizeof(buf), "%I:%M%p %b %e %Y", localtime(&(entry->info.st_mtime)));
+                    strftime(buf, sizeof(buf), " %I:%M%p %b %e %Y ", localtime(&(entry->info.st_mtime)));
                     fputs(buf, tty_out);
                     break;
 
                 case COL_CTIME:
                     move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - coldatew))/2), y);
-                    strftime(buf, sizeof(buf), "%I:%M%p %b %e %Y", localtime(&(entry->info.st_ctime)));
+                    strftime(buf, sizeof(buf), " %I:%M%p %b %e %Y ", localtime(&(entry->info.st_ctime)));
                     fputs(buf, tty_out);
                     break;
 
                 case COL_ATIME:
                     move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - coldatew))/2), y);
-                    strftime(buf, sizeof(buf), "%I:%M%p %b %e %Y", localtime(&(entry->info.st_atime)));
+                    strftime(buf, sizeof(buf), " %I:%M%p %b %e %Y ", localtime(&(entry->info.st_atime)));
                     fputs(buf, tty_out);
                     break;
 
