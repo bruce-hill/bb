@@ -151,6 +151,7 @@ static void print_bindings(void);
 // Config options
 extern binding_t bindings[];
 extern const char *startupcmds[];
+extern const int colwidths[128];
 
 // Constants
 static const char *T_ENTER_BBMODE = T_OFF(T_SHOW_CURSOR) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_WRAP);
@@ -164,16 +165,6 @@ static int termwidth, termheight;
 static int mouse_x, mouse_y;
 static char *cmdfilename = NULL;
 static struct timespec lastclick = {0, 0};
-static const int colwidths[128] = {
-    [COL_SELECTED] = 2,
-    [COL_SIZE] =     9,
-    [COL_MTIME] =    21,
-    [COL_ATIME] =    21,
-    [COL_CTIME] =    21,
-    [COL_PERM] =     5,
-    [COL_NAME] =     40,
-    [COL_RANDOM] =   2,
-};
 
 
 /*

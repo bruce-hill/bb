@@ -91,6 +91,8 @@ typedef struct {
 
 // These commands will run at startup (before command-line arguments)
 extern const char *startupcmds[];
+extern const int colwidths[128];
+
 const char *startupcmds[] = {
     //////////////////////////////////////////////
     // User-defined startup commands can go here
@@ -101,6 +103,18 @@ const char *startupcmds[] = {
     // Default column and sorting options:
     "+sort:+n", "+col:*smpn", "+..",
     NULL, // NULL-terminated array
+};
+
+// Column widths:
+const int colwidths[128] = {
+    ['*'] = 2,
+    ['s'] = 9,
+    ['m'] = 21,
+    ['a'] = 21,
+    ['c'] = 21,
+    ['p'] = 5,
+    ['n'] = 40,
+    ['r'] = 2,
 };
 
 #ifdef __APPLE__
