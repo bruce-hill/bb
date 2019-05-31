@@ -155,9 +155,9 @@ extern binding_t bindings[];
 extern const char *startupcmds[];
 
 // Constants
-static const char *T_ENTER_BBMODE =  T_OFF(T_SHOW_CURSOR) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
-static const char *T_LEAVE_BBMODE =  T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN) T_ON(T_SHOW_CURSOR);
-static const char *T_LEAVE_BBMODE_PARTIAL = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
+static const char *T_ENTER_BBMODE =  T_OFF(T_SHOW_CURSOR) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_WRAP);
+static const char *T_LEAVE_BBMODE =  T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN) T_ON(T_SHOW_CURSOR ";" T_WRAP);
+static const char *T_LEAVE_BBMODE_PARTIAL = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR) T_ON(T_WRAP);
 
 // Global variables
 static struct termios orig_termios, bb_termios;
@@ -201,7 +201,6 @@ void init_term(void)
     signal(SIGWINCH, update_term_size);
     // Initiate mouse tracking and disable text wrapping:
     fputs(T_ENTER_BBMODE, tty_out);
-    fputs(T_OFF(T_WRAP), tty_out);
 }
 
 /*
@@ -212,7 +211,6 @@ void close_term(void)
     if (tty_out) {
         tcsetattr(fileno(tty_out), TCSAFLUSH, &orig_termios);
         fputs(T_LEAVE_BBMODE_PARTIAL, tty_out);
-        fputs(T_ON(T_WRAP), tty_out);
         fflush(tty_out);
         fclose(tty_out);
         tty_out = NULL;
@@ -1288,10 +1286,8 @@ void bb_browse(bb_t *bb, const char *path)
                 goto refresh;
             }
             move_cursor(tty_out, 0, termheight-1);
-            if (binding->flags & NORMAL_TERM) {
+            if (binding->flags & NORMAL_TERM)
                 fputs(T_OFF(T_ALT_SCREEN), tty_out);
-                fputs(T_ON(T_WRAP), tty_out);
-            }
             if (binding->flags & AT_CURSOR && !bb->firstselected) {
                 move_cursor(tty_out, 0, 3 + bb->cursor - bb->scroll);
                 fputs("\033[K", tty_out);
