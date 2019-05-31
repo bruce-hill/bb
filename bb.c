@@ -802,7 +802,11 @@ void remove_entry(entry_t *e)
 
 void sort_files(bb_t *bb)
 {
-    qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), &bb, compare_files);
+#ifdef __APPLE__
+    qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), bb, compare_files);
+#else
+    qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), compare_files, bb);
+#endif
     for (int i = 0; i < bb->nfiles; i++) {
         bb->files[i]->index = i;
     }
