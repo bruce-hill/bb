@@ -87,16 +87,6 @@ typedef struct entry_s {
     // ------- fullname must be last! --------------
 } entry_t;
 
-typedef struct {
-    char sort[MAX_SORT+1];
-    char columns[MAX_COLS+1];
-    char aligns[MAX_COLS+1]; // l,r,c
-    int colwidths[MAX_COLS+1];
-    int show_dotdot : 1;
-    int show_dot : 1;
-    int show_dotfiles : 1;
-} options_t;
-
 typedef struct bb_s {
     entry_t *hash[HASH_SIZE];
     entry_t **files;
@@ -104,8 +94,16 @@ typedef struct bb_s {
     char path[PATH_MAX];
     int nfiles;
     int scroll, cursor;
-    options_t options;
+
     char *marks[128]; // Mapping from key to directory
+    char sort[MAX_SORT+1];
+    char columns[MAX_COLS+1];
+    char aligns[MAX_COLS+1]; // l,r,c
+    int colwidths[MAX_COLS+1];
+    int dirty : 1;
+    int show_dotdot : 1;
+    int show_dot : 1;
+    int show_dotfiles : 1;
 } bb_t;
 
 typedef enum { BB_NOP = 0, BB_INVALID, BB_REFRESH, BB_QUIT } bb_result_t;
@@ -121,7 +119,7 @@ static int run_cmd_on_selection(bb_t *bb, const char *cmd);
 static int fputs_escaped(FILE *f, const char *str, const char *color);
 static const char* color_of(mode_t mode);
 static void set_sort(bb_t *bb, const char *sort);
-static void render(bb_t *bb, int lazy);
+static void render(bb_t *bb);
 static int compare_files(void *r, const void *v1, const void *v2);
 static int find_file(bb_t *bb, const char *name);
 static void clear_selection(bb_t *bb);
@@ -345,28 +343,28 @@ void set_sort(bb_t *bb, const char *sort)
 {
     for (const char *s = sort; s[0] && s[1]; s += 2) {
         char *found;
-        if ((found = strchr(bb->options.sort, s[1]))) {
+        if ((found = strchr(bb->sort, s[1]))) {
             memmove(found-1, found+1, strlen(found+1)+1);
         }
     }
     size_t len = MIN(MAX_SORT, strlen(sort));
-    memmove(bb->options.sort + len, bb->options.sort, MAX_SORT+1 - len);
-    memmove(bb->options.sort, sort, len);
+    memmove(bb->sort + len, bb->sort, MAX_SORT+1 - len);
+    memmove(bb->sort, sort, len);
 }
 
 /*
  * Draw everything to the screen.
- * If lazy is true, then use terminal scrolling to move the file listing
+ * If bb->dirty is false, then use terminal scrolling to move the file listing
  * around and only update the files that have changed.
  */
-void render(bb_t *bb, int lazy)
+void render(bb_t *bb)
 {
     static int lastcursor = -1, lastscroll = -1;
     char buf[64];
     if (lastcursor == -1 || lastscroll == -1)
-        lazy = 0;
+        bb->dirty = 1;
 
-    if (lazy) {
+    if (!bb->dirty) {
         // Use terminal scrolling:
         if (lastscroll > bb->scroll) {
             fprintf(tty_out, "\033[3;%dr\033[%dT\033[1;%dr", termheight-1, lastscroll - bb->scroll, termheight);
@@ -375,7 +373,7 @@ void render(bb_t *bb, int lazy)
         }
     }
 
-    if (!lazy) {
+    if (bb->dirty) {
         // Path
         move_cursor(tty_out, 0, 0);
         const char *color = TITLE_COLOR;
@@ -387,9 +385,9 @@ void render(bb_t *bb, int lazy)
         move_cursor(tty_out, 0, 1);
         fputs("\033[0;44;30m\033[K", tty_out);
         int x = 0;
-        for (int col = 0; bb->options.columns[col]; col++) {
+        for (int col = 0; bb->columns[col]; col++) {
             const char *title = NULL;
-            switch (bb->options.columns[col]) {
+            switch (bb->columns[col]) {
                 case COL_SELECTED: title = "*"; break;
                 case COL_DIR: title = "/"; break;
                 case COL_RANDOM: title = "Random"; break;
@@ -406,26 +404,26 @@ void render(bb_t *bb, int lazy)
                 fputs("│\033[K", tty_out);
                 x += 1;
             }
-            int k = bb->options.aligns[col] == 'c' ? 1 : (bb->options.aligns[col] == 'r' ? 2 : 0);
+            int k = bb->aligns[col] == 'c' ? 1 : (bb->aligns[col] == 'r' ? 2 : 0);
             const char *indicator = " ";
             char *found;
-            if ((found = strchr(bb->options.sort, bb->options.columns[col])))
+            if ((found = strchr(bb->sort, bb->columns[col])))
                 indicator = found[-1] == '-' ? RSORT_INDICATOR : SORT_INDICATOR;
-            move_cursor(tty_out, x + MAX(0, ((bb->options.colwidths[col] - (int)strlen(title) - 1)*k)/2), 1);
-            if (bb->options.columns[col] == bb->options.sort[1])
+            move_cursor(tty_out, x + MAX(0, ((bb->colwidths[col] - (int)strlen(title) - 1)*k)/2), 1);
+            if (bb->columns[col] == bb->sort[1])
                 fputs("\033[1m", tty_out);
             fputs(indicator, tty_out);
             fputs(title, tty_out);
-            if (bb->options.columns[col] == bb->options.sort[1])
+            if (bb->columns[col] == bb->sort[1])
                 fputs("\033[22m", tty_out);
-            x += bb->options.colwidths[col];
+            x += bb->colwidths[col];
         }
         fputs(" \033[K\033[0m", tty_out);
     }
 
     entry_t **files = bb->files;
     for (int i = bb->scroll; i < bb->scroll + termheight - 3; i++) {
-        if (lazy) {
+        if (!bb->dirty) {
             if (i == bb->cursor || i == lastcursor)
                 goto do_render;
             if (i < lastscroll || i >= lastscroll + termheight - 3)
@@ -453,7 +451,7 @@ void render(bb_t *bb, int lazy)
         if (i == bb->cursor) fputs(CURSOR_COLOR, tty_out);
 
         int x = 0;
-        for (int col = 0; bb->options.columns[col]; col++) {
+        for (int col = 0; bb->columns[col]; col++) {
             fprintf(tty_out, "\033[%d;%dH\033[K", y+1, x+1);
             if (col > 0) {
                 if (i == bb->cursor) fputs("│", tty_out);
@@ -461,22 +459,22 @@ void render(bb_t *bb, int lazy)
                 fputs(i == bb->cursor ? CURSOR_COLOR : "\033[0m", tty_out);
                 x += 1;
             }
-            int k = bb->options.aligns[col] == 'c' ? 1 : (bb->options.aligns[col] == 'r' ? 2 : 0);
-            switch (bb->options.columns[col]) {
+            int k = bb->aligns[col] == 'c' ? 1 : (bb->aligns[col] == 'r' ? 2 : 0);
+            switch (bb->columns[col]) {
                 case COL_SELECTED:
-                    move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - colselw))/2), y);
+                    move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - colselw))/2), y);
                     fputs(IS_SELECTED(entry) ? SELECTED_INDICATOR : NOT_SELECTED_INDICATOR, tty_out);
                     fputs(i == bb->cursor ? CURSOR_COLOR : "\033[0m", tty_out);
                     break;
 
                 case COL_DIR:
-                    move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - coldirw))/2), y);
+                    move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - coldirw))/2), y);
                     if (E_ISDIR(entry)) fputs("/", tty_out);
                     else fputs(" ", tty_out);
                     break;
 
                 case COL_RANDOM:
-                    move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - colrandw))/2), y);
+                    move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - colrandw))/2), y);
                     fprintf(tty_out, "\033[48;5;%dm  \033[0m%s", 232 + (entry->shufflepos / (RAND_MAX / (255-232))),
                             i == bb->cursor ? CURSOR_COLOR : "\033[0m");
                     break;
@@ -489,31 +487,31 @@ void render(bb_t *bb, int lazy)
                         bytes /= 1024;
                         j++;
                     }
-                    move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - colsizew))/2), y);
+                    move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - colsizew))/2), y);
                     fprintf(tty_out, "%6.*f%c", j > 0 ? 1 : 0, bytes, units[j]);
                     break;
                 }
 
                 case COL_MTIME:
-                    move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - coldatew))/2), y);
+                    move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - coldatew))/2), y);
                     strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_mtime)));
                     fputs(buf, tty_out);
                     break;
 
                 case COL_CTIME:
-                    move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - coldatew))/2), y);
+                    move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - coldatew))/2), y);
                     strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_ctime)));
                     fputs(buf, tty_out);
                     break;
 
                 case COL_ATIME:
-                    move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - coldatew))/2), y);
+                    move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - coldatew))/2), y);
                     strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_atime)));
                     fputs(buf, tty_out);
                     break;
 
                 case COL_PERM:
-                    move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - colpermw))/2), y);
+                    move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - colpermw))/2), y);
                     fprintf(tty_out, " %03o", entry->info.st_mode & 0777);
                     break;
 
@@ -522,7 +520,7 @@ void render(bb_t *bb, int lazy)
                     strcpy(color, color_of(entry->info.st_mode));
                     if (i == bb->cursor) strcat(color, CURSOR_COLOR);
 
-                    move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - (int)strlen(entry->name)))/2), y);
+                    move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - (int)strlen(entry->name)))/2), y);
                     fputs(color, tty_out);
 
                     if (entry->no_esc) fputs(entry->name, tty_out);
@@ -551,7 +549,7 @@ void render(bb_t *bb, int lazy)
                 }
                 default: break;
             }
-            x += bb->options.colwidths[col];
+            x += bb->colwidths[col];
         }
         fputs(" \033[K\033[0m", tty_out); // Reset color and attributes
     }
@@ -568,7 +566,7 @@ void render(bb_t *bb, int lazy)
 
 /*
  * Used for sorting, this function compares files according to the sorting-related options,
- * like bb->options.sort
+ * like bb->sort
  */
 int compare_files(void *v, const void *v1, const void *v2)
 {
@@ -576,7 +574,7 @@ int compare_files(void *v, const void *v1, const void *v2)
 #define COMPARE_TIME(t1, t2) COMPARE((t1).tv_sec, (t2).tv_sec) COMPARE((t1).tv_nsec, (t2).tv_nsec)
     bb_t *bb = (bb_t*)v;
     const entry_t *e1 = *((const entry_t**)v1), *e2 = *((const entry_t**)v2);
-    for (char *sort = bb->options.sort + 1; *sort; sort += 2) {
+    for (char *sort = bb->sort + 1; *sort; sort += 2) {
         int sign = sort[-1] == '-' ? -1 : 1;
         switch (*sort) {
             case COL_DIR:
@@ -807,6 +805,7 @@ void sort_files(bb_t *bb)
     for (int i = 0; i < bb->nfiles; i++) {
         bb->files[i]->index = i;
     }
+    bb->dirty = 1;
 }
 
 /*
@@ -815,6 +814,8 @@ void sort_files(bb_t *bb)
  */
 void populate_files(bb_t *bb, const char *path)
 {
+    bb->dirty = 1;
+
     // Clear old files (if any)
     if (bb->files) {
         for (int i = 0; i < bb->nfiles; i++) {
@@ -848,10 +849,10 @@ void populate_files(bb_t *bb, const char *path)
     for (struct dirent *dp; (dp = readdir(dir)) != NULL; ) {
         if (dp->d_name[0] == '.') {
             if (dp->d_name[1] == '.' && dp->d_name[2] == '\0') {
-                if (!bb->options.show_dotdot) continue;
+                if (!bb->show_dotdot) continue;
             } else if (dp->d_name[1] == '\0') {
-                if (!bb->options.show_dot) continue;
-            } else if (!bb->options.show_dotfiles) continue;
+                if (!bb->show_dot) continue;
+            } else if (!bb->show_dotfiles) continue;
         }
         if ((size_t)bb->nfiles + 1 > cap) {
             cap += 100;
@@ -889,15 +890,15 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
     switch (cmd[0]) {
         case '.': { // +..:, +.:
             if (cmd[1] == '.') // +..:
-                set_bool(bb->options.show_dotdot);
+                set_bool(bb->show_dotdot);
             else // +.:
-                set_bool(bb->options.show_dot);
+                set_bool(bb->show_dot);
             populate_files(bb, bb->path);
             return BB_REFRESH;
         }
         case 'a': { // +align:
             if (!value) return BB_INVALID;
-            strncpy(bb->options.aligns, value, MAX_COLS);
+            strncpy(bb->aligns, value, MAX_COLS);
             return BB_REFRESH;
         }
         case 'c': { // +cd:, +columns:
@@ -936,9 +937,9 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                 }
                 case 'o': { // +columns:
                     if (!value) return BB_INVALID;
-                    strncpy(bb->options.columns, value, MAX_COLS);
+                    strncpy(bb->columns, value, MAX_COLS);
                     for (int i = 0; i < value[i] && i < MAX_COLS; i++) {
-                        int *colw = &bb->options.colwidths[i];
+                        int *colw = &bb->colwidths[i];
                         switch (value[i]) {
                             case COL_CTIME: case COL_MTIME: case COL_ATIME:
                                 *colw = coldatew; break;
@@ -970,7 +971,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                     }
                 }
                 case 'o': { // +dotfiles:
-                    set_bool(bb->options.show_dotfiles);
+                    set_bool(bb->show_dotfiles);
                     populate_files(bb, bb->path);
                     return BB_REFRESH;
                 }
@@ -1109,7 +1110,7 @@ void bb_browse(bb_t *bb, const char *path)
 {
     static long cmdpos = 0;
     int lastwidth = termwidth, lastheight = termheight;
-    int lazy = 0, check_cmds = 1;
+    int check_cmds = 1;
 
     for (int i = 0; startupcmds[i]; i++) {
         if (startupcmds[i][0] == '+') {
@@ -1129,23 +1130,23 @@ void bb_browse(bb_t *bb, const char *path)
     bb->cursor = 0;
 
   refresh:
-    lazy = 0;
+    bb->dirty = 1;
 
   redraw:
-    render(bb, lazy);
-    lazy = 1;
+    render(bb);
+    bb->dirty = 0;
 
   next_input:
     if (termwidth != lastwidth || termheight != lastheight) {
         lastwidth = termwidth; lastheight = termheight;
-        lazy = 0;
+        bb->dirty = 1;
         goto redraw;
     }
 
     if (check_cmds) {
         FILE *cmdfile = fopen(cmdfilename, "r");
         if (!cmdfile) {
-            if (!lazy) goto redraw;
+            if (bb->dirty) goto redraw;
             goto get_keyboard_input;
         }
 
@@ -1193,17 +1194,17 @@ void bb_browse(bb_t *bb, const char *path)
             lastclick = clicktime;
             // Get column:
             char column[3] = "+?";
-            for (int col = 0, x = 0; bb->options.columns[col]; col++) {
+            for (int col = 0, x = 0; bb->columns[col]; col++) {
                 if (col > 0) x += 1;
-                x += bb->options.colwidths[col];
+                x += bb->colwidths[col];
                 if (x >= mouse_x) {
-                    column[1] = bb->options.columns[col];
+                    column[1] = bb->columns[col];
                     break;
                 }
             }
             if (mouse_y == 1) {
                 char *pos;
-                if ((pos = strstr(bb->options.sort, column)) && pos == bb->options.sort)
+                if ((pos = strstr(bb->sort, column)) && pos == bb->sort)
                     column[0] = '-';
                 set_sort(bb, column);
                 sort_files(bb);
@@ -1213,7 +1214,7 @@ void bb_browse(bb_t *bb, const char *path)
                 if (clicked > bb->nfiles - 1) goto next_input;
                 if (column[1] == COL_SELECTED) {
                     toggle_file(bb, bb->files[clicked]);
-                    lazy = 0;
+                    bb->dirty = 1;
                     goto redraw;
                 }
                 set_cursor(bb, clicked);
@@ -1235,7 +1236,7 @@ void bb_browse(bb_t *bb, const char *path)
             raise(SIGTSTP);
             init_term();
             fputs(T_ON(T_ALT_SCREEN), tty_out);
-            lazy = 0;
+            bb->dirty = 1;
             goto redraw;
 
         case -1:
@@ -1291,7 +1292,7 @@ void bb_browse(bb_t *bb, const char *path)
             if (binding->flags & NORMAL_TERM)
                 fputs(T_ON(T_ALT_SCREEN), tty_out);
             if (binding->flags & NORMAL_TERM)
-                lazy = 0;
+                bb->dirty = 1;
             check_cmds = 1;
             goto redraw;
         }
@@ -1459,8 +1460,8 @@ int main(int argc, char *argv[])
     if (!real || chdir(real)) err("Not a valid path: %s\n", initial_path);
 
     bb_t *bb = memcheck(calloc(1, sizeof(bb_t)));
-    bb->options.columns[0] = COL_NAME;
-    strcpy(bb->options.sort, "+/+n");
+    bb->columns[0] = COL_NAME;
+    strcpy(bb->sort, "+/+n");
     bb_browse(bb, real);
     free(real);
 
