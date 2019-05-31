@@ -1127,6 +1127,8 @@ void bb_browse(bb_t *bb, const char *path)
     int lastwidth = termwidth, lastheight = termheight;
     int check_cmds = 1;
 
+    populate_files(bb, path);
+
     for (int i = 0; startupcmds[i]; i++) {
         if (startupcmds[i][0] == '+') {
             if (execute_cmd(bb, startupcmds[i] + 1) == BB_QUIT)
@@ -1136,8 +1138,6 @@ void bb_browse(bb_t *bb, const char *path)
             check_cmds = 1;
         }
     }
-
-    populate_files(bb, path);
 
     init_term();
     fputs(T_ON(T_ALT_SCREEN), tty_out);
