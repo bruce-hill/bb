@@ -1387,7 +1387,7 @@ int main(int argc, char *argv[])
             initial_path = ".";
             goto has_initial_path;
         }
-        cmdfd = open(parent_bbcmd, O_RDWR | O_APPEND);
+        cmdfd = open(parent_bbcmd, O_WRONLY | O_APPEND | O_CREAT, 0644);
         if (cmdfd == -1) err("Couldn't open cmdfile: '%s'\n", parent_bbcmd);
     }
 
