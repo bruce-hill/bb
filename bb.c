@@ -633,6 +633,7 @@ void clear_selection(bb_t *bb)
         if (!IS_VIEWED(e)) remove_entry(e);
     }
     bb->firstselected = NULL;
+    bb->dirty = 1;
 }
 
 /*
@@ -657,7 +658,8 @@ void deselect_entry(bb_t *bb, entry_t *e)
 {
     (void)bb;
     if (IS_SELECTED(e)) {
-        bb->dirty = 1;
+        if (bb->nfiles > 0 && e != bb->files[bb->cursor])
+            bb->dirty = 1;
         if (e->selected.next)
             e->selected.next->selected.atme = e->selected.atme;
         *(e->selected.atme) = e->selected.next;
@@ -1188,7 +1190,7 @@ void bb_browse(bb_t *bb, const char *path)
         unlink(cmdfilename);
         cmdpos = 0;
         check_cmds = 0;
-        goto refresh;
+        goto redraw;
     }
 
     int key;
@@ -1280,7 +1282,7 @@ void bb_browse(bb_t *bb, const char *path)
             if (binding->command[0] == '+') {
                 if (execute_cmd(bb, binding->command + 1) == BB_QUIT)
                     goto quit;
-                goto refresh;
+                goto redraw;
             }
             move_cursor(tty_out, 0, termheight-1);
             if (binding->flags & NORMAL_TERM)
