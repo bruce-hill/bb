@@ -103,8 +103,10 @@ const char *startupcmds[] = {
     NULL, // NULL-terminated array
 };
 
+#ifdef __APPLE__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdollar-in-identifier-extension"
+#endif
 extern binding_t bindings[];
 binding_t bindings[] = {
     //////////////////////////////////////////////////////////////////////////
@@ -200,6 +202,8 @@ done)/*ENDQUOTE*/, "Regex rename files", AT_CURSOR},
     {{KEY_MOUSE_WHEEL_UP},   "+scroll:-3", "Scroll up"},
     {{0}}, // Array must be 0-terminated
 };
+#ifdef __APPLE__
 #pragma clang diagnostic pop
+#endif
 
 // vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1

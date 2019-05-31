@@ -100,10 +100,10 @@ typedef struct bb_s {
     char columns[MAX_COLS+1];
     char aligns[MAX_COLS+1]; // l,r,c
     int colwidths[MAX_COLS+1];
-    int dirty : 1;
-    int show_dotdot : 1;
-    int show_dot : 1;
-    int show_dotfiles : 1;
+    unsigned int dirty : 1;
+    unsigned int show_dotdot : 1;
+    unsigned int show_dot : 1;
+    unsigned int show_dotfiles : 1;
 } bb_t;
 
 typedef enum { BB_OK = 0, BB_INVALID, BB_QUIT } bb_result_t;
@@ -120,7 +120,7 @@ static int fputs_escaped(FILE *f, const char *str, const char *color);
 static const char* color_of(mode_t mode);
 static void set_sort(bb_t *bb, const char *sort);
 static void render(bb_t *bb);
-static int compare_files(void *r, const void *v1, const void *v2);
+static int compare_files(const void *v1, const void *v2);
 static void clear_selection(bb_t *bb);
 static void select_entry(bb_t *bb, entry_t *e);
 static void deselect_entry(bb_t *bb, entry_t *e);
@@ -141,7 +141,7 @@ extern const char *startupcmds[];
 
 // Constants
 static const char *T_ENTER_BBMODE =  T_OFF(T_SHOW_CURSOR) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
-static const char *T_LEAVE_BBMODE =  T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN);
+static const char *T_LEAVE_BBMODE =  T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN) T_ON(T_SHOW_CURSOR);
 static const char *T_LEAVE_BBMODE_PARTIAL = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
 
 // Global variables
@@ -153,6 +153,7 @@ static char *cmdfilename = NULL;
 static const int colsizew = 7, coldatew = 19, colpermw = 5, colnamew = 40,
              colselw = 2, coldirw = 1, colrandw = 2;
 static struct timespec lastclick = {0, 0};
+static bb_t *bb = NULL;
 
 
 /*
@@ -262,7 +263,7 @@ void* memcheck(void *p)
 int run_cmd_on_selection(bb_t *bb, const char *cmd)
 {
     pid_t child;
-    sig_t old_handler = signal(SIGINT, SIG_IGN);
+    void (*old_handler)(int) = signal(SIGINT, SIG_IGN);
     if ((child = fork()) == 0) {
         signal(SIGINT, SIG_DFL);
         // TODO: is there a max number of args? Should this be batched?
@@ -272,13 +273,11 @@ int run_cmd_on_selection(bb_t *bb, const char *cmd)
         args[i++] = "sh";
         args[i++] = "-c";
         args[i++] = (char*)cmd;
-#ifdef __APPLE__
         args[i++] = "--"; // ensure files like "-i" are not interpreted as flags for sh
-#endif
         entry_t *first = bb->firstselected ? bb->firstselected : bb->files[bb->cursor];
         for (entry_t *e = first; e; e = e->selected.next) {
             if (i >= space)
-                args = memcheck(reallocf(args, (space += 100)*sizeof(char*)));
+                args = memcheck(realloc(args, (space += 100)*sizeof(char*)));
             args[i++] = e->fullname;
         }
         args[i] = NULL;
@@ -493,19 +492,19 @@ void render(bb_t *bb)
 
                 case COL_MTIME:
                     move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - coldatew))/2), y);
-                    strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_mtime)));
+                    strftime(buf, sizeof(buf), "%I:%M%p %b %e %Y", localtime(&(entry->info.st_mtime)));
                     fputs(buf, tty_out);
                     break;
 
                 case COL_CTIME:
                     move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - coldatew))/2), y);
-                    strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_ctime)));
+                    strftime(buf, sizeof(buf), "%I:%M%p %b %e %Y", localtime(&(entry->info.st_ctime)));
                     fputs(buf, tty_out);
                     break;
 
                 case COL_ATIME:
                     move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - coldatew))/2), y);
-                    strftime(buf, sizeof(buf), "%l:%M%p %b %e %Y", localtime(&(entry->info.st_atime)));
+                    strftime(buf, sizeof(buf), "%I:%M%p %b %e %Y", localtime(&(entry->info.st_atime)));
                     fputs(buf, tty_out);
                     break;
 
@@ -567,11 +566,10 @@ void render(bb_t *bb)
  * Used for sorting, this function compares files according to the sorting-related options,
  * like bb->sort
  */
-int compare_files(void *v, const void *v1, const void *v2)
+int compare_files(const void *v1, const void *v2)
 {
 #define COMPARE(a, b) if ((a) != (b)) { return sign*((a) < (b) ? 1 : -1); }
 #define COMPARE_TIME(t1, t2) COMPARE((t1).tv_sec, (t2).tv_sec) COMPARE((t1).tv_nsec, (t2).tv_nsec)
-    bb_t *bb = (bb_t*)v;
     const entry_t *e1 = *((const entry_t**)v1), *e2 = *((const entry_t**)v2);
     for (char *sort = bb->sort + 1; *sort; sort += 2) {
         int sign = sort[-1] == '-' ? -1 : 1;
@@ -610,9 +608,9 @@ int compare_files(void *v, const void *v1, const void *v2)
             }
             case COL_PERM: COMPARE((e1->info.st_mode & 0x3FF), (e2->info.st_mode & 0x3FF)); break;
             case COL_SIZE: COMPARE(e1->info.st_size, e2->info.st_size); break;
-            case COL_MTIME: COMPARE_TIME(e1->info.st_mtimespec, e2->info.st_mtimespec); break;
-            case COL_CTIME: COMPARE_TIME(e1->info.st_ctimespec, e2->info.st_ctimespec); break;
-            case COL_ATIME: COMPARE_TIME(e1->info.st_atimespec, e2->info.st_atimespec); break;
+            case COL_MTIME: COMPARE_TIME(e1->info.st_mtim, e2->info.st_mtim); break;
+            case COL_CTIME: COMPARE_TIME(e1->info.st_ctim, e2->info.st_ctim); break;
+            case COL_ATIME: COMPARE_TIME(e1->info.st_atim, e2->info.st_atim); break;
             case COL_RANDOM: COMPARE(e1->shufflepos, e2->shufflepos); break;
         }
     }
@@ -794,7 +792,7 @@ void remove_entry(entry_t *e)
 
 void sort_files(bb_t *bb)
 {
-    qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), bb, compare_files);
+    qsort(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), compare_files);
     for (int i = 0; i < bb->nfiles; i++) {
         bb->files[i]->index = i;
     }
@@ -849,7 +847,7 @@ void populate_files(bb_t *bb, const char *path)
         }
         if ((size_t)bb->nfiles + 1 > cap) {
             cap += 100;
-            bb->files = memcheck(reallocf(bb->files, cap*sizeof(void*)));
+            bb->files = memcheck(realloc(bb->files, cap*sizeof(void*)));
         }
         strcpy(&pathbuf[pathbuflen], dp->d_name);
         entry_t *entry = load_entry(bb, pathbuf);
@@ -1330,7 +1328,7 @@ void print_bindings(void)
 
 int main(int argc, char *argv[])
 {
-    char *initial_path = NULL, *depthstr;
+    char *initial_path = NULL, depthstr[64] = {0};
     char sep = '\n';
     int print_dir = 0, print_selection = 0;
 
@@ -1349,18 +1347,16 @@ int main(int argc, char *argv[])
     }
     if (!initial_path && cmd_args == 0) initial_path = ".";
 
-    FILE *cmdfile = NULL;
+    int cmdfd = -1;
     if (initial_path) {
       has_initial_path:
         cmdfilename = memcheck(strdup(CMDFILE_FORMAT));
-        if (!mktemp(cmdfilename)) err("Couldn't create tmpfile\n");
-        cmdfile = fopen(cmdfilename, "a");
-        if (!cmdfile) err("Couldn't create cmdfile: '%s'\n", cmdfilename);
+        if ((cmdfd = mkostemp(cmdfilename, O_APPEND)) == -1)
+            err("Couldn't create tmpfile: '%s'", CMDFILE_FORMAT);
         // Set up environment variables
-        depthstr = getenv("BB_DEPTH");
-        int depth = depthstr ? atoi(depthstr) : 0;
-        if (asprintf(&depthstr, "%d", depth + 1) < 0)
-            err("Allocation failure");
+        char *curdepth = getenv("BB_DEPTH");
+        int depth = curdepth ? atoi(curdepth) : 0;
+        sprintf(depthstr, "%d", depth + 1);
         setenv("BB_DEPTH", depthstr, 1);
         setenv("BBCMD", cmdfilename, 1);
     } else if (cmd_args > 0) {
@@ -1369,14 +1365,15 @@ int main(int argc, char *argv[])
             initial_path = ".";
             goto has_initial_path;
         }
-        cmdfile = fopen(parent_bbcmd, "a");
-        if (!cmdfile) err("Couldn't open cmdfile: '%s'\n", parent_bbcmd);
+        cmdfd = open(parent_bbcmd, O_RDWR | O_APPEND);
+        if (cmdfd == -1) err("Couldn't open cmdfile: '%s'\n", parent_bbcmd);
     }
 
     int i;
     for (i = 1; i < argc; i++) {
         if (argv[i][0] == '?') {
-            fclose(cmdfile);
+            if (cmdfd != -1)
+                close(cmdfd);
             init_term();
             char *line = breadline(tty_in, tty_out, argv[i] + 1, argv[i+1]);
             close_term();
@@ -1387,7 +1384,7 @@ int main(int argc, char *argv[])
             return 0;
         }
         if (argv[i][0] == '+') {
-            fwrite(argv[i]+1, sizeof(char), strlen(argv[i]+1)+1, cmdfile);
+            write(cmdfd, argv[i]+1, strlen(argv[i]+1)+1);
             continue;
         }
         if (strcmp(argv[i], "--") == 0) break;
@@ -1425,8 +1422,10 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (cmdfile)
-        fclose(cmdfile);
+    if (cmdfd != -1) {
+        close(cmdfd);
+        cmdfd = -1;
+    }
 
     if (!initial_path)
         return 0;
@@ -1448,7 +1447,7 @@ int main(int argc, char *argv[])
     char *real = realpath(initial_path, NULL);
     if (!real || chdir(real)) err("Not a valid path: %s\n", initial_path);
 
-    bb_t *bb = memcheck(calloc(1, sizeof(bb_t)));
+    bb = memcheck(calloc(1, sizeof(bb_t)));
     bb->columns[0] = COL_NAME;
     strcpy(bb->sort, "+/+n");
     bb_browse(bb, real);

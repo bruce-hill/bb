@@ -1,7 +1,8 @@
 PREFIX=
-CC=cc
-CFLAGS=-O0 -std=gnu99 -Wall -Wpedantic -Weverything -Wno-missing-field-initializers -Wno-padded -Wno-missing-noreturn -Wno-cast-qual \
--fsanitize=address -fno-omit-frame-pointer
+CC=gcc
+CFLAGS=-O0 -std=gnu99 -D_XOPEN_SOURCE=500 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -Wall -Wpedantic -Wno-unknown-pragmas
+#-fsanitize=address -fno-omit-frame-pointer\
+#-Weverything -Wno-missing-field-initializers -Wno-padded -Wno-missing-noreturn -Wno-cast-qual \
 LIBS=
 NAME=bb
 G=-g
