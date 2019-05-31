@@ -192,12 +192,7 @@ void init_term(void)
     tty_out = fopen("/dev/tty", "w");
     tcgetattr(fileno(tty_out), &orig_termios);
     memcpy(&bb_termios, &orig_termios, sizeof(bb_termios));
-    bb_termios.c_iflag &= ~(unsigned long)(
-        IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
-    bb_termios.c_oflag &= (unsigned long)~OPOST;
-    bb_termios.c_lflag &= (unsigned long)~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
-    bb_termios.c_cflag &= (unsigned long)~(CSIZE | PARENB);
-    bb_termios.c_cflag |= (unsigned long)CS8;
+    cfmakeraw(&bb_termios);
     bb_termios.c_cc[VMIN] = 0;
     bb_termios.c_cc[VTIME] = 0;
     if (tcsetattr(fileno(tty_out), TCSAFLUSH, &bb_termios) == -1)
