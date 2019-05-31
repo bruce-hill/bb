@@ -144,6 +144,7 @@ static void set_scroll(bb_t *bb, int i);
 static entry_t* load_entry(bb_t *bb, const char *path);
 static void remove_entry(entry_t *e);
 static void sort_files(bb_t *bb);
+static int cd_to(bb_t *bb, const char *path);
 static void populate_files(bb_t *bb, const char *path);
 static bb_result_t execute_cmd(bb_t *bb, const char *cmd);
 static void bb_browse(bb_t *bb, const char *path);
@@ -288,7 +289,7 @@ int run_cmd_on_selection(bb_t *bb, const char *cmd)
         args[i++] = "-c";
         args[i++] = (char*)cmd;
         args[i++] = "--"; // ensure files like "-i" are not interpreted as flags for sh
-        entry_t *first = bb->firstselected ? bb->firstselected : bb->files[bb->cursor];
+        entry_t *first = bb->firstselected ? bb->firstselected : (bb->nfiles ? bb->files[bb->cursor] : NULL);
         for (entry_t *e = first; e; e = e->selected.next) {
             if (i >= space)
                 args = memcheck(realloc(args, (space += 100)*sizeof(char*)));
@@ -297,7 +298,7 @@ int run_cmd_on_selection(bb_t *bb, const char *cmd)
         args[i] = NULL;
 
         setenv("BBSELECTED", bb->firstselected ? "1" : "", 1);
-        setenv("BBCURSOR", bb->files[bb->cursor]->fullname, 1);
+        setenv("BBCURSOR", bb->nfiles ? bb->files[bb->cursor]->fullname : "", 1);
 
         execvp("sh", args);
         err("Failed to execute command: '%s'", cmd);
@@ -756,9 +757,15 @@ entry_t* load_entry(bb_t *bb, const char *path)
     struct stat linkedstat, filestat;
     if (lstat(path, &filestat) == -1) return NULL;
     char path2[PATH_MAX];
-    if (path[0] != '/') {
+    if (path[0] == '~' && (path[1] == '\0' || path[1] == '/')) {
+        char *home;
+        if (!(home = getenv("HOME")))
+            return NULL;
+        strcpy(path2, home);
+        strcat(path2, path+1);
+        path = path2;
+    } else if (path[0] != '/') {
         strcpy(path2, bb->path);
-        strcat(path2, "/");
         strcat(path2, path);
         path = path2;
     }
@@ -816,10 +823,50 @@ void sort_files(bb_t *bb)
 #else
     qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), compare_files, bb);
 #endif
-    for (int i = 0; i < bb->nfiles; i++) {
+    for (int i = 0; i < bb->nfiles; i++)
         bb->files[i]->index = i;
-    }
     bb->dirty = 1;
+}
+
+int cd_to(bb_t *bb, const char *path)
+{
+    char pbuf[PATH_MAX];
+    if (path[0] == '~' && (path[1] == '\0' || path[1] == '/')) {
+        char *home;
+        if (!(home = getenv("HOME")))
+            return BB_INVALID;
+        strcpy(pbuf, home);
+        strcat(pbuf, path+1);
+    } else if (path[0] == '/') {
+        strcpy(pbuf, path);
+    } else {
+        strcpy(pbuf, bb->path);
+        strcat(pbuf, path);
+    }
+
+    if (pbuf[strlen(pbuf)-1] != '/')
+        strcat(pbuf, "/");
+
+    while (1) {
+        char *p;
+        if ((p = strstr(pbuf, "/../"))) {
+            if (p == pbuf) return 0;
+            char *end = p + 3;
+            char *start = p - 1;
+            while (start > pbuf && *start != '/') --start;
+            memmove(start, end, strlen(end)+1);
+            continue;
+        }
+        if ((p = strstr(pbuf, "/./"))) {
+            memmove(p, p+2, strlen(p+2)+1);
+            continue;
+        }
+        break;
+    }
+
+    if (chdir(pbuf)) return -1;
+    populate_files(bb, pbuf);
+    return 0;
 }
 
 /*
@@ -854,10 +901,15 @@ void populate_files(bb_t *bb, const char *path)
     if (!dir)
         err("Couldn't open dir: %s", path);
 
+    if (path != bb->path)
+        strcpy(bb->path, path);
+
+    if (bb->path[strlen(bb->path)-1] != '/')
+        strcat(bb->path, "/");
+
     size_t cap = 0;
     char pathbuf[PATH_MAX];
-    strcpy(pathbuf, path);
-    strcat(pathbuf, "/");
+    strcpy(pathbuf, bb->path);
     size_t pathbuflen = strlen(pathbuf);
     for (struct dirent *dp; (dp = readdir(dir)) != NULL; ) {
         if (dp->d_name[0] == '.') {
@@ -878,9 +930,6 @@ void populate_files(bb_t *bb, const char *path)
         bb->files[bb->nfiles++] = entry;
     }
     closedir(dir);
-
-    if (path != bb->path)
-        strcpy(bb->path, path);
 
     // TODO: this may have some weird aliasing issues, but eh, it's simple and effective
     for (int i = 0; i < bb->nfiles; i++)
@@ -917,40 +966,8 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
         case 'c': { // +cd:, +columns:
             switch (cmd[1]) {
                 case 'd': { // +cd:
-                    char pbuf[PATH_MAX];
-                  cd:
                     if (!value) return BB_INVALID;
-                    if (value[0] == '~') {
-                        char *home;
-                        if (!(home = getenv("HOME")))
-                            return BB_INVALID;
-                        strcpy(pbuf, home);
-                        strcat(pbuf, value+1);
-                        value = pbuf;
-                    }
-                    char *rpbuf = realpath(value, NULL);
-                    if (!rpbuf) return BB_INVALID;
-                    if (strcmp(rpbuf, bb->path) == 0) {
-                        free(rpbuf);
-                        return BB_OK;
-                    }
-                    if (chdir(rpbuf)) {
-                        free(rpbuf);
-                        return BB_INVALID;
-                    }
-                    char *oldpath = memcheck(strdup(bb->path));
-                    populate_files(bb, rpbuf);
-                    free(rpbuf);
-                    if (strcmp(value, "..") == 0) {
-                        entry_t *old = load_entry(bb, oldpath);
-                        if (old) {
-                            if (IS_VIEWED(old))
-                                set_cursor(bb, old->index);
-                            else if (!IS_SELECTED(old))
-                                remove_entry(old);
-                        }
-                    }
-                    free(oldpath);
+                    if (cd_to(bb, value)) return BB_INVALID;
                     return BB_OK;
                 }
                 case 'o': { // +columns:
@@ -978,6 +995,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
         case 'd': { // +deselect:, +dotfiles:
             switch (cmd[1]) {
                 case 'e': { // +deselect:
+                    if (!value && !bb->nfiles) return BB_INVALID;
                     if (!value) value = bb->files[bb->cursor]->name;
                     if (strcmp(value, "*") == 0) {
                         clear_selection(bb);
@@ -1003,17 +1021,12 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                 set_cursor(bb, e->index);
                 return BB_OK;
             }
-            char *real = realpath(e->fullname, NULL);
-            if (!real) return BB_INVALID;
-            char *lastslash = strrchr(real, '/');
-            if (!lastslash) {
-                free(real); // estate
-                return BB_INVALID;
-            }
+            char pbuf[PATH_MAX];
+            strcpy(pbuf, e->fullname);
+            char *lastslash = strrchr(pbuf, '/');
+            if (!lastslash) return BB_INVALID;
             *lastslash = '\0'; // Split in two
-            if (chdir(real)) return BB_INVALID;
-            populate_files(bb, real);
-            free(real); // estate
+            cd_to(bb, pbuf);
             if (e->index >= 0)
                 set_cursor(bb, e->index);
             return BB_OK;
@@ -1023,7 +1036,9 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
             char key = value[0];
             if (bb->marks[(int)key]) {
                 value = bb->marks[(int)key];
-                goto cd;
+                if (!value) return BB_INVALID;
+                if (cd_to(bb, value)) return BB_INVALID;
+                return BB_OK;
             }
             return BB_INVALID;
         }
@@ -1045,6 +1060,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                     int oldcur, isdelta, n;
                   move:
                     if (!value) return BB_INVALID;
+                    if (!bb->nfiles) return BB_INVALID;
                     oldcur = bb->cursor;
                     isdelta = value[0] == '-' || value[0] == '+';
                     n = (int)strtol(value, &value, 10);
@@ -1085,6 +1101,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                 }
 
                 case '\0': case 'e': // +select:
+                    if (!value && !bb->nfiles) return BB_INVALID;
                     if (!value) value = bb->files[bb->cursor]->name;
                     if (strcmp(value, "*") == 0) {
                         for (int i = 0; i < bb->nfiles; i++) {
@@ -1108,6 +1125,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                     goto move;
             }
         case 't': { // +toggle:
+            if (!value && !bb->nfiles) return BB_INVALID;
             if (!value) value = bb->files[bb->cursor]->name;
             entry_t *e = load_entry(bb, value);
             if (e) toggle_entry(bb, e);
@@ -1127,7 +1145,7 @@ void bb_browse(bb_t *bb, const char *path)
     int lastwidth = termwidth, lastheight = termheight;
     int check_cmds = 1;
 
-    populate_files(bb, path);
+    cd_to(bb, path);
 
     for (int i = 0; startupcmds[i]; i++) {
         if (startupcmds[i][0] == '+') {
