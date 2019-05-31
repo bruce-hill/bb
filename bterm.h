@@ -357,7 +357,7 @@ char *breadline(FILE *in, FILE *out, const char *prompt, const char *initial)
             case KEY_CTRL_U: {
                 int to_clear = i;
                 if (to_clear) {
-                    memmove(buf, buf+i, len-i);
+                    memmove(buf, buf+i, (size_t)(len-i));
                     buf[len -= i] = 0;
                     i = 0;
                     fprintf(out, "\033[%dD\033[K", to_clear);
@@ -374,7 +374,7 @@ char *breadline(FILE *in, FILE *out, const char *prompt, const char *initial)
                 break;
             case KEY_BACKSPACE: case KEY_BACKSPACE2:
                 if (i > 0) {
-                    memmove(buf+i, buf+i+1, len-i);
+                    memmove(buf+i, buf+i+1, (size_t)(len-i));
                     --i;
                     buf[--len] = 0;
                     if (i == len) fputs("\033[D \033[D", out);
@@ -383,7 +383,7 @@ char *breadline(FILE *in, FILE *out, const char *prompt, const char *initial)
                 break;
             case KEY_DELETE: case KEY_CTRL_D:
                 if (i < len) {
-                    memmove(buf+i, buf+i+1, len-i);
+                    memmove(buf+i, buf+i+1, (size_t)(len-i));
                     buf[--len] = 0;
                     if (i == len) fputs(" \033[D", out);
                     else fprintf(out, "%s\033[K\033[%dD", buf+i, len-i);
@@ -409,7 +409,7 @@ char *breadline(FILE *in, FILE *out, const char *prompt, const char *initial)
                         if (!buf) goto finished;
                     }
                     if (i < len)
-                        memmove(buf+i+1, buf+i, len-i+1);
+                        memmove(buf+i+1, buf+i, (size_t)(len-i+1));
                     buf[i++] = (char)key;
                     buf[++len] = 0;
                     if (i == len)

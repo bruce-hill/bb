@@ -32,10 +32,14 @@
 
 #define MAX_COLS 12
 #define MAX_SORT (2*MAX_COLS)
+// Power of 2:
+#define HASH_SIZE 1024
+#define HASH_MASK (HASH_SIZE - 1)
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
-#define IS_SELECTED(p) (((p)->atme) != NULL)
+#define IS_SELECTED(p) (((p)->selected.atme) != NULL)
 #define LOWERCASE(c) ('A' <= (c) && (c) <= 'Z' ? ((c) + 'a' - 'A') : (c))
+#define E_ISDIR(e) (S_ISDIR(S_ISLNK((e)->info.st_mode) ? (e)->linkedmode : (e)->info.st_mode))
 
 #define err(...) do { \
     cleanup(); \
@@ -65,8 +69,12 @@ typedef enum {
  * the variable that points to the first list member. In other words,
  * item->next->atme == &item->next and firstitem->atme == &firstitem.
  */
-typedef struct entry_s {
+typedef struct {
     struct entry_s *next, **atme;
+} llnode_t;
+
+typedef struct entry_s {
+    llnode_t selected, hash;
     char *name, *linkname;
     struct stat info;
     mode_t linkedmode;
@@ -74,7 +82,9 @@ typedef struct entry_s {
     int no_esc : 1;
     int link_no_esc : 1;
     int shufflepos;
-    char fullname[1]; // Must be last
+    int index;
+    char fullname[1];
+    // ------- fullname must be last! --------------
 } entry_t;
 
 typedef struct {
@@ -88,6 +98,7 @@ typedef struct {
 } options_t;
 
 typedef struct bb_s {
+    entry_t *hash[HASH_SIZE];
     entry_t **files;
     entry_t *firstselected;
     char path[PATH_MAX];
@@ -119,7 +130,9 @@ static void deselect_file(bb_t *bb, entry_t *e);
 static void toggle_file(bb_t *bb, entry_t *e);
 static void set_cursor(bb_t *bb, int i);
 static void set_scroll(bb_t *bb, int i);
-static entry_t* load_entry(const char *path);
+static entry_t* load_entry(bb_t *bb, const char *path);
+static void remove_entry(entry_t *e);
+static void sort_files(bb_t *bb);
 static void populate_files(bb_t *bb, const char *path);
 static bb_result_t execute_cmd(bb_t *bb, const char *cmd);
 static void bb_browse(bb_t *bb, const char *path);
@@ -266,7 +279,7 @@ int run_cmd_on_selection(bb_t *bb, const char *cmd)
         args[i++] = "--"; // ensure files like "-i" are not interpreted as flags for sh
 #endif
         entry_t *first = bb->firstselected ? bb->firstselected : bb->files[bb->cursor];
-        for (entry_t *e = first; e; e = e->next) {
+        for (entry_t *e = first; e; e = e->selected.next) {
             if (i >= space)
                 args = memcheck(realloc(args, (space += 100)*sizeof(char*)));
             args[i++] = e->fullname;
@@ -458,10 +471,8 @@ void render(bb_t *bb, int lazy)
 
                 case COL_DIR:
                     move_cursor(tty_out, x + MAX(0, (k*(bb->options.colwidths[col] - coldirw))/2), y);
-                    if (S_ISDIR(S_ISLNK(entry->info.st_mode) ? entry->linkedmode : entry->info.st_mode))
-                        fputs("/", tty_out);
-                    else
-                        fputs(" ", tty_out);
+                    if (E_ISDIR(entry)) fputs("/", tty_out);
+                    else fputs(" ", tty_out);
                     break;
 
                 case COL_RANDOM:
@@ -517,8 +528,7 @@ void render(bb_t *bb, int lazy)
                     if (entry->no_esc) fputs(entry->name, tty_out);
                     else entry->no_esc |= !fputs_escaped(tty_out, entry->name, color);
 
-                    if (S_ISDIR(S_ISLNK(entry->info.st_mode) ? entry->linkedmode : entry->info.st_mode))
-                        fputs("/", tty_out);
+                    if (E_ISDIR(entry)) fputs("/", tty_out);
 
                     if (entry->linkname) {
                         if (i != bb->cursor)
@@ -562,27 +572,17 @@ void render(bb_t *bb, int lazy)
  */
 int compare_files(void *v, const void *v1, const void *v2)
 {
-#define compare(a, b) ((a) == (b) ? 0 : ((a) < (b) ? 1 : -1))
-#define compare_time(t1, t2) ((t1).tv_sec == (t2).tv_sec ? compare((t1).tv_nsec, (t2).tv_nsec) : compare((t1).tv_sec, (t2).tv_sec))
+#define COMPARE(a, b) if ((a) != (b)) { return sign*((a) < (b) ? 1 : -1); }
+#define COMPARE_TIME(t1, t2) COMPARE((t1).tv_sec, (t2).tv_sec) COMPARE((t1).tv_nsec, (t2).tv_nsec)
     bb_t *bb = (bb_t*)v;
-    int diff = 0;
-    const entry_t *f1 = *((const entry_t**)v1), *f2 = *((const entry_t**)v2);
-    int sign = 1;
-    for (char *sort = bb->options.sort; *sort && diff == 0; ++sort) {
-        if (*sort == '-') {
-            sign = -1;
-            continue;
-        }
+    const entry_t *e1 = *((const entry_t**)v1), *e2 = *((const entry_t**)v2);
+    for (char *sort = bb->options.sort + 1; *sort; sort += 2) {
+        int sign = sort[-1] == '-' ? -1 : 1;
         switch (*sort) {
-            case COL_DIR: {
-                int d1 = S_ISDIR(f1->info.st_mode) || (S_ISLNK(f1->info.st_mode) && S_ISDIR(f1->linkedmode));
-                int d2 = S_ISDIR(f2->info.st_mode) || (S_ISLNK(f2->info.st_mode) && S_ISDIR(f2->linkedmode));
-                diff = compare(d1, d2);
-                break;
-            }
+            case COL_DIR:
+                COMPARE(E_ISDIR(e1), E_ISDIR(e2));
             case COL_SELECTED:
-                diff = compare(IS_SELECTED(f1), IS_SELECTED(f2));
-                break;
+                COMPARE(IS_SELECTED(e1), IS_SELECTED(e2));
             case COL_NAME: {
                 /* This sorting method is not identical to strverscmp(). Notably, bb's sort
                  * will order: [0, 1, 9, 00, 01, 09, 10, 000, 010] instead of strverscmp()'s
@@ -592,10 +592,9 @@ int compare_files(void *v, const void *v1, const void *v2)
                  * ordinally. This version also does case-insensitivity by lowercasing words,
                  * so the following characters come before all letters: [\]^_`
                  */
-                const char *n1 = f1->name, *n2 = f2->name;
+                const char *n1 = e1->name, *n2 = e2->name;
                 while (*n1 && *n2) {
                     char c1 = LOWERCASE(*n1), c2 = LOWERCASE(*n2);
-                    diff = -compare(c1, c2);
                     if ('0' <= c1 && c1 <= '9' && '0' <= c2 && c2 <= '9') {
                         long i1 = strtol(n1, (char**)&n1, 10);
                         long i2 = strtol(n2, (char**)&n2, 10);
@@ -604,45 +603,32 @@ int compare_files(void *v, const void *v1, const void *v2)
                         // together, instead of
                         // [1.png, 0001.png, 2.png, 0002.png, 3.png], it makes more sense to have:
                         // [1.png, 2.png, 3.png, 0001.png, 0002.png]
-                        diff = -compare((n1 - f1->name), (n2 - f2->name));
-                        if (diff != 0) goto found_diff;
-                        diff = -compare(i1, i2);
-                        if (diff != 0) goto found_diff;
-                    } else if (diff) {
-                        goto found_diff;
+                        COMPARE((n2 - e2->name), (n1 - e1->name));
+                        COMPARE(i2, i1);
                     } else {
+                        COMPARE(c2, c1);
                         ++n1; ++n2;
                     }
                 }
-                diff = -compare(LOWERCASE(*n1), LOWERCASE(*n2));
-                break;
+                COMPARE(LOWERCASE(*n2), LOWERCASE(*n1));
             }
             case COL_PERM:
-                diff = compare((f1->info.st_mode & 0x3FF), (f2->info.st_mode & 0x3FF));
-                break;
+                COMPARE((e1->info.st_mode & 0x3FF), (e2->info.st_mode & 0x3FF));
             case COL_SIZE:
-                diff = compare(f1->info.st_size, f2->info.st_size);
-                break;
+                COMPARE(e1->info.st_size, e2->info.st_size);
             case COL_MTIME:
-                diff = compare_time(f1->info.st_mtimespec, f2->info.st_mtimespec);
-                break;
+                COMPARE_TIME(e1->info.st_mtimespec, e2->info.st_mtimespec);
             case COL_CTIME:
-                diff = compare_time(f1->info.st_ctimespec, f2->info.st_ctimespec);
-                break;
+                COMPARE_TIME(e1->info.st_ctimespec, e2->info.st_ctimespec);
             case COL_ATIME:
-                diff = compare_time(f1->info.st_atimespec, f2->info.st_atimespec);
-                break;
+                COMPARE_TIME(e1->info.st_atimespec, e2->info.st_atimespec);
             case COL_RANDOM:
-                diff = f1->shufflepos - f2->shufflepos;
-                break;
+                COMPARE(e1->shufflepos, e2->shufflepos);
         }
-      found_diff:
-        diff *= sign;
-        sign = 1;
     }
-    return diff;
-#undef compare
-#undef compare_time
+    return 0;
+#undef COMPARE
+#undef COMPARE_TIME
 }
 
 int find_file(bb_t *bb, const char *name)
@@ -661,10 +647,10 @@ int find_file(bb_t *bb, const char *name)
 void clear_selection(bb_t *bb)
 {
     for (entry_t *next, *e = bb->firstselected; e; e = next) {
-        next = e->next;
-        *(e->atme) = NULL;
-        e->atme = NULL;
-        if (--e->refcount <= 0) free(e);
+        next = e->selected.next;
+        *(e->selected.atme) = NULL;
+        e->selected.atme = NULL;
+        if (--e->refcount <= 0) remove_entry(e);
     }
 }
 
@@ -674,12 +660,10 @@ void clear_selection(bb_t *bb)
 void select_file(bb_t *bb, entry_t *e)
 {
     if (IS_SELECTED(e)) return;
-    if (strcmp(e->name, "..") == 0) return;
-    if (strcmp(e->name, ".") == 0) return;
     if (bb->firstselected)
-        bb->firstselected->atme = &e->next;
-    e->next = bb->firstselected;
-    e->atme = &bb->firstselected;
+        bb->firstselected->selected.atme = &e->selected.next;
+    e->selected.next = bb->firstselected;
+    e->selected.atme = &bb->firstselected;
     ++e->refcount;
     bb->firstselected = e;
 }
@@ -691,12 +675,12 @@ void deselect_file(bb_t *bb, entry_t *e)
 {
     (void)bb;
     if (!IS_SELECTED(e)) return;
-    if (e->next)
-        e->next->atme = e->atme;
-    *(e->atme) = e->next;
+    if (e->selected.next)
+        e->selected.next->selected.atme = e->selected.atme;
+    *(e->selected.atme) = e->selected.next;
     --e->refcount;
-    e->next = NULL;
-    e->atme = NULL;
+    e->selected.next = NULL;
+    e->selected.atme = NULL;
 }
 
 /*
@@ -766,19 +750,28 @@ void set_scroll(bb_t *bb, int newscroll)
  * Warning: this does not deduplicate entries, and it's best if there aren't
  * duplicate entries hanging around.
  */
-entry_t* load_entry(const char *path)
+entry_t* load_entry(bb_t *bb, const char *path)
 {
-    ssize_t linkpathlen = -1;
-    char linkbuf[PATH_MAX];
     struct stat linkedstat, filestat;
     if (lstat(path, &filestat) == -1) return NULL;
+
+    // Check for pre-existing:
+    for (entry_t *e = bb->hash[(int)filestat.st_ino & HASH_MASK]; e; e = e->hash.next) {
+        if (e->info.st_ino == filestat.st_ino && e->info.st_dev == filestat.st_dev
+            && strcmp(e->fullname, path) == 0)
+            return e;
+    }
+
+    ssize_t linkpathlen = -1;
+    char linkbuf[PATH_MAX];
     if (S_ISLNK(filestat.st_mode)) {
         linkpathlen = readlink(path, linkbuf, sizeof(linkbuf));
         if (linkpathlen < 0) err("Couldn't read link: '%s'", path);
         linkbuf[linkpathlen] = 0;
         if (stat(path, &linkedstat) == -1) memset(&linkedstat, 0, sizeof(linkedstat));
     }
-    size_t entry_size = sizeof(entry_t) + (strlen(path) + 1) + (size_t)(linkpathlen + 1);
+    size_t pathlen = strlen(path);
+    size_t entry_size = sizeof(entry_t) + (pathlen + 1) + (size_t)(linkpathlen + 1);
     entry_t *entry = memcheck(calloc(entry_size, 1));
     char *end = stpcpy(entry->fullname, path);
     if (linkpathlen >= 0)
@@ -789,7 +782,31 @@ entry_t* load_entry(const char *path)
     if (S_ISLNK(filestat.st_mode))
         entry->linkedmode = linkedstat.st_mode;
     entry->info = filestat;
+    if (bb->hash[(int)filestat.st_ino & HASH_MASK])
+        bb->hash[(int)filestat.st_ino & HASH_MASK]->hash.atme = &entry->hash.next;
+    entry->hash.next = bb->hash[(int)filestat.st_ino & HASH_MASK];
+    entry->hash.atme = &bb->hash[(int)filestat.st_ino & HASH_MASK];
+    bb->hash[(int)filestat.st_ino & HASH_MASK] = entry;
     return entry;
+}
+
+void remove_entry(entry_t *e)
+{
+    if (e->refcount > 0) err("Attempt to remove in-use entry");
+    if (e->hash.next)
+        e->hash.next->hash.atme = e->hash.atme;
+    *(e->hash.atme) = e->hash.next;
+    e->hash.atme = NULL;
+    e->hash.next = NULL;
+    free(e);
+}
+
+void sort_files(bb_t *bb)
+{
+    qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), bb, compare_files);
+    for (int i = 0; i < bb->nfiles; i++) {
+        bb->files[i]->index = i;
+    }
 }
 
 /*
@@ -802,7 +819,10 @@ void populate_files(bb_t *bb, const char *path)
     if (bb->files) {
         for (int i = 0; i < bb->nfiles; i++) {
             if (--bb->files[i]->refcount <= 0)
-                free(bb->files[i]);
+                remove_entry(bb->files[i]);
+            else
+                bb->files[i]->index = -1;
+            bb->files[i] = NULL;
         }
         free(bb->files);
         bb->files = NULL;
@@ -813,36 +833,18 @@ void populate_files(bb_t *bb, const char *path)
     bb->cursor = 0;
     bb->scroll = 0;
 
-    if (path == NULL)
+    if (path == NULL || !path[0])
         return;
 
-    int samedir = strcmp(path, bb->path) == 0;
-    if (!samedir)
-        strcpy(bb->path, path);
-
-    // Hash inode -> entry_t with linear probing
-    int nselected = 0;
-    for (entry_t *p = bb->firstselected; p; p = p->next) ++nselected;
-    int hashsize = 2 * nselected;
-    entry_t **selecthash = NULL;
-    if (nselected > 0) {
-        selecthash = memcheck(calloc((size_t)hashsize, sizeof(entry_t*)));
-        for (entry_t *p = bb->firstselected; p; p = p->next) {
-            int probe = ((int)p->info.st_ino) % hashsize;
-            while (selecthash[probe])
-                probe = (probe + 1) % hashsize;
-            selecthash[probe] = p;
-        }
-    }
-
-    DIR *dir = opendir(bb->path);
+    DIR *dir = opendir(path);
     if (!dir)
-        err("Couldn't open dir: %s", bb->path);
-    size_t pathlen = strlen(bb->path);
-    size_t filecap = 0;
+        err("Couldn't open dir: %s", path);
+
+    size_t cap = 0;
     char pathbuf[PATH_MAX];
     strcpy(pathbuf, path);
-    pathbuf[pathlen] = '/';
+    strcat(pathbuf, "/");
+    size_t pathbuflen = strlen(pathbuf);
     for (struct dirent *dp; (dp = readdir(dir)) != NULL; ) {
         if (dp->d_name[0] == '.') {
             if (dp->d_name[1] == '.' && dp->d_name[2] == '\0') {
@@ -851,38 +853,27 @@ void populate_files(bb_t *bb, const char *path)
                 if (!bb->options.show_dot) continue;
             } else if (!bb->options.show_dotfiles) continue;
         }
-        if ((size_t)bb->nfiles >= filecap) {
-            filecap += 100;
-            bb->files = memcheck(realloc(bb->files, filecap*sizeof(entry_t*)));
+        if ((size_t)bb->nfiles + 1 > cap) {
+            cap += 100;
+            bb->files = memcheck(realloc(bb->files, cap*sizeof(void*)));
         }
-
-        // Hashed lookup from selected:
-        if (nselected > 0) {
-            for (int probe = ((int)dp->d_ino) % hashsize; selecthash[probe]; probe = (probe + 1) % hashsize) {
-                if (selecthash[probe]->info.st_ino == dp->d_ino) {
-                    ++selecthash[probe]->refcount;
-                    bb->files[bb->nfiles++] = selecthash[probe];
-                    goto next_file;
-                }
-            }
-        }
-
-        strcpy(&pathbuf[pathlen+1], dp->d_name);
-        entry_t *entry = load_entry(pathbuf);
-        if (!entry) err("Failed to load entry: '%s'", pathbuf);
+        strcpy(&pathbuf[pathbuflen], dp->d_name);
+        entry_t *entry = load_entry(bb, pathbuf);
+        if (!entry) err("Failed to load entry: '%s'", dp->d_name);
         ++entry->refcount;
+        entry->index = bb->nfiles;
         bb->files[bb->nfiles++] = entry;
-      next_file:
-        continue;
     }
     closedir(dir);
-    free(selecthash);
+
+    if (path != bb->path)
+        strcpy(bb->path, path);
 
     // TODO: this may have some weird aliasing issues, but eh, it's simple and effective
     for (int i = 0; i < bb->nfiles; i++)
         bb->files[i]->shufflepos = rand();
 
-    qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), bb, compare_files);
+    sort_files(bb);
     set_scroll(bb, old_scroll);
 }
 
@@ -1078,8 +1069,11 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                 case '\0': case 'e': // +select:
                     if (!value) value = bb->files[bb->cursor]->name;
                     if (strcmp(value, "*") == 0) {
-                        for (int i = 0; i < bb->nfiles; i++)
-                            select_file(bb, bb->files[i]);
+                        for (int i = 0; i < bb->nfiles; i++) {
+                            if (strcmp(bb->files[i]->name, ".")
+                                && strcmp(bb->files[i]->name, ".."))
+                                select_file(bb, bb->files[i]);
+                        }
                     } else {
                         int f = find_file(bb, value);
                         if (f >= 0) select_file(bb, bb->files[f]);
@@ -1090,7 +1084,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                 case 'o': // +sort:
                     if (!value) return BB_INVALID;
                     set_sort(bb, value);
-                    qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), bb, compare_files);
+                    sort_files(bb);
                     return BB_REFRESH;
 
                 case 'p': // +spread:
@@ -1117,14 +1111,6 @@ void bb_browse(bb_t *bb, const char *path)
     int lastwidth = termwidth, lastheight = termheight;
     int lazy = 0, check_cmds = 1;
 
-    {
-        char *real = realpath(path, NULL);
-        if (!real || chdir(real))
-            err("Not a valid path: %s\n", path);
-        populate_files(bb, real);
-        free(real); // estate
-    }
-
     for (int i = 0; startupcmds[i]; i++) {
         if (startupcmds[i][0] == '+') {
             if (execute_cmd(bb, startupcmds[i] + 1) == BB_QUIT)
@@ -1134,6 +1120,8 @@ void bb_browse(bb_t *bb, const char *path)
             check_cmds = 1;
         }
     }
+
+    populate_files(bb, path);
 
     init_term();
     fputs(T_ON(T_ALT_SCREEN), tty_out);
@@ -1218,7 +1206,7 @@ void bb_browse(bb_t *bb, const char *path)
                 if ((pos = strstr(bb->options.sort, column)) && pos == bb->options.sort)
                     column[0] = '-';
                 set_sort(bb, column);
-                qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), bb, compare_files);
+                sort_files(bb);
                 goto refresh;
             } else if (2 <= mouse_y && mouse_y <= termheight - 2) {
                 int clicked = bb->scroll + (mouse_y - 2);
@@ -1477,7 +1465,7 @@ int main(int argc, char *argv[])
     free(real);
 
     if (bb->firstselected && print_selection) {
-        for (entry_t *e = bb->firstselected; e; e = e->next) {
+        for (entry_t *e = bb->firstselected; e; e = e->selected.next) {
             const char *p = e->fullname;
             while (*p) {
                 const char *p2 = strchr(p, '\n');
