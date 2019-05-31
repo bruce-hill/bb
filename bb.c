@@ -569,14 +569,13 @@ int compare_files(const void *v1, const void *v2, void *v)
     bb_t *bb = (bb_t*)v;
     const entry_t *e1 = *((const entry_t**)v1), *e2 = *((const entry_t**)v2);
 
+    int sign = 1;
     if (!bb->interleave_dirs) {
-        // Ingore sign
-        if (E_ISDIR(e1) != E_ISDIR(e2))
-            return E_ISDIR(e1) < E_ISDIR(e2) ? 1 : -1;
+        COMPARE(E_ISDIR(e1), E_ISDIR(e2));
     }
 
     for (char *sort = bb->sort + 1; *sort; sort += 2) {
-        int sign = sort[-1] == '-' ? -1 : 1;
+        sign = sort[-1] == '-' ? -1 : 1;
         switch (*sort) {
             case COL_SELECTED: COMPARE(IS_SELECTED(e1), IS_SELECTED(e2)); break;
             case COL_NAME: {

@@ -29,6 +29,7 @@
         deselect:<filename>       Deselect <filename>
         dotfiles:[01]             Whether dotfiles are visible
         goto:<filename>           Move the cursor to <filename> (changing directory if needed)
+        interleave:[01]           Whether or not directories should be interleaved with files in the display
         jump:<key>                Jump to the mark associated with <key>
         mark:<key>[=<path>]       Associate <key> with <path> (or current dir, if blank)
         move:<num*>               Move the cursor a numeric amount
