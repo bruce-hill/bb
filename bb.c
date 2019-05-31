@@ -278,7 +278,7 @@ int run_cmd_on_selection(bb_t *bb, const char *cmd)
         entry_t *first = bb->firstselected ? bb->firstselected : bb->files[bb->cursor];
         for (entry_t *e = first; e; e = e->selected.next) {
             if (i >= space)
-                args = memcheck(realloc(args, (space += 100)*sizeof(char*)));
+                args = memcheck(reallocf(args, (space += 100)*sizeof(char*)));
             args[i++] = e->fullname;
         }
         args[i] = NULL;
@@ -849,7 +849,7 @@ void populate_files(bb_t *bb, const char *path)
         }
         if ((size_t)bb->nfiles + 1 > cap) {
             cap += 100;
-            bb->files = memcheck(realloc(bb->files, cap*sizeof(void*)));
+            bb->files = memcheck(reallocf(bb->files, cap*sizeof(void*)));
         }
         strcpy(&pathbuf[pathbuflen], dp->d_name);
         entry_t *entry = load_entry(bb, pathbuf);
