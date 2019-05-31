@@ -106,7 +106,7 @@ typedef struct bb_s {
     int show_dotfiles : 1;
 } bb_t;
 
-typedef enum { BB_NOP = 0, BB_INVALID, BB_REFRESH, BB_QUIT } bb_result_t;
+typedef enum { BB_OK = 0, BB_INVALID, BB_QUIT } bb_result_t;
 
 // Functions
 static void update_term_size(int sig);
@@ -887,13 +887,13 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
             else // +.:
                 set_bool(bb->show_dot);
             populate_files(bb, bb->path);
-            return BB_NOP;
+            return BB_OK;
         }
         case 'a': { // +align:
             if (!value) return BB_INVALID;
             strncpy(bb->aligns, value, MAX_COLS);
             bb->dirty = 1;
-            return BB_NOP;
+            return BB_OK;
         }
         case 'c': { // +cd:, +columns:
             switch (cmd[1]) {
@@ -913,7 +913,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                     if (!rpbuf) return BB_INVALID;
                     if (strcmp(rpbuf, bb->path) == 0) {
                         free(rpbuf);
-                        return BB_NOP;
+                        return BB_OK;
                     }
                     if (chdir(rpbuf)) {
                         free(rpbuf);
@@ -932,7 +932,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                         }
                     }
                     free(oldpath);
-                    return BB_REFRESH;
+                    return BB_OK;
                 }
                 case 'o': { // +columns:
                     if (!value) return BB_INVALID;
@@ -951,7 +951,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                         }
                     }
                     bb->dirty = 1;
-                    return BB_NOP;
+                    return BB_OK;
                 }
             }
             return BB_INVALID;
@@ -962,7 +962,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                     if (!value) value = bb->files[bb->cursor]->name;
                     if (strcmp(value, "*") == 0) {
                         clear_selection(bb);
-                        return BB_NOP;
+                        return BB_OK;
                     } else {
                         entry_t *e = load_entry(bb, value);
                         if (e) {
@@ -970,13 +970,13 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                             if (e->refcount <= 0)
                                 remove_entry(e);
                         }
-                        return BB_NOP;
+                        return BB_OK;
                     }
                 }
                 case 'o': { // +dotfiles:
                     set_bool(bb->show_dotfiles);
                     populate_files(bb, bb->path);
-                    return BB_NOP;
+                    return BB_OK;
                 }
             }
         }
@@ -986,7 +986,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
             if (!e) return BB_INVALID;
             if (e->index >= 0) {
                 set_cursor(bb, e->index);
-                return BB_NOP;
+                return BB_OK;
             }
             char *real = realpath(e->fullname, NULL);
             if (!real) return BB_INVALID;
@@ -1001,7 +1001,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
             free(real); // estate
             if (e->index >= 0)
                 set_cursor(bb, e->index);
-            return BB_NOP;
+            return BB_OK;
         }
         case 'j': { // +jump:
             if (!value) return BB_INVALID;
@@ -1024,7 +1024,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                     if (bb->marks[(int)key])
                         free(bb->marks[(int)key]);
                     bb->marks[(int)key] = memcheck(strdup(value));
-                    return BB_NOP;
+                    return BB_OK;
                 }
                 default: { // +move:
                     int oldcur, isdelta, n;
@@ -1044,16 +1044,15 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                                 toggle_entry(bb, bb->files[i]);
                         }
                     }
-                    return BB_NOP;
+                    return BB_OK;
                 }
             }
         }
         case 'q': // +quit
             return BB_QUIT;
-        case 'r': { // +refresh
+        case 'r': // +refresh
             populate_files(bb, bb->path);
-            return BB_REFRESH;
-        }
+            return BB_OK;
         case 's': // +scroll:, +select:, +sort:, +spread:
             switch (cmd[1]) {
                 case 'c': { // scroll:
@@ -1067,7 +1066,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                         set_scroll(bb, bb->scroll + n);
                     else
                         set_scroll(bb, n);
-                    return BB_NOP;
+                    return BB_OK;
                 }
 
                 case '\0': case 'e': // +select:
@@ -1082,13 +1081,13 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                         entry_t *e = load_entry(bb, value);
                         if (e) select_entry(bb, e);
                     }
-                    return BB_REFRESH;
+                    return BB_OK;
 
                 case 'o': // +sort:
                     if (!value) return BB_INVALID;
                     set_sort(bb, value);
                     sort_files(bb);
-                    return BB_REFRESH;
+                    return BB_OK;
 
                 case 'p': // +spread:
                     goto move;
@@ -1100,7 +1099,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                 toggle_entry(bb, e);
                 if (e->refcount <= 0) remove_entry(e);
             }
-            return BB_NOP;
+            return BB_OK;
         }
         default: err("UNKNOWN COMMAND: '%s'", cmd); break;
     }
@@ -1162,17 +1161,10 @@ void bb_browse(bb_t *bb, const char *path)
         while (cmdfile && getdelim(&cmd, &cap, '\0', cmdfile) >= 0) {
             cmdpos = ftell(cmdfile);
             if (!cmd[0]) continue;
-            switch (execute_cmd(bb, cmd)) {
-                case BB_NOP: case BB_INVALID:
-                    break;
-                case BB_REFRESH:
-                    free(cmd);
-                    fclose(cmdfile);
-                    goto refresh;
-                case BB_QUIT:
-                    free(cmd);
-                    fclose(cmdfile);
-                    goto quit;
+            if (execute_cmd(bb, cmd) == BB_QUIT) {
+                free(cmd);
+                fclose(cmdfile);
+                goto quit;
             }
         }
         free(cmd);
@@ -1270,14 +1262,9 @@ void bb_browse(bb_t *bb, const char *path)
             if (cmdpos != 0)
                 err("Command file still open");
             if (binding->command[0] == '+') {
-                switch (execute_cmd(bb, binding->command + 1)) {
-                    case BB_NOP: goto refresh;
-                    case BB_INVALID: break;
-                    case BB_REFRESH: goto refresh;
-                    case BB_QUIT: goto quit;
-                }
-                if (bb->dirty) goto refresh;
-                goto get_keyboard_input;
+                if (execute_cmd(bb, binding->command + 1) == BB_QUIT)
+                    goto quit;
+                goto refresh;
             }
             move_cursor(tty_out, 0, termheight-1);
             if (binding->flags & NORMAL_TERM) {
