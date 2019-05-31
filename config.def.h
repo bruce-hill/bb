@@ -23,7 +23,6 @@
 
         .:[01]                    Whether to show "." in each directory
         ..:[01]                   Whether to show ".." in each directory
-        align:<col-aligns>        Direction of column text alignment ('r' for right, 'c' for center, and 'l' for left)
         cd:<path>                 Navigate to <path>
         columns:<columns>         Change which columns are visible, and in what order
         deselect:<filename>       Deselect <filename>

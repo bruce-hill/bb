@@ -24,7 +24,7 @@
 #include "config.h"
 #include "bterm.h"
 
-#define BB_VERSION "0.11.2"
+#define BB_VERSION "0.11.3"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -107,8 +107,6 @@ typedef struct bb_s {
     char *marks[128]; // Mapping from key to directory
     char sort[MAX_SORT+1];
     char columns[MAX_COLS+1];
-    char aligns[MAX_COLS+1]; // l,r,c
-    int colwidths[MAX_COLS+1];
     unsigned int dirty : 1;
     unsigned int show_dotdot : 1;
     unsigned int show_dot : 1;
@@ -165,9 +163,17 @@ static FILE *tty_out = NULL, *tty_in = NULL;
 static int termwidth, termheight;
 static int mouse_x, mouse_y;
 static char *cmdfilename = NULL;
-static const int colsizew = 9, coldatew = 21, colpermw = 5, colnamew = 40,
-             colselw = 2, colrandw = 2;
 static struct timespec lastclick = {0, 0};
+static const int colwidths[128] = {
+    [COL_SELECTED] = 2,
+    [COL_SIZE] =     9,
+    [COL_MTIME] =    21,
+    [COL_ATIME] =    21,
+    [COL_CTIME] =    21,
+    [COL_PERM] =     5,
+    [COL_NAME] =     40,
+    [COL_RANDOM] =   2,
+};
 
 
 /*
@@ -393,11 +399,11 @@ void render(bb_t *bb)
                 case COL_SELECTED: title = "*"; break;
                 case COL_RANDOM: title = "Random"; break;
                 case COL_NAME: title = "Name"; break;
-                case COL_SIZE: title = "Size"; break;
+                case COL_SIZE: title = "   Size"; break;
                 case COL_PERM: title = "Permissions"; break;
-                case COL_MTIME: title = "Modified"; break;
-                case COL_ATIME: title = "Accessed"; break;
-                case COL_CTIME: title = "Created"; break;
+                case COL_MTIME: title = "      Modified"; break;
+                case COL_ATIME: title = "      Accessed"; break;
+                case COL_CTIME: title = "      Created"; break;
                 default: title = ""; break;
             }
             move_cursor(tty_out, x, 1);
@@ -405,14 +411,13 @@ void render(bb_t *bb)
                 fputs("│\033[K", tty_out);
                 x += 1;
             }
-            int k = bb->aligns[col] == 'c' ? 1 : (bb->aligns[col] == 'r' ? 2 : 0);
             const char *indicator = " ";
             if (bb->columns[col] == bb->sort[1])
                 indicator = bb->sort[0] == '-' ? RSORT_INDICATOR : SORT_INDICATOR;
-            move_cursor(tty_out, x + MAX(0, ((bb->colwidths[col] - (int)strlen(title) - 1)*k)/2), 1);
+            move_cursor(tty_out, x, 1);
             fputs(indicator, tty_out);
             fputs(title, tty_out);
-            x += bb->colwidths[col];
+            x += colwidths[(int)bb->columns[col]];
         }
         fputs(" \033[K\033[0m", tty_out);
     }
@@ -455,16 +460,14 @@ void render(bb_t *bb)
                 fputs(i == bb->cursor ? CURSOR_COLOR : "\033[0m", tty_out);
                 x += 1;
             }
-            int k = bb->aligns[col] == 'c' ? 1 : (bb->aligns[col] == 'r' ? 2 : 0);
+            move_cursor(tty_out, x, y);
             switch (bb->columns[col]) {
                 case COL_SELECTED:
-                    move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - colselw))/2), y);
                     fputs(IS_SELECTED(entry) ? SELECTED_INDICATOR : NOT_SELECTED_INDICATOR, tty_out);
                     fputs(i == bb->cursor ? CURSOR_COLOR : "\033[0m", tty_out);
                     break;
 
                 case COL_RANDOM:
-                    move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - colrandw))/2), y);
                     fprintf(tty_out, "\033[48;5;%dm  \033[0m%s", 232 + (entry->shufflepos / (RAND_MAX / (255-232))),
                             i == bb->cursor ? CURSOR_COLOR : "\033[0m");
                     break;
@@ -477,31 +480,26 @@ void render(bb_t *bb)
                         bytes /= 1024;
                         j++;
                     }
-                    move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - colsizew))/2), y);
                     fprintf(tty_out, " %6.*f%c ", j > 0 ? 1 : 0, bytes, units[j]);
                     break;
                 }
 
                 case COL_MTIME:
-                    move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - coldatew))/2), y);
                     strftime(buf, sizeof(buf), " %I:%M%p %b %e %Y ", localtime(&(entry->info.st_mtime)));
                     fputs(buf, tty_out);
                     break;
 
                 case COL_CTIME:
-                    move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - coldatew))/2), y);
                     strftime(buf, sizeof(buf), " %I:%M%p %b %e %Y ", localtime(&(entry->info.st_ctime)));
                     fputs(buf, tty_out);
                     break;
 
                 case COL_ATIME:
-                    move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - coldatew))/2), y);
                     strftime(buf, sizeof(buf), " %I:%M%p %b %e %Y ", localtime(&(entry->info.st_atime)));
                     fputs(buf, tty_out);
                     break;
 
                 case COL_PERM:
-                    move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - colpermw))/2), y);
                     fprintf(tty_out, " %03o", entry->info.st_mode & 0777);
                     break;
 
@@ -509,8 +507,6 @@ void render(bb_t *bb)
                     char color[128];
                     strcpy(color, color_of(entry->info.st_mode));
                     if (i == bb->cursor) strcat(color, CURSOR_COLOR);
-
-                    move_cursor(tty_out, x + MAX(0, (k*(bb->colwidths[col] - (int)strlen(entry->name)))/2), y);
                     fputs(color, tty_out);
 
                     if (entry->no_esc) fputs(entry->name, tty_out);
@@ -539,7 +535,7 @@ void render(bb_t *bb)
                 }
                 default: break;
             }
-            x += bb->colwidths[col];
+            x += colwidths[(int)bb->columns[col]];
         }
         fputs(" \033[K\033[0m", tty_out); // Reset color and attributes
     }
@@ -941,12 +937,6 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
             populate_files(bb, bb->path);
             return BB_OK;
         }
-        case 'a': { // +align:
-            if (!value) return BB_INVALID;
-            strncpy(bb->aligns, value, MAX_COLS);
-            bb->dirty = 1;
-            return BB_OK;
-        }
         case 'c': { // +cd:, +columns:
             switch (cmd[1]) {
                 case 'd': { // +cd:
@@ -957,18 +947,6 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                 case 'o': { // +columns:
                     if (!value) return BB_INVALID;
                     strncpy(bb->columns, value, MAX_COLS);
-                    for (int i = 0; i < value[i] && i < MAX_COLS; i++) {
-                        int *colw = &bb->colwidths[i];
-                        switch (value[i]) {
-                            case COL_CTIME: case COL_MTIME: case COL_ATIME:
-                                *colw = coldatew; break;
-                            case COL_SIZE: *colw = colsizew; break;
-                            case COL_PERM: *colw = colpermw; break;
-                            case COL_NAME: *colw = colnamew; break;
-                            case COL_SELECTED: *colw = colselw; break;
-                            case COL_RANDOM: *colw = colrandw; break;
-                        }
-                    }
                     bb->dirty = 1;
                     return BB_OK;
                 }
@@ -1134,6 +1112,8 @@ void bb_browse(bb_t *bb, const char *path)
     int check_cmds = 1;
 
     cd_to(bb, path);
+    bb->scroll = 0;
+    bb->cursor = 0;
 
     for (int i = 0; startupcmds[i]; i++) {
         if (startupcmds[i][0] == '+') {
@@ -1147,11 +1127,7 @@ void bb_browse(bb_t *bb, const char *path)
 
     init_term();
     fputs(T_ON(T_ALT_SCREEN), tty_out);
-    bb->scroll = 0;
-    bb->cursor = 0;
-
-  refresh:
-    bb->dirty = 1;
+    goto force_check_cmds;
 
   redraw:
     render(bb);
@@ -1165,7 +1141,9 @@ void bb_browse(bb_t *bb, const char *path)
     }
 
     if (check_cmds) {
-        FILE *cmdfile = fopen(cmdfilename, "r");
+        FILE *cmdfile;
+      force_check_cmds:
+        cmdfile = fopen(cmdfilename, "r");
         if (!cmdfile) {
             if (bb->dirty) goto redraw;
             goto get_keyboard_input;
@@ -1207,7 +1185,7 @@ void bb_browse(bb_t *bb, const char *path)
             char column[3] = "+?";
             for (int col = 0, x = 0; bb->columns[col]; col++) {
                 if (col > 0) x += 1;
-                x += bb->colwidths[col];
+                x += colwidths[(int)bb->columns[col]];
                 if (x >= mouse_x) {
                     column[1] = bb->columns[col];
                     break;
@@ -1219,7 +1197,7 @@ void bb_browse(bb_t *bb, const char *path)
                     column[0] = '-';
                 set_sort(bb, column);
                 sort_files(bb);
-                goto refresh;
+                goto redraw;
             } else if (2 <= mouse_y && mouse_y <= termheight - 2) {
                 int clicked = bb->scroll + (mouse_y - 2);
                 if (clicked > bb->nfiles - 1) goto next_input;
@@ -1467,7 +1445,7 @@ int main(int argc, char *argv[])
 
     bb_t *bb = memcheck(calloc(1, sizeof(bb_t)));
     bb->columns[0] = COL_NAME;
-    strcpy(bb->sort, "+/+n");
+    strcpy(bb->sort, "+n");
     bb_browse(bb, real);
     free(real);
 
