@@ -41,6 +41,16 @@
 #define LOWERCASE(c) ('A' <= (c) && (c) <= 'Z' ? ((c) + 'a' - 'A') : (c))
 #define E_ISDIR(e) (S_ISDIR(S_ISLNK((e)->info.st_mode) ? (e)->linkedmode : (e)->info.st_mode))
 
+#ifdef __APPLE__
+#define mtime(s) (s).st_mtimespec
+#define atime(s) (s).st_atimespec
+#define ctime(s) (s).st_ctimespec
+#else
+#define mtime(s) (s).st_mtim
+#define atime(s) (s).st_atim
+#define ctime(s) (s).st_ctim
+#endif
+
 #define err(...) do { \
     cleanup(); \
     fprintf(stderr, __VA_ARGS__); \
@@ -120,7 +130,7 @@ static int fputs_escaped(FILE *f, const char *str, const char *color);
 static const char* color_of(mode_t mode);
 static void set_sort(bb_t *bb, const char *sort);
 static void render(bb_t *bb);
-static int compare_files(const void *v1, const void *v2);
+static int compare_files(void *v, const void *v1, const void *v2);
 static void clear_selection(bb_t *bb);
 static void select_entry(bb_t *bb, entry_t *e);
 static void deselect_entry(bb_t *bb, entry_t *e);
@@ -153,7 +163,6 @@ static char *cmdfilename = NULL;
 static const int colsizew = 7, coldatew = 19, colpermw = 5, colnamew = 40,
              colselw = 2, coldirw = 1, colrandw = 2;
 static struct timespec lastclick = {0, 0};
-static bb_t *bb = NULL;
 
 
 /*
@@ -566,10 +575,11 @@ void render(bb_t *bb)
  * Used for sorting, this function compares files according to the sorting-related options,
  * like bb->sort
  */
-int compare_files(const void *v1, const void *v2)
+int compare_files(void *v, const void *v1, const void *v2)
 {
 #define COMPARE(a, b) if ((a) != (b)) { return sign*((a) < (b) ? 1 : -1); }
 #define COMPARE_TIME(t1, t2) COMPARE((t1).tv_sec, (t2).tv_sec) COMPARE((t1).tv_nsec, (t2).tv_nsec)
+    bb_t *bb = (bb_t*)v;
     const entry_t *e1 = *((const entry_t**)v1), *e2 = *((const entry_t**)v2);
     for (char *sort = bb->sort + 1; *sort; sort += 2) {
         int sign = sort[-1] == '-' ? -1 : 1;
@@ -608,9 +618,9 @@ int compare_files(const void *v1, const void *v2)
             }
             case COL_PERM: COMPARE((e1->info.st_mode & 0x3FF), (e2->info.st_mode & 0x3FF)); break;
             case COL_SIZE: COMPARE(e1->info.st_size, e2->info.st_size); break;
-            case COL_MTIME: COMPARE_TIME(e1->info.st_mtim, e2->info.st_mtim); break;
-            case COL_CTIME: COMPARE_TIME(e1->info.st_ctim, e2->info.st_ctim); break;
-            case COL_ATIME: COMPARE_TIME(e1->info.st_atim, e2->info.st_atim); break;
+            case COL_MTIME: COMPARE_TIME(mtime(e1->info), mtime(e2->info)); break;
+            case COL_CTIME: COMPARE_TIME(ctime(e1->info), ctime(e2->info)); break;
+            case COL_ATIME: COMPARE_TIME(atime(e1->info), atime(e2->info)); break;
             case COL_RANDOM: COMPARE(e1->shufflepos, e2->shufflepos); break;
         }
     }
@@ -792,7 +802,7 @@ void remove_entry(entry_t *e)
 
 void sort_files(bb_t *bb)
 {
-    qsort(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), compare_files);
+    qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), &bb, compare_files);
     for (int i = 0; i < bb->nfiles; i++) {
         bb->files[i]->index = i;
     }
@@ -1447,7 +1457,7 @@ int main(int argc, char *argv[])
     char *real = realpath(initial_path, NULL);
     if (!real || chdir(real)) err("Not a valid path: %s\n", initial_path);
 
-    bb = memcheck(calloc(1, sizeof(bb_t)));
+    bb_t *bb = memcheck(calloc(1, sizeof(bb_t)));
     bb->columns[0] = COL_NAME;
     strcpy(bb->sort, "+/+n");
     bb_browse(bb, real);

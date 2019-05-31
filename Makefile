@@ -1,8 +1,11 @@
 PREFIX=
 CC=gcc
 CFLAGS=-O0 -std=gnu99 -D_XOPEN_SOURCE=500 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L -Wall -Wpedantic -Wno-unknown-pragmas
-#-fsanitize=address -fno-omit-frame-pointer\
-#-Weverything -Wno-missing-field-initializers -Wno-padded -Wno-missing-noreturn -Wno-cast-qual \
+UNAME := $(shell uname)
+ifeq ($(UNAME),Darwin)
+CFLAGS += -D_DARWIN_C_SOURCE -fsanitize=address -fno-omit-frame-pointer\
+	-Weverything -Wno-missing-field-initializers -Wno-padded -Wno-missing-noreturn -Wno-cast-qual
+endif
 LIBS=
 NAME=bb
 G=-g
