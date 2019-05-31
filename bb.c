@@ -223,10 +223,6 @@ void close_term(void)
         tty_out = NULL;
         fclose(tty_in);
         tty_in = NULL;
-    } else {
-        fputs(T_LEAVE_BBMODE_PARTIAL, stdout);
-        fputs(T_ON(T_WRAP), stdout);
-        fflush(stdout);
     }
     signal(SIGWINCH, SIG_DFL);
 }
@@ -255,9 +251,9 @@ void cleanup(void)
         free(cmdfilename);
         cmdfilename = NULL;
     }
+    if (tty_out)
+        fputs(T_OFF(T_ALT_SCREEN), tty_out);
     close_term();
-    fputs(T_OFF(T_ALT_SCREEN), stdout);
-    fflush(stdout);
 }
 
 /*
