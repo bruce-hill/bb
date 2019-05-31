@@ -198,7 +198,7 @@ done)/*ENDQUOTE*/, "Regex rename files", AT_CURSOR},
     {{KEY_CTRL_U},           "+scroll:-50%", "Half page up"},
     {{KEY_MOUSE_WHEEL_DOWN}, "+scroll:+3", "Scroll down"},
     {{KEY_MOUSE_WHEEL_UP},   "+scroll:-3", "Scroll up"},
-    {0}, // Array must be 0-terminated
+    {{0}}, // Array must be 0-terminated
 };
 #pragma clang diagnostic pop
 
