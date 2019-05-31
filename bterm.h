@@ -263,7 +263,7 @@ const char *bkeyname(int key)
         case KEY_MOUSE_RELEASE: return "Mouse release";
         case KEY_MOUSE_WHEEL_UP: return "Mouse wheel up";
         case KEY_MOUSE_WHEEL_DOWN: return "Mouse wheel down";
-        case KEY_MOUSE_DOUBLE_LEFT: return "Mouse double left";
+        case KEY_MOUSE_DOUBLE_LEFT: return "Double left click";
         case KEY_CTRL_TILDE: return "Ctrl-[2~]";
         case KEY_CTRL_A: return "Ctrl-a";
         case KEY_CTRL_B: return "Ctrl-b";
