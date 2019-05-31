@@ -38,6 +38,7 @@
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
 #define IS_SELECTED(p) (((p)->selected.atme) != NULL)
+#define IS_VIEWED(p) ((p)->index >= 0)
 #define LOWERCASE(c) ('A' <= (c) && (c) <= 'Z' ? ((c) + 'a' - 'A') : (c))
 #define E_ISDIR(e) (S_ISDIR(S_ISLNK((e)->info.st_mode) ? (e)->linkedmode : (e)->info.st_mode))
 
@@ -88,7 +89,6 @@ typedef struct entry_s {
     char *name, *linkname;
     struct stat info;
     mode_t linkedmode;
-    unsigned int refcount : 2; // Should only be between 0-2
     int no_esc : 1;
     int link_no_esc : 1;
     int shufflepos;
@@ -251,6 +251,7 @@ void cleanup(void)
 {
     if (cmdfilename) {
         unlink(cmdfilename);
+        free(cmdfilename);
         cmdfilename = NULL;
     }
     close_term();
@@ -644,10 +645,11 @@ void clear_selection(bb_t *bb)
 {
     for (entry_t *next, *e = bb->firstselected; e; e = next) {
         next = e->selected.next;
-        *(e->selected.atme) = NULL;
         e->selected.atme = NULL;
-        if (--e->refcount <= 0) remove_entry(e);
+        e->selected.next = NULL;
+        if (!IS_VIEWED(e)) remove_entry(e);
     }
+    bb->firstselected = NULL;
 }
 
 /*
@@ -662,7 +664,6 @@ void select_entry(bb_t *bb, entry_t *e)
         bb->firstselected->selected.atme = &e->selected.next;
     e->selected.next = bb->firstselected;
     e->selected.atme = &bb->firstselected;
-    ++e->refcount;
     bb->firstselected = e;
 }
 
@@ -672,15 +673,15 @@ void select_entry(bb_t *bb, entry_t *e)
 void deselect_entry(bb_t *bb, entry_t *e)
 {
     (void)bb;
-    if (!IS_SELECTED(e)) return;
-    if (bb->nfiles > 0 && e != bb->files[bb->cursor])
+    if (IS_SELECTED(e)) {
         bb->dirty = 1;
-    if (e->selected.next)
-        e->selected.next->selected.atme = e->selected.atme;
-    *(e->selected.atme) = e->selected.next;
-    --e->refcount;
-    e->selected.next = NULL;
-    e->selected.atme = NULL;
+        if (e->selected.next)
+            e->selected.next->selected.atme = e->selected.atme;
+        *(e->selected.atme) = e->selected.next;
+        e->selected.next = NULL;
+        e->selected.atme = NULL;
+    }
+    if (!IS_VIEWED(e)) remove_entry(e);
 }
 
 /*
@@ -799,13 +800,13 @@ entry_t* load_entry(bb_t *bb, const char *path)
 
 void remove_entry(entry_t *e)
 {
-    if (e->refcount > 0) err("Attempt to remove in-use entry");
+    if (IS_SELECTED(e)) err("Attempt to remove an entry while it is still selected.");
     if (e->hash.next)
         e->hash.next->hash.atme = e->hash.atme;
     *(e->hash.atme) = e->hash.next;
     e->hash.atme = NULL;
     e->hash.next = NULL;
-    free(e);
+    if (!IS_SELECTED(e)) free(e);
 }
 
 void sort_files(bb_t *bb)
@@ -832,10 +833,9 @@ void populate_files(bb_t *bb, const char *path)
     // Clear old files (if any)
     if (bb->files) {
         for (int i = 0; i < bb->nfiles; i++) {
-            if (--bb->files[i]->refcount <= 0)
+            bb->files[i]->index = -1;
+            if (!IS_SELECTED(bb->files[i]))
                 remove_entry(bb->files[i]);
-            else
-                bb->files[i]->index = -1;
             bb->files[i] = NULL;
         }
         free(bb->files);
@@ -874,7 +874,6 @@ void populate_files(bb_t *bb, const char *path)
         strcpy(&pathbuf[pathbuflen], dp->d_name);
         entry_t *entry = load_entry(bb, pathbuf);
         if (!entry) err("Failed to load entry: '%s'", dp->d_name);
-        ++entry->refcount;
         entry->index = bb->nfiles;
         bb->files[bb->nfiles++] = entry;
     }
@@ -945,9 +944,9 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                     if (strcmp(value, "..") == 0) {
                         entry_t *old = load_entry(bb, oldpath);
                         if (old) {
-                            if (old->index >= 0)
+                            if (IS_VIEWED(old))
                                 set_cursor(bb, old->index);
-                            if (old->refcount <= 0)
+                            else if (!IS_SELECTED(old))
                                 remove_entry(old);
                         }
                     }
@@ -985,11 +984,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                         return BB_OK;
                     } else {
                         entry_t *e = load_entry(bb, value);
-                        if (e) {
-                            deselect_entry(bb, e);
-                            if (e->refcount <= 0)
-                                remove_entry(e);
-                        }
+                        if (e) deselect_entry(bb, e);
                         return BB_OK;
                     }
                 }
@@ -1115,10 +1110,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
         case 't': { // +toggle:
             if (!value) value = bb->files[bb->cursor]->name;
             entry_t *e = load_entry(bb, value);
-            if (e) {
-                toggle_entry(bb, e);
-                if (e->refcount <= 0) remove_entry(e);
-            }
+            if (e) toggle_entry(bb, e);
             return BB_OK;
         }
         default: err("UNKNOWN COMMAND: '%s'", cmd); break;
@@ -1490,12 +1482,14 @@ int main(int argc, char *argv[])
         }
         fflush(stdout);
     }
-    if (print_dir) {
-        printf("%s\n", initial_path);
-    }
+    if (print_dir)
+        printf("%s\n", bb->path);
+
+    clear_selection(bb);
     for (int m = 0; m < 128; m++)
         if (bb->marks[m]) free(bb->marks[m]);
     free(bb);
+    if (cmdfilename) free(cmdfilename);
 
     return 0;
 }
