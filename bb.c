@@ -130,7 +130,11 @@ static int fputs_escaped(FILE *f, const char *str, const char *color);
 static const char* color_of(mode_t mode);
 static void set_sort(bb_t *bb, const char *sort);
 static void render(bb_t *bb);
+#ifdef __APPLE__
 static int compare_files(void *v, const void *v1, const void *v2);
+#else
+static int compare_files(const void *v1, const void *v2, void *v);
+#endif
 static void clear_selection(bb_t *bb);
 static void select_entry(bb_t *bb, entry_t *e);
 static void deselect_entry(bb_t *bb, entry_t *e);
@@ -575,7 +579,11 @@ void render(bb_t *bb)
  * Used for sorting, this function compares files according to the sorting-related options,
  * like bb->sort
  */
+#ifdef __APPLE__
 int compare_files(void *v, const void *v1, const void *v2)
+#else
+int compare_files(const void *v1, const void *v2, void *v)
+#endif
 {
 #define COMPARE(a, b) if ((a) != (b)) { return sign*((a) < (b) ? 1 : -1); }
 #define COMPARE_TIME(t1, t2) COMPARE((t1).tv_sec, (t2).tv_sec) COMPARE((t1).tv_nsec, (t2).tv_nsec)
