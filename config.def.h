@@ -74,7 +74,6 @@
 #define DIR_COLOR        "\033[34m"
 #define EXECUTABLE_COLOR "\033[31m"
 
-#define PIPE_SELECTION_TO " printf '%s\\n' \"$@\" | "
 #define PAUSE " read -n1 -p '\033[2mPress any key to continue...\033[0m\033[?25l'"
 
 #define NORMAL_TERM     (1<<0)
@@ -169,7 +168,7 @@ else xdg-open "$BBCURSOR"; fi
     {{'C'},                  "bb '+de:*'; for f; do cp \"$f\" \"$f.copy\" && bb \"+sel:$f.copy\"; done; bb +r", EM("Clone")" files"},
     {{'n'},                  "name=`bb '?New file: '` && touch \"$name\"; bb +r \"+goto:$name\"", EM("New file")},
     {{'N'},                  "name=`bb '?New dir: '` && mkdir \"$name\"; bb +r \"+goto:$name\"", EM("New directory")},
-    {{'|'},                  "cmd=`bb '?|'` && " PIPE_SELECTION_TO "sh -c \"$cmd\" && " PAUSE "; bb +r",
+    {{'|'},                  "cmd=`bb '?|'` && printf '%s\\n' \"$@\" | sh -c \"$cmd\"; " PAUSE "; bb +r",
                              EM("Pipe")" selected files to a command"},
     {{':'},                  "sh -c \"`bb '?:'`\" -- \"$@\"; " PAUSE "; bb +refresh",
                              EM("Run")" a command"},
