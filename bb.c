@@ -503,9 +503,10 @@ void render(bb_t *bb)
                     if (entry->linkname) {
                         if (i != bb->cursor)
                             fputs("\033[37m", tty_out);
-                        fputs("\033[2m -> \033[22;3m", tty_out);
+                        fputs("\033[2m -> \033[3m", tty_out);
                         strcpy(color, color_of(entry->linkedmode));
                         if (i == bb->cursor) strcat(color, CURSOR_COLOR);
+                        strcat(color, "\033[3;2m");
                         fputs(color, tty_out);
                         if (entry->link_no_esc) fputs(entry->linkname, tty_out);
                         else entry->link_no_esc |= !fputs_escaped(tty_out, entry->linkname, color);
