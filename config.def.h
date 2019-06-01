@@ -126,99 +126,113 @@ const column_t columns[128] = {
 #pragma clang diagnostic ignored "-Wdollar-in-identifier-extension"
 #endif
 extern binding_t bindings[];
-#define EM(s) "\033[33;4m" s "\033[0;34m"
+#define B(s) "\033[1m" s "\033[22m"
 binding_t bindings[] = {
-    //////////////////////////////////////////////////////////////////////////
-    // User-defined custom scripts can go here
-    // Please note that these are sh scripts, not bash scripts, so bash-isms
-    // won't work unless you make your script use `bash -c "<your script>"`
-    //////////////////////////////////////////////////////////////////////////
-    {{'?', KEY_F1},          "bb -b | $PAGER -r", EM("Help")" menu", NORMAL_TERM},
-    {{'q', 'Q'},             "+quit", EM("Quit")},
-    {{'j', KEY_ARROW_DOWN},  "+move:+1", EM("Next")" file"},
-    {{'k', KEY_ARROW_UP},    "+move:-1", EM("Previous")" file"},
-    {{'h', KEY_ARROW_LEFT},  "+cd:..", EM("Parent")" directory"},
-    {{'l', KEY_ARROW_RIGHT}, "test -d \"$BBCURSOR\" && bb \"+cd:$BBCURSOR\"", EM("Enter")" a directory"},
+    /*************************************************************************
+     * User-defined custom scripts can go here
+     * Format is: {{keys}, "script", "help text", flags}
+     *
+     * For longer scripts you can use QUOTE(...) instead of "..." and all
+     * quotation marks and newlines and backslashes will get escaped properly.
+     *
+     * Please note that these are sh scripts, not bash scripts, so bash-isms
+     * won't work unless you make your script use `bash -c "<your script>"`
+     ************************************************************************/
+    {{'?', KEY_F1}, "bb -b | $PAGER -r", B("Help")" menu", NORMAL_TERM},
+    {{'q', 'Q'}, "+quit", B("Quit")},
+    {{'j', KEY_ARROW_DOWN}, "+move:+1", B("Next")" file"},
+    {{'k', KEY_ARROW_UP}, "+move:-1", B("Previous")" file"},
+    {{'h', KEY_ARROW_LEFT}, "+cd:..", B("Parent")" directory"},
+    {{'l', KEY_ARROW_RIGHT}, "test -d \"$BBCURSOR\" && bb \"+cd:$BBCURSOR\"", B("Enter")" a directory"},
     {{'\r', KEY_MOUSE_DOUBLE_LEFT},
 #ifdef __APPLE__
         QUOTE(
-if test -d "$BBCURSOR"; then bb "+cd:$BBCURSOR";
-elif test -x "$BBCURSOR"; then "$BBCURSOR"; read -p 'Press any key to continue...' -n1;
-elif file -bI "$BBCURSOR" | grep '^\(text/\|inode/empty\)' >/dev/null; then $EDITOR "$BBCURSOR";
-else open "$BBCURSOR"; fi
+            if test -d "$BBCURSOR"; then bb "+cd:$BBCURSOR";
+            elif test -x "$BBCURSOR"; then "$BBCURSOR"; read -p 'Press any key to continue...' -n1;
+            elif file -bI "$BBCURSOR" | grep '^\(text/\|inode/empty\)' >/dev/null; then $EDITOR "$BBCURSOR";
+            else open "$BBCURSOR"; fi
         )/*ENDQUOTE*/,
 #else
         QUOTE(
-if test -d "$BBCURSOR"; then bb "+cd:$BBCURSOR";
-elif file -bi "$BBCURSOR" | grep '^\(text/\|inode/empty\)' >/dev/null; then $EDITOR "$BBCURSOR";
-else xdg-open "$BBCURSOR"; fi
+            if test -d "$BBCURSOR"; then bb "+cd:$BBCURSOR";
+            elif file -bi "$BBCURSOR" | grep '^\(text/\|inode/empty\)' >/dev/null; then $EDITOR "$BBCURSOR";
+            else xdg-open "$BBCURSOR"; fi
         )/*ENDQUOTE*/,
 #endif
-        EM("Open")" file/directory", NORMAL_TERM},
-    {{' ','v','V'},          "+toggle", EM("Toggle")" selection"},
-    {{KEY_ESC},              "+deselect:*", EM("Clear")" selection"},
-    {{'e'},                  "$EDITOR \"$@\"", EM("Edit")" file in $EDITOR", NORMAL_TERM},
-    {{KEY_CTRL_F},           "bb \"+g:`fzf`\"", EM("Fuzzy search")" for file", NORMAL_TERM},
-    {{'/'},                  "bb \"+g:`ls -a|fzf`\"", EM("Fuzzy select")" file", NORMAL_TERM},
-    {{'d', KEY_DELETE},      "rm -rfi \"$@\"; bb '+de:*' +r", EM("Delete")" files", AT_CURSOR},
-    {{'D'},                  "rm -rf \"$@\"; bb '+de:*' +r", EM("Delete")" files (without confirmation)"},
-    {{'M'},                  "mv -i \"$@\" .; bb '+de:*' +r; for f; do bb \"+sel:`pwd`/`basename \"$f\"`\"; done",
-                             EM("Move")" files to current directory"},
-    {{'c'},                  "cp -i \"$@\" .; bb +r", EM("Copy")" files to current directory"},
-    {{'C'},                  "bb '+de:*'; for f; do cp \"$f\" \"$f.copy\" && bb \"+sel:$f.copy\"; done; bb +r", EM("Clone")" files"},
-    {{'n'},                  "name=`bb '?New file: '` && touch \"$name\"; bb +r \"+goto:$name\"", EM("New file")},
-    {{'N'},                  "name=`bb '?New dir: '` && mkdir \"$name\"; bb +r \"+goto:$name\"", EM("New directory")},
-    {{'|'},                  "cmd=`bb '?|'` && printf '%s\\n' \"$@\" | sh -c \"$cmd\"; " PAUSE "; bb +r",
-                             EM("Pipe")" selected files to a command"},
-    {{':'},                  "sh -c \"`bb '?:'`\" -- \"$@\"; " PAUSE "; bb +refresh",
-                             EM("Run")" a command"},
-    {{'>'},                  "$SHELL", "Open a "EM("shell"), NORMAL_TERM},
-    {{'m'}, "read -n1 -p 'Mark: ' m && bb \"+mark:$m;$PWD\"", "Set "EM("mark")},
-    {{'\''}, "read -n1 -p 'Jump: ' j && bb \"+jump:$j\"", EM("Jump")" to mark"},
+        B("Open")" file/directory", NORMAL_TERM},
+    {{' ','v','V'}, "+toggle", B("Toggle")" selection"},
+    {{KEY_ESC}, "+deselect:*", B("Clear")" selection"},
+    {{'e'}, "$EDITOR \"$@\"", B("Edit")" file in $EDITOR", NORMAL_TERM},
+    {{KEY_CTRL_F}, "bb \"+g:`fzf`\"", B("Fuzzy search")" for file", NORMAL_TERM},
+    {{'/'}, "bb \"+g:`ls -a|fzf`\"", B("Fuzzy select")" file", NORMAL_TERM},
+    {{'d', KEY_DELETE}, "rm -rfi \"$@\"; bb '+de:*' +r", B("Delete")" files", AT_CURSOR},
+    {{'D'}, "rm -rf \"$@\"; bb '+de:*' +r", B("Delete")" files (without confirmation)"},
+    {{'M'}, "mv -i \"$@\" .; bb '+de:*' +r; for f; do bb \"+sel:`pwd`/`basename \"$f\"`\"; done",
+        B("Move")" files to current directory"},
+    {{'c'}, "cp -i \"$@\" .; bb +r", B("Copy")" files to current directory"},
+    {{'C'}, "bb '+de:*'; for f; do cp \"$f\" \"$f.copy\" && bb \"+sel:$f.copy\"; done; bb +r", B("Clone")" files"},
+    {{'n'}, "name=`bb '?New file: '` && touch \"$name\"; bb +r \"+goto:$name\"", B("New file")},
+    {{'N'}, "name=`bb '?New dir: '` && mkdir \"$name\"; bb +r \"+goto:$name\"", B("New directory")},
+    {{'|'}, "cmd=`bb '?|'` && printf '%s\\n' \"$@\" | sh -c \"$cmd\"; " PAUSE "; bb +r",
+        B("Pipe")" selected files to a command"},
+    {{':'}, "sh -c \"`bb '?:'`\" -- \"$@\"; " PAUSE "; bb +refresh",
+        B("Run")" a command"},
+    {{'>'}, "$SHELL", "Open a "B("shell"), NORMAL_TERM},
+    {{'m'}, "read -n1 -p 'Mark: ' m && bb \"+mark:$m;$PWD\"", "Set "B("mark")},
+    {{'\''}, "read -n1 -p 'Jump: ' j && bb \"+jump:$j\"", B("Jump")" to mark"},
 
-    {{'r'}, QUOTE(
-bb '+deselect:*' +refresh; 
-for f; do 
-    if renamed="$(dirname "$f")/$(bb '?Rename: ' "$(basename "$f")")" &&
-        test "$f" != "$renamed" && mv -i "$f" "$renamed"; then 
-        test $BBSELECTED && bb "+select:$renamed"; 
-    elif test $BBSELECTED; then bb "+select:$f"; fi 
-done)/*ENDQUOTE*/, EM("Rename")" files", AT_CURSOR},
+    {{'r'},
+        QUOTE(
+            bb '+deselect:*' +refresh; 
+            for f; do 
+                if renamed="$(dirname "$f")/$(bb '?Rename: ' "$(basename "$f")")" &&
+                    test "$f" != "$renamed" && mv -i "$f" "$renamed"; then 
+                    test $BBSELECTED && bb "+select:$renamed"; 
+                elif test $BBSELECTED; then bb "+select:$f"; fi 
+            done)/*ENDQUOTE*/,
+        B("Rename")" files", AT_CURSOR},
 
-    {{'R'}, QUOTE(
-if patt="`bb '?Rename pattern: ' 's/'`"; then true; else bb +r; exit; fi;
-if sed -E "$patt" </dev/null; then true; else read -p 'Press any key to continue...' -n1; bb +r; exit; fi;
-bb '+deselect:*' +refresh; 
-for f; do 
-    renamed="`dirname "$f"`/`basename "$f" | sed -E "$patt"`"; 
-    if test "$f" != "$renamed" && mv -i "$f" "$renamed"; then 
-        test $BBSELECTED && bb "+select:$renamed"; 
-    elif test $BBSELECTED; then bb "+select:$f"; fi 
-done)/*ENDQUOTE*/, EM("Regex rename")" files", AT_CURSOR},
+    {{'R'},
+        QUOTE(
+            if patt="`bb '?Rename pattern: ' 's/'`"; then true; else bb +r; exit; fi;
+            if sed -E "$patt" </dev/null; then true; else read -p 'Press any key to continue...' -n1; bb +r; exit; fi;
+            bb '+deselect:*' +refresh; 
+            for f; do 
+                renamed="`dirname "$f"`/`basename "$f" | sed -E "$patt"`"; 
+                if test "$f" != "$renamed" && mv -i "$f" "$renamed"; then 
+                    test $BBSELECTED && bb "+select:$renamed"; 
+                elif test $BBSELECTED; then bb "+select:$f"; fi 
+            done)/*ENDQUOTE*/,
+        B("Regex rename")" files", AT_CURSOR},
     
-    // TODO debug:
-    {{'P'},                  "patt=`bb '?Select pattern: '` && "
-                             "for f; do echo \"$f\" | grep \"$patt\" >/dev/null 2>/dev/null && bb \"+sel:$f\"; done",
-                             EM("Regex select")" files"},
-    {{'J'},                  "+spread:+1", EM("Spread")" selection down"},
-    {{'K'},                  "+spread:-1", EM("Spread")" selection up"},
-    {{'b'},                  "bb \"+`bb '?bb +'`\"", "Run a "EM("bb command")},
-    {{'s'}, "read -n1 -p 'Sort \033[1m(a)\033[22mlphabetic "
-            "\033[1m(s)\033[22mize \033[1m(m)\033[22modification \033[1m(c)\033[22mcreation "
-            "\033[1m(a)\033[22maccess \033[1m(r)\033[22mandom \033[1m(p)\033[22mermissions:\033[0m ' sort "
-            "&& bb \"+sort:+$sort\"", EM("Sort")" by..."},
-    {{'#'},                  "bb \"+col:`bb '?Set columns: '`\"", "Set "EM("columns")},
-    {{'.'},                  "bb +dotfiles", "Toggle "EM("dotfiles")},
-    {{'g', KEY_HOME},        "+move:0", "Go to "EM("first")" file"},
-    {{'G', KEY_END},         "+move:100%n", "Go to "EM("last")" file"},
-    {{KEY_F5, KEY_CTRL_R},   "+refresh", EM("Refresh")},
-    {{KEY_CTRL_A},           "+select:*", EM("Select all")" files in current directory"},
-    {{KEY_PGDN},             "+scroll:+100%", EM("Page down")},
-    {{KEY_PGUP},             "+scroll:-100%", EM("Page up")},
-    {{KEY_CTRL_D},           "+scroll:+50%", EM("Half page down")},
-    {{KEY_CTRL_U},           "+scroll:-50%", EM("Half page up")},
-    {{KEY_MOUSE_WHEEL_DOWN}, "+scroll:+3", EM("Scroll down")},
-    {{KEY_MOUSE_WHEEL_UP},   "+scroll:-3", EM("Scroll up")},
+    {{'P'},
+        QUOTE(
+            patt=`bb '?Select pattern: '` &&
+            for f; do echo "$f" | grep "$patt" >/dev/null 2>/dev/null && bb "+sel:$f"; done
+        )/*ENDQUOTE*/,
+        B("Regex select")" files"},
+
+    {{'J'}, "+spread:+1", B("Spread")" selection down"},
+    {{'K'}, "+spread:-1", B("Spread")" selection up"},
+    {{'b'}, "bb \"+`bb '?bb +'`\"", "Run a "B("bb command")},
+    {{'s'},
+        ("read -n1 -p 'Sort "B("(a)")"lphabetic "B("(s)")"ize "B("(m)")"odification "
+         B("(c)")"creation "B("(a)")"access "B("(r)")"andom "B("(p)")"ermissions:\033[0m ' sort "
+         "&& bb \"+sort:+$sort\""),
+        B("Sort")" by..."},
+
+    {{'#'}, "bb \"+col:`bb '?Set columns: '`\"", "Set "B("columns")},
+    {{'.'}, "bb +dotfiles", "Toggle "B("dotfiles")},
+    {{'g', KEY_HOME}, "+move:0", "Go to "B("first")" file"},
+    {{'G', KEY_END}, "+move:100%n", "Go to "B("last")" file"},
+    {{KEY_F5, KEY_CTRL_R}, "+refresh", B("Refresh")},
+    {{KEY_CTRL_A}, "+select:*", B("Select all")" files in current directory"},
+    {{KEY_PGDN}, "+scroll:+100%", B("Page down")},
+    {{KEY_PGUP}, "+scroll:-100%", B("Page up")},
+    {{KEY_CTRL_D}, "+scroll:+50%", B("Half page down")},
+    {{KEY_CTRL_U}, "+scroll:-50%", B("Half page up")},
+    {{KEY_MOUSE_WHEEL_DOWN}, "+scroll:+3", B("Scroll down")},
+    {{KEY_MOUSE_WHEEL_UP}, "+scroll:-3", B("Scroll up")},
     {{0}}, // Array must be 0-terminated
 };
 #ifdef __APPLE__

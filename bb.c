@@ -452,10 +452,13 @@ void render(bb_t *bb)
                     fputs(i == bb->cursor ? CURSOR_COLOR : "\033[0m", tty_out);
                     break;
 
-                case COL_RANDOM:
-                    fprintf(tty_out, "\033[48;5;%dm  \033[0m%s", 232 + (entry->shufflepos / (RAND_MAX / (255-232))),
+                case COL_RANDOM: {
+                    double k = (double)entry->shufflepos/(double)bb->nfiles;
+                    int color = (int)(k*232 + (1.-k)*255);
+                    fprintf(tty_out, "\033[48;5;%dm  \033[0m%s", color,
                             i == bb->cursor ? CURSOR_COLOR : "\033[0m");
                     break;
+                }
 
                 case COL_SIZE: {
                     int j = 0;
@@ -929,9 +932,11 @@ void populate_files(bb_t *bb, const char *path)
     if (path != bb->path)
         strcpy(bb->path, path);
 
-    // TODO: this may have some weird aliasing issues, but eh, it's simple and effective
-    for (int i = 0; i < bb->nfiles; i++)
-        bb->files[i]->shufflepos = rand();
+    for (int i = 0; i < bb->nfiles; i++) {
+        int j = rand() / (RAND_MAX / (i + 1)); // This is not optimal, but doesn't need to be
+        bb->files[i]->shufflepos = bb->files[j]->shufflepos;
+        bb->files[j]->shufflepos = i;
+    }
 
     sort_files(bb);
     if (samedir) {
