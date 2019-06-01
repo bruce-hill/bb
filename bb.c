@@ -24,7 +24,7 @@
 #include "config.h"
 #include "bterm.h"
 
-#define BB_VERSION "0.11.3"
+#define BB_VERSION "0.12.0"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -142,6 +142,7 @@ static void set_scroll(bb_t *bb, int i);
 static entry_t* load_entry(bb_t *bb, const char *path);
 static void remove_entry(entry_t *e);
 static void sort_files(bb_t *bb);
+static void normalize_path(const char *root, const char *path, char *pbuf);
 static int cd_to(bb_t *bb, const char *path);
 static void populate_files(bb_t *bb, const char *path);
 static bb_result_t execute_cmd(bb_t *bb, const char *cmd);
@@ -380,6 +381,11 @@ void render(bb_t *bb)
         fputs_escaped(tty_out, bb->path, color);
         fputs(" \033[K\033[0m", tty_out);
 
+        static const char *help = "Press '?' to see key bindings ";
+        move_cursor(tty_out, MAX(0, termwidth - (int)strlen(help)), 0);
+        fputs(help, tty_out);
+        fputs("\033[K\033[0m", tty_out);
+
         // Columns
         move_cursor(tty_out, 0, 1);
         fputs("\033[0;44;30m\033[K", tty_out);
@@ -442,6 +448,7 @@ void render(bb_t *bb)
         entry_t *entry = files[i];
         if (i == bb->cursor) fputs(CURSOR_COLOR, tty_out);
 
+        int use_fullname =  strcmp(bb->path, "<selection>") == 0;
         int x = 0;
         for (int col = 0; bb->columns[col]; col++) {
             fprintf(tty_out, "\033[%d;%dH\033[K", y+1, x+1);
@@ -500,8 +507,9 @@ void render(bb_t *bb)
                     if (i == bb->cursor) strcat(color, CURSOR_COLOR);
                     fputs(color, tty_out);
 
-                    if (entry->no_esc) fputs(entry->name, tty_out);
-                    else entry->no_esc |= !fputs_escaped(tty_out, entry->name, color);
+                    char *name = use_fullname ? entry->fullname : entry->name;
+                    if (entry->no_esc) fputs(name, tty_out);
+                    else entry->no_esc |= !fputs_escaped(tty_out, name, color);
 
                     if (E_ISDIR(entry)) fputs("/", tty_out);
 
@@ -531,11 +539,15 @@ void render(bb_t *bb)
         fputs(" \033[K\033[0m", tty_out); // Reset color and attributes
     }
 
-    static const char *help = "Press '?' to see key bindings ";
-    move_cursor(tty_out, 0, termheight - 1);
-    fputs("\033[K", tty_out);
-    move_cursor(tty_out, MAX(0, termwidth - (int)strlen(help)), termheight - 1);
-    fputs(help, tty_out);
+    move_cursor(tty_out, MAX(0, termwidth - 14), termheight - 1);
+    if (bb->firstselected) {
+        int n = 0;
+        for (entry_t *s = bb->firstselected; s; s = s->selected.next) ++n;
+        fprintf(tty_out, "\033[41;30m% 4d Selected \033[0m", n);
+    } else {
+        fputs("\033[0m\033[K", tty_out);
+    }
+
     lastcursor = bb->cursor;
     lastscroll = bb->scroll;
     fflush(tty_out);
@@ -673,21 +685,20 @@ void set_cursor(bb_t *bb, int newcur)
     if (newcur > bb->nfiles - 1) newcur = bb->nfiles - 1;
     if (newcur < 0) newcur = 0;
     bb->cursor = newcur;
-    if (bb->nfiles <= termheight - 4)
+    if (bb->nfiles <= termheight - 4) {
+        bb->scroll = 0;
         return;
+    }
 
     if (newcur < bb->scroll + SCROLLOFF)
         bb->scroll = newcur - SCROLLOFF;
     else if (newcur > bb->scroll + (termheight-4) - SCROLLOFF)
         bb->scroll = newcur - (termheight-4) + SCROLLOFF;
-    if (bb->nfiles <= termheight - 4) {
-        bb->scroll = 0;
-    } else {
-        int max_scroll = bb->nfiles - (termheight-4) - 1;
-        if (max_scroll < 0) max_scroll = 0;
-        if (bb->scroll > max_scroll) bb->scroll = max_scroll;
-        if (bb->scroll < 0) bb->scroll = 0;
-    }
+
+    int max_scroll = bb->nfiles - (termheight-4) - 1;
+    if (max_scroll < 0) max_scroll = 0;
+    if (bb->scroll > max_scroll) bb->scroll = max_scroll;
+    if (bb->scroll < 0) bb->scroll = 0;
 }
 
 /*
@@ -799,43 +810,63 @@ void sort_files(bb_t *bb)
     bb->dirty = 1;
 }
 
+/*
+ * Prepend `root` to relative paths, replace "~" with $HOME, remove ".",
+ * replace "/foo/baz/../" with "/foo/", and make sure there's a trailing
+ * slash. The normalized path is stored in `normalized`.
+ */
+void normalize_path(const char *root, const char *path, char *normalized)
+{
+    if (path[0] == '~' && (path[1] == '\0' || path[1] == '/')) {
+        char *home;
+        if (!(home = getenv("HOME"))) return;
+        strcpy(normalized, home);
+        ++path;
+    } else if (path[0] == '/') {
+        normalized[0] = '\0';
+    } else {
+        strcpy(normalized, root);
+    }
+    strcat(normalized, path);
+
+    if (normalized[strlen(normalized)-1] != '/')
+        strcat(normalized, "/");
+
+    char *src = normalized, *dest = normalized;
+    while (*src) {
+        if (strncmp(src, "/./", 3) == 0) {
+            src += 2;
+        } else if (strncmp(src, "/../", 4) == 0) {
+            src += 3;
+            while (dest > normalized && *(--dest) != '/')
+                ;
+        }
+        *(dest++) = *(src++);
+    }
+    *dest = '\0';
+}
+
 int cd_to(bb_t *bb, const char *path)
 {
     char pbuf[PATH_MAX];
-    if (path[0] == '~' && (path[1] == '\0' || path[1] == '/')) {
-        char *home;
-        if (!(home = getenv("HOME")))
-            return BB_INVALID;
-        strcpy(pbuf, home);
-        strcat(pbuf, path+1);
-    } else if (path[0] == '/') {
+    if (strcmp(path, "<selection>") == 0) {
         strcpy(pbuf, path);
+        if (bb->marks['-']) free(bb->marks['-']);
+        bb->marks['-'] = memcheck(strdup(bb->path));
+    } else if (strcmp(path, "..") == 0 && strcmp(bb->path, "<selection>") == 0) {
+        if (!bb->marks['-']) return -1;
+        strcpy(pbuf, bb->marks['-']);
+        if (chdir(pbuf)) return -1;
     } else {
-        strcpy(pbuf, bb->path);
-        strcat(pbuf, path);
+        normalize_path(bb->path, path, pbuf);
+        if (chdir(pbuf)) return -1;
     }
 
-    if (pbuf[strlen(pbuf)-1] != '/')
-        strcat(pbuf, "/");
-
-    while (1) {
-        char *p;
-        if ((p = strstr(pbuf, "/../"))) {
-            if (p == pbuf) return 0;
-            char *end = p + 3;
-            char *start = p - 1;
-            while (start > pbuf && *start != '/') --start;
-            memmove(start, end, strlen(end)+1);
-            continue;
-        }
-        if ((p = strstr(pbuf, "/./"))) {
-            memmove(p, p+2, strlen(p+2)+1);
-            continue;
-        }
-        break;
+    if (strcmp(bb->path, "<selection>") != 0) {
+        if (bb->marks['-']) free(bb->marks['-']);
+        bb->marks['-'] = memcheck(strdup(bb->path));
     }
 
-    if (chdir(pbuf)) return -1;
     populate_files(bb, pbuf);
     return 0;
 }
@@ -860,7 +891,8 @@ void populate_files(bb_t *bb, const char *path)
         bb->files = NULL;
     }
 
-    int old_scroll = bb->scroll;
+    int old_scroll = bb->scroll, old_cursor = bb->cursor;
+    int samedir = path && strcmp(bb->path, path) == 0;
     bb->nfiles = 0;
     bb->cursor = 0;
     bb->scroll = 0;
@@ -868,46 +900,60 @@ void populate_files(bb_t *bb, const char *path)
     if (path == NULL || !path[0])
         return;
 
-    DIR *dir = opendir(path);
-    if (!dir)
-        err("Couldn't open dir: %s", path);
+    size_t cap = 0;
+    if (strcmp(path, "<selection>") == 0) {
+        for (entry_t *e = bb->firstselected; e; e = e->selected.next) {
+            if ((size_t)bb->nfiles + 1 > cap) {
+                cap += 100;
+                bb->files = memcheck(realloc(bb->files, cap*sizeof(void*)));
+            }
+            e->index = bb->nfiles;
+            bb->files[bb->nfiles++] = e;
+        }
+    } else {
+        DIR *dir = opendir(path);
+        if (!dir)
+            err("Couldn't open dir: %s", path);
+
+        if (path[strlen(path)-1] != '/')
+            err("No terminating slash on '%s'", path);
+
+        char pathbuf[PATH_MAX];
+        strcpy(pathbuf, path);
+        size_t pathbuflen = strlen(pathbuf);
+        for (struct dirent *dp; (dp = readdir(dir)) != NULL; ) {
+            if (dp->d_name[0] == '.') {
+                if (dp->d_name[1] == '.' && dp->d_name[2] == '\0') {
+                    if (!bb->show_dotdot) continue;
+                } else if (dp->d_name[1] == '\0') {
+                    if (!bb->show_dot) continue;
+                } else if (!bb->show_dotfiles) continue;
+            }
+            if ((size_t)bb->nfiles + 1 > cap) {
+                cap += 100;
+                bb->files = memcheck(realloc(bb->files, cap*sizeof(void*)));
+            }
+            strcpy(&pathbuf[pathbuflen], dp->d_name);
+            entry_t *entry = load_entry(bb, pathbuf);
+            if (!entry) err("Failed to load entry: '%s'", dp->d_name);
+            entry->index = bb->nfiles;
+            bb->files[bb->nfiles++] = entry;
+        }
+        closedir(dir);
+    }
 
     if (path != bb->path)
         strcpy(bb->path, path);
-
-    if (bb->path[strlen(bb->path)-1] != '/')
-        strcat(bb->path, "/");
-
-    size_t cap = 0;
-    char pathbuf[PATH_MAX];
-    strcpy(pathbuf, bb->path);
-    size_t pathbuflen = strlen(pathbuf);
-    for (struct dirent *dp; (dp = readdir(dir)) != NULL; ) {
-        if (dp->d_name[0] == '.') {
-            if (dp->d_name[1] == '.' && dp->d_name[2] == '\0') {
-                if (!bb->show_dotdot) continue;
-            } else if (dp->d_name[1] == '\0') {
-                if (!bb->show_dot) continue;
-            } else if (!bb->show_dotfiles) continue;
-        }
-        if ((size_t)bb->nfiles + 1 > cap) {
-            cap += 100;
-            bb->files = memcheck(realloc(bb->files, cap*sizeof(void*)));
-        }
-        strcpy(&pathbuf[pathbuflen], dp->d_name);
-        entry_t *entry = load_entry(bb, pathbuf);
-        if (!entry) err("Failed to load entry: '%s'", dp->d_name);
-        entry->index = bb->nfiles;
-        bb->files[bb->nfiles++] = entry;
-    }
-    closedir(dir);
 
     // TODO: this may have some weird aliasing issues, but eh, it's simple and effective
     for (int i = 0; i < bb->nfiles; i++)
         bb->files[i]->shufflepos = rand();
 
     sort_files(bb);
-    set_scroll(bb, old_scroll);
+    if (samedir) {
+        set_cursor(bb, old_cursor);
+        set_scroll(bb, old_scroll);
+    }
 }
 
 /*
@@ -948,7 +994,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
             switch (cmd[1]) {
                 case 'e': { // +deselect:
                     if (!value && !bb->nfiles) return BB_INVALID;
-                    if (!value) value = bb->files[bb->cursor]->name;
+                    if (!value) value = bb->files[bb->cursor]->fullname;
                     if (strcmp(value, "*") == 0) {
                         clear_selection(bb);
                         return BB_OK;
@@ -990,6 +1036,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
         }
         case 'j': { // +jump:
             if (!value) return BB_INVALID;
+            bb->dirty = 1;
             char key = value[0];
             if (bb->marks[(int)key]) {
                 value = bb->marks[(int)key];
@@ -1059,7 +1106,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
 
                 case '\0': case 'e': // +select:
                     if (!value && !bb->nfiles) return BB_INVALID;
-                    if (!value) value = bb->files[bb->cursor]->name;
+                    if (!value) value = bb->files[bb->cursor]->fullname;
                     if (strcmp(value, "*") == 0) {
                         for (int i = 0; i < bb->nfiles; i++) {
                             if (strcmp(bb->files[i]->name, ".")
@@ -1083,7 +1130,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
             }
         case 't': { // +toggle:
             if (!value && !bb->nfiles) return BB_INVALID;
-            if (!value) value = bb->files[bb->cursor]->name;
+            if (!value) value = bb->files[bb->cursor]->fullname;
             entry_t *e = load_entry(bb, value);
             if (e) toggle_entry(bb, e);
             return BB_OK;
@@ -1102,6 +1149,7 @@ void bb_browse(bb_t *bb, const char *path)
     int lastwidth = termwidth, lastheight = termheight;
     int check_cmds = 1;
 
+    bb->marks['-'] = memcheck(strdup(path));
     cd_to(bb, path);
     bb->scroll = 0;
     bb->cursor = 0;
@@ -1215,7 +1263,6 @@ void bb_browse(bb_t *bb, const char *path)
             close_term();
             raise(SIGTSTP);
             init_term();
-            fputs(T_ON(T_ALT_SCREEN), tty_out);
             bb->dirty = 1;
             goto redraw;
 
@@ -1275,8 +1322,10 @@ void bb_browse(bb_t *bb, const char *path)
 
   quit:
     populate_files(bb, NULL);
-    fputs(T_LEAVE_BBMODE, tty_out);
-    cleanup();
+    if (tty_out) {
+        fputs(T_LEAVE_BBMODE, tty_out);
+        cleanup();
+    }
 }
 
 /*
@@ -1307,7 +1356,7 @@ void print_bindings(void)
         }
         *p = '\0';
         printf("\033[1m\033[%dG%s\033[0m", width/2 - 1 - (int)strlen(buf), buf);
-        printf("\033[0m\033[%dG\033[34;1m%s\033[0m", width/2 + 1, bindings[i].description);
+        printf("\033[0m\033[%dG\033[34m%s\033[0m", width/2 + 1, bindings[i].description);
         printf("\033[0m\n");
     }
     printf("\n");
@@ -1431,14 +1480,16 @@ int main(int argc, char *argv[])
     signal(SIGPROF, cleanup_and_exit);
     signal(SIGSEGV, cleanup_and_exit);
 
-    char *real = realpath(initial_path, NULL);
-    if (!real || chdir(real)) err("Not a valid path: %s\n", initial_path);
+    char path[PATH_MAX], curdir[PATH_MAX];
+    getcwd(curdir, PATH_MAX);
+    strcat(curdir, "/");
+    normalize_path(curdir, initial_path, path);
+    if (chdir(path)) err("Not a valid path: %s\n", path);
 
     bb_t *bb = memcheck(calloc(1, sizeof(bb_t)));
     bb->columns[0] = COL_NAME;
     strcpy(bb->sort, "+n");
-    bb_browse(bb, real);
-    free(real);
+    bb_browse(bb, path);
 
     if (bb->firstselected && print_selection) {
         for (entry_t *e = bb->firstselected; e; e = e->selected.next) {
