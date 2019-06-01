@@ -171,7 +171,7 @@ else xdg-open "$BBCURSOR"; fi
     {{'N'},                  "name=`bb '?New dir: '` && mkdir \"$name\"; bb +r \"+goto:$name\"", EM("New directory")},
     {{'|'},                  "cmd=`bb '?|'` && " PIPE_SELECTION_TO "sh -c \"$cmd\" && " PAUSE "; bb +r",
                              EM("Pipe")" selected files to a command"},
-    {{':'},                  "$SHELL -c \"`bb '?:'`\" -- \"$@\"; " PAUSE "; bb +refresh",
+    {{':'},                  "sh -c \"`bb '?:'`\" -- \"$@\"; " PAUSE "; bb +refresh",
                              EM("Run")" a command"},
     {{'>'},                  "$SHELL", "Open a "EM("shell"), NORMAL_TERM},
     {{'m'}, "read -n1 -p 'Mark: ' m && bb \"+mark:$m;$PWD\"", "Set "EM("mark")},
