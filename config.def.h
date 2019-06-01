@@ -89,9 +89,14 @@ typedef struct {
     int flags;
 } binding_t;
 
+typedef struct {
+    int width;
+    const char *name;
+} column_t;
+
 // These commands will run at startup (before command-line arguments)
 extern const char *startupcmds[];
-extern const int colwidths[128];
+extern const column_t columns[128];
 
 const char *startupcmds[] = {
     //////////////////////////////////////////////
@@ -106,15 +111,15 @@ const char *startupcmds[] = {
 };
 
 // Column widths:
-const int colwidths[128] = {
-    ['*'] = 2,
-    ['s'] = 9,
-    ['m'] = 21,
-    ['a'] = 21,
-    ['c'] = 21,
-    ['p'] = 5,
-    ['n'] = 40,
-    ['r'] = 2,
+const column_t columns[128] = {
+    ['*'] = {2,  "*"},
+    ['a'] = {21, "      Accessed"},
+    ['c'] = {21, "      Created"},
+    ['m'] = {21, "      Modified"},
+    ['n'] = {40, "Name"},
+    ['p'] = {5,  "Permissions"},
+    ['r'] = {2,  "Random"},
+    ['s'] = {9,  "Size"},
 };
 
 #ifdef __APPLE__

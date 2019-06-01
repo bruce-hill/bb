@@ -71,7 +71,7 @@ typedef enum {
     COL_ATIME = 'a',
     COL_RANDOM = 'r',
     COL_SELECTED = '*',
-} column_t;
+} column_e;
 
 /* entry_t uses intrusive linked lists.  This means entries can only belong to
  * one list at a time, in this case the list of selected entries. 'atme' is an
@@ -152,7 +152,7 @@ static void print_bindings(void);
 // Config options
 extern binding_t bindings[];
 extern const char *startupcmds[];
-extern const int colwidths[128];
+extern const column_t columns[128];
 
 // Constants
 static const char *T_ENTER_BBMODE = T_OFF(T_SHOW_CURSOR) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_WRAP);
@@ -329,14 +329,11 @@ int fputs_escaped(FILE *f, const char *str, const char *color)
  */
 const char* color_of(mode_t mode)
 {
-    if (S_ISDIR(mode))
-        return DIR_COLOR;
-    else if (S_ISLNK(mode))
-        return LINK_COLOR;
+    if (S_ISDIR(mode)) return DIR_COLOR;
+    else if (S_ISLNK(mode)) return LINK_COLOR;
     else if (mode & (S_IXUSR | S_IXGRP | S_IXOTH))
         return EXECUTABLE_COLOR;
-    else
-        return NORMAL_COLOR;
+    else return NORMAL_COLOR;
 }
 
 void set_sort(bb_t *bb, const char *sort)
@@ -391,18 +388,8 @@ void render(bb_t *bb)
         fputs("\033[0;44;30m\033[K", tty_out);
         int x = 0;
         for (int col = 0; bb->columns[col]; col++) {
-            const char *title = NULL;
-            switch (bb->columns[col]) {
-                case COL_SELECTED: title = "*"; break;
-                case COL_RANDOM: title = "Random"; break;
-                case COL_NAME: title = "Name"; break;
-                case COL_SIZE: title = "   Size"; break;
-                case COL_PERM: title = "Permissions"; break;
-                case COL_MTIME: title = "      Modified"; break;
-                case COL_ATIME: title = "      Accessed"; break;
-                case COL_CTIME: title = "      Created"; break;
-                default: title = ""; break;
-            }
+            const char *title = columns[(int)bb->columns[col]].name;
+            if (!title) title = "";
             move_cursor(tty_out, x, 1);
             if (col > 0) {
                 fputs("│\033[K", tty_out);
@@ -414,7 +401,7 @@ void render(bb_t *bb)
             move_cursor(tty_out, x, 1);
             fputs(indicator, tty_out);
             fputs(title, tty_out);
-            x += colwidths[(int)bb->columns[col]];
+            x += columns[(int)bb->columns[col]].width;
         }
         fputs(" \033[K\033[0m", tty_out);
     }
@@ -534,7 +521,7 @@ void render(bb_t *bb)
                 }
                 default: break;
             }
-            x += colwidths[(int)bb->columns[col]];
+            x += columns[(int)bb->columns[col]].width;
         }
         fputs(" \033[K\033[0m", tty_out); // Reset color and attributes
     }
@@ -900,13 +887,11 @@ void populate_files(bb_t *bb, const char *path)
     if (path == NULL || !path[0])
         return;
 
-    size_t cap = 0;
+    size_t space = 0;
     if (strcmp(path, "<selection>") == 0) {
         for (entry_t *e = bb->firstselected; e; e = e->selected.next) {
-            if ((size_t)bb->nfiles + 1 > cap) {
-                cap += 100;
-                bb->files = memcheck(realloc(bb->files, cap*sizeof(void*)));
-            }
+            if ((size_t)bb->nfiles + 1 > space)
+                bb->files = memcheck(realloc(bb->files, (space += 100)*sizeof(void*)));
             e->index = bb->nfiles;
             bb->files[bb->nfiles++] = e;
         }
@@ -929,10 +914,8 @@ void populate_files(bb_t *bb, const char *path)
                     if (!bb->show_dot) continue;
                 } else if (!bb->show_dotfiles) continue;
             }
-            if ((size_t)bb->nfiles + 1 > cap) {
-                cap += 100;
-                bb->files = memcheck(realloc(bb->files, cap*sizeof(void*)));
-            }
+            if ((size_t)bb->nfiles + 1 > space)
+                bb->files = memcheck(realloc(bb->files, (space += 100)*sizeof(void*)));
             strcpy(&pathbuf[pathbuflen], dp->d_name);
             entry_t *entry = load_entry(bb, pathbuf);
             if (!entry) err("Failed to load entry: '%s'", dp->d_name);
@@ -1192,8 +1175,8 @@ void bb_browse(bb_t *bb, const char *path)
             fseek(cmdfile, cmdpos, SEEK_SET);
 
         char *cmd = NULL;
-        size_t cap = 0;
-        while (cmdfile && getdelim(&cmd, &cap, '\0', cmdfile) >= 0) {
+        size_t space = 0;
+        while (cmdfile && getdelim(&cmd, &space, '\0', cmdfile) >= 0) {
             cmdpos = ftell(cmdfile);
             if (!cmd[0]) continue;
             if (execute_cmd(bb, cmd) == BB_QUIT) {
@@ -1224,7 +1207,7 @@ void bb_browse(bb_t *bb, const char *path)
             char column[3] = "+?";
             for (int col = 0, x = 0; bb->columns[col]; col++) {
                 if (col > 0) x += 1;
-                x += colwidths[(int)bb->columns[col]];
+                x += columns[(int)bb->columns[col]].width;
                 if (x >= mouse_x) {
                     column[1] = bb->columns[col];
                     break;
