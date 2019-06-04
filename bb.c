@@ -41,6 +41,7 @@
 #define IS_VIEWED(p) ((p)->index >= 0)
 #define LOWERCASE(c) ('A' <= (c) && (c) <= 'Z' ? ((c) + 'a' - 'A') : (c))
 #define E_ISDIR(e) (S_ISDIR(S_ISLNK((e)->info.st_mode) ? (e)->linkedmode : (e)->info.st_mode))
+#define ONSCREEN (termheight - 4)
 
 #ifdef __APPLE__
 #define mtime(s) (s).st_mtimespec
@@ -673,23 +674,28 @@ void toggle_entry(bb_t *bb, entry_t *e)
  */
 void set_cursor(bb_t *bb, int newcur)
 {
+    int oldcur = bb->cursor;
     if (newcur > bb->nfiles - 1) newcur = bb->nfiles - 1;
     if (newcur < 0) newcur = 0;
     bb->cursor = newcur;
-    if (bb->nfiles <= termheight - 4) {
+    if (bb->nfiles <= ONSCREEN) {
         bb->scroll = 0;
         return;
     }
 
-    if (newcur < bb->scroll + SCROLLOFF)
-        bb->scroll = newcur - SCROLLOFF;
-    else if (newcur > bb->scroll + (termheight-4) - SCROLLOFF)
-        bb->scroll = newcur - (termheight-4) + SCROLLOFF;
-
-    int max_scroll = bb->nfiles - (termheight-4) - 1;
-    if (max_scroll < 0) max_scroll = 0;
-    if (bb->scroll > max_scroll) bb->scroll = max_scroll;
-    if (bb->scroll < 0) bb->scroll = 0;
+    if (oldcur < bb->cursor) {
+        if (bb->scroll > bb->cursor)
+            bb->scroll = MAX(0, bb->cursor);
+        else if (bb->scroll < bb->cursor - ONSCREEN + SCROLLOFF)
+            bb->scroll = MIN(bb->nfiles - 1 - ONSCREEN,
+                             bb->scroll + (newcur - oldcur));
+    } else {
+        if (bb->scroll > bb->cursor - SCROLLOFF)
+            bb->scroll = MAX(0, bb->scroll + (newcur - oldcur));//bb->cursor - SCROLLOFF);
+        else if (bb->scroll < bb->cursor - ONSCREEN)
+            bb->scroll = MIN(bb->cursor - ONSCREEN,
+                             bb->nfiles - 1 - ONSCREEN);
+    }
 }
 
 /*
@@ -697,24 +703,17 @@ void set_cursor(bb_t *bb, int newcur)
  */
 void set_scroll(bb_t *bb, int newscroll)
 {
-    newscroll = MIN(newscroll, bb->nfiles - (termheight-4) - 1);
-    newscroll = MAX(newscroll, 0);
-    if (bb->nfiles <= termheight - 4)
-        newscroll = 0;
-
     int delta = newscroll - bb->scroll;
-    int oldcur = bb->cursor;
-    if (bb->nfiles > termheight - 4) {
-        if (bb->cursor > newscroll + (termheight-4) - SCROLLOFF && bb->scroll < bb->nfiles - (termheight-4) - 1)
-            bb->cursor = newscroll + (termheight-4) - SCROLLOFF;
-        else if (bb->cursor < newscroll + SCROLLOFF && bb->scroll > 0)
-            bb->cursor = newscroll + SCROLLOFF;
-    } else {
+    if (bb->nfiles <= ONSCREEN) {
         newscroll = 0;
+    } else {
+        if (newscroll > bb->nfiles - 1 - ONSCREEN)
+            newscroll = bb->nfiles - 1 - ONSCREEN;
+        if (newscroll < 0) newscroll = 0;
     }
+
     bb->scroll = newscroll;
-    if (abs(bb->cursor - oldcur) < abs(delta))
-        bb->cursor += delta - (bb->cursor - oldcur);
+    bb->cursor += delta;
     if (bb->cursor > bb->nfiles - 1) bb->cursor = bb->nfiles - 1;
     if (bb->cursor < 0) bb->cursor = 0;
 }
