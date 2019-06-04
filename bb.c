@@ -32,7 +32,6 @@
 
 #define MAX_COLS 12
 #define MAX_SORT (2*MAX_COLS)
-// Power of 2:
 #define HASH_SIZE 1024
 #define HASH_MASK (HASH_SIZE - 1)
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
@@ -531,12 +530,15 @@ void render(bb_t *bb)
         fputs(" \033[K\033[0m", tty_out); // Reset color and attributes
     }
 
-    move_cursor(tty_out, MAX(0, termwidth - 14), termheight - 1);
     if (bb->firstselected) {
         int n = 0;
         for (entry_t *s = bb->firstselected; s; s = s->selected.next) ++n;
-        fprintf(tty_out, "\033[41;30m% 4d Selected \033[0m", n);
+        int x = termwidth - 14;
+        for (int k = n; k; k /= 10) x--;
+        move_cursor(tty_out, MAX(0, x), termheight - 1);
+        fprintf(tty_out, "\033[41;30m %d Selected \033[0m", n);
     } else {
+        move_cursor(tty_out, MAX(0, termwidth/2), termheight - 1);
         fputs("\033[0m\033[K", tty_out);
     }
 
@@ -1298,8 +1300,7 @@ void bb_browse(bb_t *bb, const char *path)
             close_term();
             run_cmd_on_selection(bb, binding->command);
             init_term();
-            if (binding->flags & NORMAL_TERM)
-                fputs(T_ON(T_ALT_SCREEN), tty_out);
+            fputs(T_ON(T_ALT_SCREEN), tty_out);
             if (binding->flags & NORMAL_TERM)
                 bb->dirty = 1;
             check_cmds = 1;
