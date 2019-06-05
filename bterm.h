@@ -374,8 +374,8 @@ char *breadline(FILE *in, FILE *out, const char *prompt, const char *initial)
                 break;
             case KEY_BACKSPACE: case KEY_BACKSPACE2:
                 if (i > 0) {
-                    memmove(buf+i, buf+i+1, (size_t)(len-i));
                     --i;
+                    memmove(buf+i, buf+i+1, (size_t)(len-i));
                     buf[--len] = 0;
                     if (i == len) fputs("\033[D \033[D", out);
                     else fprintf(out, "\033[D%s\033[K\033[%dD", buf+i, len-i);
