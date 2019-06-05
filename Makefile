@@ -21,9 +21,6 @@ config.h:
 
 $(NAME): $(NAME).c bterm.h config.h
 	$(CC) $(NAME).c $(LIBS) $(CFLAGS) $(G) -o $(NAME)
-
-test: $(NAME)
-	./$(NAME) test.xml
 	
 install: $(NAME)
 	@prefix="$(PREFIX)"; \
