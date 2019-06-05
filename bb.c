@@ -729,40 +729,43 @@ void set_scroll(bb_t *bb, int newscroll)
 entry_t* load_entry(bb_t *bb, const char *path)
 {
     struct stat linkedstat, filestat;
+    if (!path || !path[0]) return NULL;
     if (lstat(path, &filestat) == -1) return NULL;
-    char path2[PATH_MAX];
+    char pbuf[PATH_MAX];
     if (path[0] == '~' && (path[1] == '\0' || path[1] == '/')) {
         char *home;
         if (!(home = getenv("HOME")))
             return NULL;
-        strcpy(path2, home);
-        strcat(path2, path+1);
-        path = path2;
-    } else if (path[0] != '/') {
-        strcpy(path2, bb->path);
-        strcat(path2, path);
-        path = path2;
+        strcpy(pbuf, home);
+        strcat(pbuf, path+1);
+    } else if (path[0] == '/') {
+        strcpy(pbuf, path);
+    } else {
+        strcpy(pbuf, bb->path);
+        strcat(pbuf, path);
     }
+    if (pbuf[strlen(pbuf)-1] == '/')
+        pbuf[strlen(pbuf)-1] = '\0';
 
     // Check for pre-existing:
     for (entry_t *e = bb->hash[(int)filestat.st_ino & HASH_MASK]; e; e = e->hash.next) {
         if (e->info.st_ino == filestat.st_ino && e->info.st_dev == filestat.st_dev
-            && strcmp(e->fullname, path) == 0)
+            && strcmp(e->fullname, pbuf) == 0)
             return e;
     }
 
     ssize_t linkpathlen = -1;
     char linkbuf[PATH_MAX];
     if (S_ISLNK(filestat.st_mode)) {
-        linkpathlen = readlink(path, linkbuf, sizeof(linkbuf));
-        if (linkpathlen < 0) err("Couldn't read link: '%s'", path);
+        linkpathlen = readlink(pbuf, linkbuf, sizeof(linkbuf));
+        if (linkpathlen < 0) err("Couldn't read link: '%s'", pbuf);
         linkbuf[linkpathlen] = 0;
-        if (stat(path, &linkedstat) == -1) memset(&linkedstat, 0, sizeof(linkedstat));
+        if (stat(pbuf, &linkedstat) == -1) memset(&linkedstat, 0, sizeof(linkedstat));
     }
-    size_t pathlen = strlen(path);
+    size_t pathlen = strlen(pbuf);
     size_t entry_size = sizeof(entry_t) + (pathlen + 1) + (size_t)(linkpathlen + 1);
     entry_t *entry = memcheck(calloc(entry_size, 1));
-    char *end = stpcpy(entry->fullname, path);
+    char *end = stpcpy(entry->fullname, pbuf);
     if (linkpathlen >= 0)
         entry->linkname = strcpy(end + 1, linkbuf);
     entry->name = strrchr(entry->fullname, '/');
@@ -775,6 +778,7 @@ entry_t* load_entry(bb_t *bb, const char *path)
         bb->hash[(int)filestat.st_ino & HASH_MASK]->hash.atme = &entry->hash.next;
     entry->hash.next = bb->hash[(int)filestat.st_ino & HASH_MASK];
     entry->hash.atme = &bb->hash[(int)filestat.st_ino & HASH_MASK];
+    entry->index = -1;
     bb->hash[(int)filestat.st_ino & HASH_MASK] = entry;
     return entry;
 }
@@ -782,6 +786,7 @@ entry_t* load_entry(bb_t *bb, const char *path)
 void remove_entry(entry_t *e)
 {
     if (IS_SELECTED(e)) err("Attempt to remove an entry while it is still selected.");
+    if (IS_VIEWED(e)) err("Attempt to remove an entry while it is still being viewed.");
     if (e->hash.next)
         e->hash.next->hash.atme = e->hash.atme;
     *(e->hash.atme) = e->hash.next;
@@ -840,7 +845,8 @@ void normalize_path(const char *root, const char *path, char *normalized)
 
 int cd_to(bb_t *bb, const char *path)
 {
-    char pbuf[PATH_MAX];
+    char pbuf[PATH_MAX], prev[PATH_MAX] = {0};
+    strcpy(prev, bb->path);
     if (strcmp(path, "<selection>") == 0) {
         strcpy(pbuf, path);
         if (bb->marks['-']) free(bb->marks['-']);
@@ -860,6 +866,13 @@ int cd_to(bb_t *bb, const char *path)
     }
 
     populate_files(bb, pbuf);
+    if (prev[0]) {
+        entry_t *p = load_entry(bb, prev);
+        if (p) {
+            if (IS_VIEWED(p)) set_cursor(bb, p->index);
+            else if (!IS_SELECTED(p)) remove_entry(p);
+        }
+    }
     return 0;
 }
 
@@ -1005,7 +1018,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
             if (!value) return BB_INVALID;
             entry_t *e = load_entry(bb, value);
             if (!e) return BB_INVALID;
-            if (e->index >= 0) {
+            if (IS_VIEWED(e)) {
                 set_cursor(bb, e->index);
                 return BB_OK;
             }
@@ -1017,6 +1030,8 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
             cd_to(bb, pbuf);
             if (e->index >= 0)
                 set_cursor(bb, e->index);
+            if (!IS_VIEWED(e) && !IS_SELECTED(e))
+                remove_entry(e);
             return BB_OK;
         }
         case 'i': { // +interleave
