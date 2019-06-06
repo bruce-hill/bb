@@ -1411,18 +1411,6 @@ int main(int argc, char *argv[])
 
     int i;
     for (i = 1; i < argc; i++) {
-        if (argv[i][0] == '?') {
-            if (cmdfd != -1)
-                close(cmdfd);
-            init_term();
-            char *line = breadline(tty_in, tty_out, argv[i] + 1, argv[i+1]);
-            close_term();
-            if (!line) return 1;
-            fputs(line, stdout);
-            free(line);
-            fflush(stdout);
-            return 0;
-        }
         if (argv[i][0] == '+') {
             write(cmdfd, argv[i]+1, strlen(argv[i]+1)+1);
             continue;

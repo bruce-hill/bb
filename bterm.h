@@ -109,7 +109,6 @@
 
 int bgetkey(FILE *in, int *mouse_x, int *mouse_y, int timeout);
 const char *bkeyname(int key);
-char *breadline(FILE *in, FILE *out, const char *prompt, const char *initial);
 
 static inline int nextchar(int fd, int timeout)
 {
@@ -300,130 +299,6 @@ const char *bkeyname(int key)
         case KEY_BACKSPACE2: return "Backspace";
     }
     return NULL;
-}
-
-/**
- * A basic readline implementation. No history, but all the normal editing
- * key bindings like Ctrl-U to clear to the beginning of the line, backspace,
- * arrow keys, etc.
- *
- * Takes an input file and output file, and an optional prompt and returns
- * a malloc'd string containing the user's input or NULL if an error occurred
- * or if the user hit Escape or Ctrl-c.
- */
-char *breadline(FILE *in, FILE *out, const char *prompt, const char *initial)
-{
-    size_t cap = initial ? strlen(initial) + 100 : 100;
-    char *buf = calloc(cap, 1);
-    if (!buf) return NULL;
-    int i = 0, len = 0;
-    if (prompt) {
-        fputs("\033[1G\033[K\033[37;1m", out);
-        fputs(prompt, out);
-        fputs("\033[0m", out);
-    }
-    if (initial) {
-        strcpy(buf, initial);
-        len = (int)strlen(initial);
-        i = len;
-        fputs(initial, out);
-    }
-    // Show cursor and set to blinking line:
-    fputs("\033[?25h\033[5 q", out);
-    while (1) {
-        fflush(out);
-        int key = bgetkey(in, NULL, NULL, -1);
-        switch (key) {
-            case -1: case -2: case -3: continue;
-            case '\r':
-                // TODO: support backslash-enter
-                goto finished;
-            case KEY_CTRL_C: case KEY_ESC:
-                free(buf);
-                buf = NULL;
-                goto finished;
-            case KEY_CTRL_A:
-                if (i > 0) {
-                    fprintf(out, "\033[%dD", i);
-                    i = 0;
-                }
-                break;
-            case KEY_CTRL_E:
-                if (i < len) {
-                    fprintf(out, "\033[%dC", len-i);
-                    i = len;
-                }
-                break;
-            case KEY_CTRL_U: {
-                int to_clear = i;
-                if (to_clear) {
-                    memmove(buf, buf+i, (size_t)(len-i));
-                    buf[len -= i] = 0;
-                    i = 0;
-                    fprintf(out, "\033[%dD\033[K", to_clear);
-                    if (len > 0)
-                        fprintf(out, "%s\033[%dD", buf, len);
-                }
-                break;
-            }
-            case KEY_CTRL_K:
-                if (i < len) {
-                    buf[len = i] = 0;
-                    fputs("\033[K", out);
-                }
-                break;
-            case KEY_BACKSPACE: case KEY_BACKSPACE2:
-                if (i > 0) {
-                    --i;
-                    memmove(buf+i, buf+i+1, (size_t)(len-i));
-                    buf[--len] = 0;
-                    if (i == len) fputs("\033[D \033[D", out);
-                    else fprintf(out, "\033[D%s\033[K\033[%dD", buf+i, len-i);
-                }
-                break;
-            case KEY_DELETE: case KEY_CTRL_D:
-                if (i < len) {
-                    memmove(buf+i, buf+i+1, (size_t)(len-i));
-                    buf[--len] = 0;
-                    if (i == len) fputs(" \033[D", out);
-                    else fprintf(out, "%s\033[K\033[%dD", buf+i, len-i);
-                }
-                break;
-            case KEY_ARROW_LEFT: case KEY_CTRL_B:
-                if (i > 0) {
-                    --i;
-                    fputs("\033[D", out);
-                }
-                break;
-            case KEY_ARROW_RIGHT: case KEY_CTRL_F:
-                if (i < len) {
-                    ++i;
-                    fputs("\033[C", out);
-                }
-                break;
-            default:
-                if (' ' <= key && key <= '~') {
-                    if (len + 1 >= (int)cap) {
-                        cap += 100;
-                        buf = realloc(buf, cap);
-                        if (!buf) goto finished;
-                    }
-                    if (i < len)
-                        memmove(buf+i+1, buf+i, (size_t)(len-i+1));
-                    buf[i++] = (char)key;
-                    buf[++len] = 0;
-                    if (i == len)
-                        fputc(key, out);
-                    else
-                        fprintf(out, "%c%s\033[%dD", (char)key, buf+i, len-i);
-                }
-                break;
-        }
-    }
-  finished:
-    // Reset cursor to block
-    fputs("\033[1G\033[1 q\033[2K", out);
-    return buf;
 }
 
 #endif

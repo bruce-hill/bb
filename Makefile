@@ -1,15 +1,20 @@
 PREFIX=
 CC=gcc
-CFLAGS=-O0 -std=gnu99 -D_XOPEN_SOURCE=500 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L \
-	   -Wall -Wpedantic -Wno-unknown-pragmas -fsanitize=address -fno-omit-frame-pointer
+CFLAGS=-O0 -std=gnu99 -D_XOPEN_SOURCE=500 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L
+CWARN= -Wall -Wpedantic -Wno-unknown-pragmas -fsanitize=address -fno-omit-frame-pointer
 UNAME := $(shell uname)
 ifeq ($(UNAME),Darwin)
-CFLAGS += -D_DARWIN_C_SOURCE -Weverything -Wno-missing-field-initializers -Wno-padded\
+CFLAGS += -D_DARWIN_C_SOURCE
+CWARN += -Weverything -Wno-missing-field-initializers -Wno-padded\
 		  -Wno-missing-noreturn -Wno-cast-qual
 endif
 LIBS=
 NAME=bb
 G=-g
+
+ifneq (, $(shell which ask))
+CFLAGS += -D'ASKECHO(prompt)="ask \"" prompt "\""' -D'FUZZY(prompt)="ask \"" prompt "\""'
+endif
 
 all: $(NAME)
 
@@ -20,7 +25,7 @@ config.h:
 	cp config.def.h config.h
 
 $(NAME): $(NAME).c bterm.h config.h
-	$(CC) $(NAME).c $(LIBS) $(CFLAGS) $(G) -o $(NAME)
+	$(CC) $(NAME).c $(LIBS) $(CFLAGS) $(CWARN) $(G) -o $(NAME)
 	
 install: $(NAME)
 	@prefix="$(PREFIX)"; \

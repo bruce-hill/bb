@@ -76,6 +76,22 @@
 
 #define PAUSE " read -n1 -p '\033[2mPress any key to continue...\033[0m\033[?25l'"
 
+#ifndef FUZZY
+#define FUZZY(prompt) "fzy --prompt=\"" prompt "\""
+#endif
+
+#ifndef ASK
+#ifdef ASKECHO
+#define ASK(var, prompt) var "=\"$(" ASKECHO(prompt) ")\""
+#else
+#define ASK(var, prompt) "read -p \"" prompt "\" " var
+#endif
+#endif
+
+#ifndef ASKECHO
+#define ASKECHO(prompt) ASK("REPLY", prompt) " && echo \"$REPLY\""
+#endif
+
 #define NORMAL_TERM     (1<<0)
 #define AT_CURSOR       (1<<1)
 
@@ -163,19 +179,20 @@ binding_t bindings[] = {
     {{' ','v','V'}, "+toggle", B("Toggle")" selection"},
     {{KEY_ESC}, "+deselect:*", B("Clear")" selection"},
     {{'e'}, "$EDITOR \"$@\"", B("Edit")" file in $EDITOR", NORMAL_TERM},
-    {{KEY_CTRL_F}, "bb \"+g:`fzf`\"", B("Fuzzy search")" for file", NORMAL_TERM},
-    {{'/'}, "bb \"+g:`ls -a|fzf`\"", B("Fuzzy select")" file", NORMAL_TERM},
+    {{KEY_CTRL_F}, "bb \"+g:`find | "FUZZY("Find: ")"`\" +r", B("Fuzzy search")" for file"},
+    {{'/'}, "bb \"+g:`ls -a | " FUZZY("Pick: ") "`\" +r", B("Fuzzy pick")" file"},
     {{'d', KEY_DELETE}, "rm -rfi \"$@\"; bb '+de:*' +r", B("Delete")" files", AT_CURSOR},
     {{'D'}, "rm -rf \"$@\"; bb '+de:*' +r", B("Delete")" files (without confirmation)"},
     {{'M'}, "mv -i \"$@\" .; bb '+de:*' +r; for f; do bb \"+sel:`pwd`/`basename \"$f\"`\"; done",
         B("Move")" files to current directory"},
     {{'c'}, "cp -i \"$@\" .; bb +r", B("Copy")" files to current directory"},
     {{'C'}, "bb '+de:*'; for f; do cp \"$f\" \"$f.copy\" && bb \"+sel:$f.copy\"; done; bb +r", B("Clone")" files"},
-    {{'n'}, "name=`bb '?New file: '` && touch \"$name\"; bb +r \"+goto:$name\"", B("New file")},
-    {{'N'}, "name=`bb '?New dir: '` && mkdir \"$name\"; bb +r \"+goto:$name\"", B("New directory")},
-    {{'|'}, "cmd=`bb '?|'` && printf '%s\\n' \"$@\" | sh -c \"$cmd\"; " PAUSE "; bb +r",
+    {{'n'}, ASK("name", "New file: ")" && touch \"$name\"; bb +r \"+goto:$name\"", B("New file")},
+    {{'N'}, ASK("name", "New dir: ")" && mkdir \"$name\"; bb +r \"+goto:$name\"", B("New directory")},
+    {{KEY_CTRL_G}, "bb \"+cd:`" ASKECHO("Go to directory: ") "`\" +r", B("Go to")" directory"},
+    {{'|'}, ASK("cmd", "|") " && printf '%s\\n' \"$@\" | sh -c \"$cmd\"; " PAUSE "; bb +r",
         B("Pipe")" selected files to a command"},
-    {{':'}, "sh -c \"`bb '?:'`\" -- \"$@\"; " PAUSE "; bb +refresh",
+    {{':'}, "sh -c \"`" ASKECHO(":") "`\" -- \"$@\"; " PAUSE "; bb +refresh",
         B("Run")" a command"},
     {{'>'}, "$SHELL", "Open a "B("shell"), NORMAL_TERM},
     {{'m'}, "read -n1 -p 'Mark: ' m && bb \"+mark:$m;$PWD\"", "Set "B("mark")},
@@ -185,7 +202,7 @@ binding_t bindings[] = {
         QUOTE(
             bb '+deselect:*' +refresh; 
             for f; do 
-                if renamed="$(dirname "$f")/$(bb '?Rename: ' "$(basename "$f")")" &&
+                if renamed="$(dirname "$f")/$(ask --initial="$(basename "$f")" 'Rename: ')" &&
                     test "$f" != "$renamed" && mv -i "$f" "$renamed"; then 
                     test $BBSELECTED && bb "+select:$renamed"; 
                 elif test $BBSELECTED; then bb "+select:$f"; fi 
@@ -194,7 +211,7 @@ binding_t bindings[] = {
 
     {{'R'},
         QUOTE(
-            if patt="`bb '?Rename pattern: ' 's/'`"; then true; else bb +r; exit; fi;
+            if patt="`ask --initial='s/' 'Rename pattern: '`"; then true; else bb +r; exit; fi;
             if sed -E "$patt" </dev/null; then true; else read -p 'Press any key to continue...' -n1; bb +r; exit; fi;
             bb '+deselect:*' +refresh; 
             for f; do 
@@ -207,21 +224,21 @@ binding_t bindings[] = {
     
     {{'P'},
         QUOTE(
-            patt=`bb '?Select pattern: '` &&
-            for f; do echo "$f" | grep "$patt" >/dev/null 2>/dev/null && bb "+sel:$f"; done
+            patt=`ask 'Select pattern: '` &&
+            for f in *; do echo "$f" | grep "$patt" >/dev/null 2>/dev/null && bb "+sel:$f"; done
         )/*ENDQUOTE*/,
         B("Regex select")" files"},
 
     {{'J'}, "+spread:+1", B("Spread")" selection down"},
     {{'K'}, "+spread:-1", B("Spread")" selection up"},
-    {{'b'}, "bb \"+`bb '?bb +'`\"", "Run a "B("bb command")},
+    {{'b'}, "bb \"+`"ASKECHO("bb +")"`\"", "Run a "B("bb command")},
     {{'s'},
-        ("read -n1 -p 'Sort "B("(a)")"lphabetic "B("(s)")"ize "B("(m)")"odification "
-         B("(c)")"creation "B("(a)")"access "B("(r)")"andom "B("(p)")"ermissions:\033[0m ' sort "
+        ("sort=\"$(ask -q 'Sort (n)ame (s)ize (m)odification (c)reation (a)ccess (r)andom "
+         "(p)ermissions: ' n s m c a r p)\""
          "&& bb \"+sort:+$sort\""),
         B("Sort")" by..."},
 
-    {{'#'}, "bb \"+col:`bb '?Set columns: '`\"", "Set "B("columns")},
+    {{'#'}, "bb \"+col:`"ASKECHO("Set columns: ")"`\"", "Set "B("columns")},
     {{'.'}, "bb +dotfiles", "Toggle "B("dotfiles")},
     {{'g', KEY_HOME}, "+move:0", "Go to "B("first")" file"},
     {{'G', KEY_END}, "+move:100%n", "Go to "B("last")" file"},
