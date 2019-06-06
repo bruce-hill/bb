@@ -13,7 +13,7 @@ NAME=bb
 G=-g
 
 ifneq (, $(shell which ask))
-CFLAGS += -D'ASKECHO(prompt)="ask \"" prompt "\""' -D'FUZZY(prompt)="ask \"" prompt "\""'
+CFLAGS += -D'ASKECHO(prompt,...)="ask " ## __VA_ARGS__ " \"" prompt "\""' -D'FUZZY(prompt,...)="ask " ## __VA_ARGS__ " \"" prompt "\""'
 endif
 
 all: $(NAME)

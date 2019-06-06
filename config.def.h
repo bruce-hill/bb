@@ -58,8 +58,6 @@
 #define KEY_DELAY 50
 #define SCROLLOFF MIN(5, (termheight-4)/2)
 
-#define QUOTE(s) #s
-
 #define CMDFILE_FORMAT "/tmp/bb.XXXXXX"
 
 #define SORT_INDICATOR  "↓"
@@ -82,18 +80,17 @@
 
 #ifndef ASK
 #ifdef ASKECHO
-#define ASK(var, prompt) var "=\"$(" ASKECHO(prompt) ")\""
+#define ASK(var, prompt, ...) var "=\"$(" ASKECHO(prompt, ## __VA_ARGS__) ")\""
 #else
-#define ASK(var, prompt) "read -p \"" prompt "\" " var
+#define ASK(var, prompt, ...) "read -p \"" prompt "\" " var
 #endif
 #endif
 
 #ifndef ASKECHO
-#define ASKECHO(prompt) ASK("REPLY", prompt) " && echo \"$REPLY\""
+#define ASKECHO(prompt, ...) ASK("REPLY", prompt ## __VA_ARGS__) " && echo \"$REPLY\""
 #endif
 
 #define NORMAL_TERM     (1<<0)
-#define AT_CURSOR       (1<<1)
 
 #define MAX_REBINDINGS 8
 
@@ -137,19 +134,12 @@ const column_t columns[128] = {
     ['s'] = {9,  "Size"},
 };
 
-#ifdef __APPLE__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdollar-in-identifier-extension"
-#endif
 extern binding_t bindings[];
 #define B(s) "\033[1m" s "\033[22m"
 binding_t bindings[] = {
     /*************************************************************************
      * User-defined custom scripts can go here
      * Format is: {{keys}, "script", "help text", flags}
-     *
-     * For longer scripts you can use QUOTE(...) instead of "..." and all
-     * quotation marks and newlines and backslashes will get escaped properly.
      *
      * Please note that these are sh scripts, not bash scripts, so bash-isms
      * won't work unless you make your script use `bash -c "<your script>"`
@@ -162,18 +152,14 @@ binding_t bindings[] = {
     {{'l', KEY_ARROW_RIGHT}, "test -d \"$BBCURSOR\" && bb \"+cd:$BBCURSOR\"", B("Enter")" a directory"},
     {{'\r', KEY_MOUSE_DOUBLE_LEFT},
 #ifdef __APPLE__
-        QUOTE(
-            if test -d "$BBCURSOR"; then bb "+cd:$BBCURSOR";
-            elif test -x "$BBCURSOR"; then "$BBCURSOR"; read -p 'Press any key to continue...' -n1;
-            elif file -bI "$BBCURSOR" | grep '^\(text/\|inode/empty\)' >/dev/null; then $EDITOR "$BBCURSOR";
-            else open "$BBCURSOR"; fi
-        )/*ENDQUOTE*/,
+        "if test -d \"$BBCURSOR\"; then bb \"+cd:$BBCURSOR\"; "
+        "elif test -x \"$BBCURSOR\"; then \"$BBCURSOR\"; " PAUSE "; "
+        "elif file -bI \"$BBCURSOR\" | grep '^\\(text/\\|inode/empty\\)' >/dev/null; then $EDITOR \"$BBCURSOR\"; "
+        "else open \"$BBCURSOR\"; fi",
 #else
-        QUOTE(
-            if test -d "$BBCURSOR"; then bb "+cd:$BBCURSOR";
-            elif file -bi "$BBCURSOR" | grep '^\(text/\|inode/empty\)' >/dev/null; then $EDITOR "$BBCURSOR";
-            else xdg-open "$BBCURSOR"; fi
-        )/*ENDQUOTE*/,
+        "if test -d \"$BBCURSOR\"; then bb \"+cd:$BBCURSOR\"; "
+        "elif file -bi \"$BBCURSOR\" | grep '^\\(text/\\|inode/empty\\)' >/dev/null; then $EDITOR \"$BBCURSOR\"; "
+        "else xdg-open \"$BBCURSOR\"; fi",
 #endif
         B("Open")" file/directory", NORMAL_TERM},
     {{' ','v','V'}, "+toggle", B("Toggle")" selection"},
@@ -181,7 +167,7 @@ binding_t bindings[] = {
     {{'e'}, "$EDITOR \"$@\"", B("Edit")" file in $EDITOR", NORMAL_TERM},
     {{KEY_CTRL_F}, "bb \"+g:`find | "FUZZY("Find: ")"`\" +r", B("Fuzzy search")" for file"},
     {{'/'}, "bb \"+g:`ls -a | " FUZZY("Pick: ") "`\" +r", B("Fuzzy pick")" file"},
-    {{'d', KEY_DELETE}, "rm -rfi \"$@\"; bb '+de:*' +r", B("Delete")" files", AT_CURSOR},
+    {{'d', KEY_DELETE}, "rm -rfi \"$@\"; bb '+de:*' +r", B("Delete")" files"},
     {{'D'}, "rm -rf \"$@\"; bb '+de:*' +r", B("Delete")" files (without confirmation)"},
     {{'M'}, "mv -i \"$@\" .; bb '+de:*' +r; for f; do bb \"+sel:`pwd`/`basename \"$f\"`\"; done",
         B("Move")" files to current directory"},
@@ -197,38 +183,28 @@ binding_t bindings[] = {
     {{'>'}, "$SHELL", "Open a "B("shell"), NORMAL_TERM},
     {{'m'}, "read -n1 -p 'Mark: ' m && bb \"+mark:$m;$PWD\"", "Set "B("mark")},
     {{'\''}, "read -n1 -p 'Jump: ' j && bb \"+jump:$j\"", B("Jump")" to mark"},
-
     {{'r'},
-        QUOTE(
-            bb '+deselect:*' +refresh; 
-            for f; do 
-                if renamed="$(dirname "$f")/$(ask --initial="$(basename "$f")" 'Rename: ')" &&
-                    test "$f" != "$renamed" && mv -i "$f" "$renamed"; then 
-                    test $BBSELECTED && bb "+select:$renamed"; 
-                elif test $BBSELECTED; then bb "+select:$f"; fi 
-            done)/*ENDQUOTE*/,
-        B("Rename")" files", AT_CURSOR},
-
+        "bb '+deselect*' +refresh; "
+        "for f; do "
+        "    if r=\"$(dirname \"$f\")/$("ASKECHO("Rename: ", "--initial=\"$(basename \"$f\")\"")")\" && "
+        "      test \"$r\" != \"$f\" && mv -i \"$f\" \"$r\"; then "
+        "        test $BBSELECTED && bb \"+select:$r\"; "
+        "    elif test $BBSELECTED; then bb \"+select:$f\"; fi; "
+        "done", B("Rename")" files"};
     {{'R'},
-        QUOTE(
-            if patt="`ask --initial='s/' 'Rename pattern: '`"; then true; else bb +r; exit; fi;
-            if sed -E "$patt" </dev/null; then true; else read -p 'Press any key to continue...' -n1; bb +r; exit; fi;
-            bb '+deselect:*' +refresh; 
-            for f; do 
-                renamed="`dirname "$f"`/`basename "$f" | sed -E "$patt"`"; 
-                if test "$f" != "$renamed" && mv -i "$f" "$renamed"; then 
-                    test $BBSELECTED && bb "+select:$renamed"; 
-                elif test $BBSELECTED; then bb "+select:$f"; fi 
-            done)/*ENDQUOTE*/,
-        B("Regex rename")" files", AT_CURSOR},
-    
+        "if patt=\"`ask --initial='s/' 'Rename pattern: '`\"; then true; else bb +r; exit; fi; "
+        "if sed -E \"$patt\" </dev/null; then true; else " PAUSE "; bb +r; exit; fi; "
+        "bb '+deselect:*' +refresh; "
+        "for f; do "
+        "    renamed=\"`dirname \"$f\"`/`basename \"$f\" | sed -E \"$patt\"`\"; "
+        "    if test \"$f\" != \"$renamed\" && mv -i \"$f\" \"$renamed\"; then "
+        "        test $BBSELECTED && bb \"+select:$renamed\"; "
+        "    elif test $BBSELECTED; then bb \"+select:$f\"; fi "
+        "done", B("Regex rename")" files"},
     {{'P'},
-        QUOTE(
-            patt=`ask 'Select pattern: '` &&
-            for f in *; do echo "$f" | grep "$patt" >/dev/null 2>/dev/null && bb "+sel:$f"; done
-        )/*ENDQUOTE*/,
+        "patt=`ask 'Select pattern: '` && "
+        "for f in *; do echo \"$f\" | grep \"$patt\" >/dev/null 2>/dev/null && bb \"+sel:$f\"; done",
         B("Regex select")" files"},
-
     {{'J'}, "+spread:+1", B("Spread")" selection down"},
     {{'K'}, "+spread:-1", B("Spread")" selection up"},
     {{'b'}, "bb \"+`"ASKECHO("bb +")"`\"", "Run a "B("bb command")},
@@ -237,7 +213,6 @@ binding_t bindings[] = {
          "(p)ermissions: ' n s m c a r p)\""
          "&& bb \"+sort:+$sort\""),
         B("Sort")" by..."},
-
     {{'#'}, "bb \"+col:`"ASKECHO("Set columns: ")"`\"", "Set "B("columns")},
     {{'.'}, "bb +dotfiles", "Toggle "B("dotfiles")},
     {{'g', KEY_HOME}, "+move:0", "Go to "B("first")" file"},
@@ -252,8 +227,5 @@ binding_t bindings[] = {
     {{KEY_MOUSE_WHEEL_UP}, "+scroll:-3", B("Scroll up")},
     {{0}}, // Array must be 0-terminated
 };
-#ifdef __APPLE__
-#pragma clang diagnostic pop
-#endif
 
 // vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1
