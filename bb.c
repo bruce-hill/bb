@@ -155,7 +155,7 @@ extern const char *startupcmds[];
 extern const column_t columns[128];
 
 // Constants
-static const char *T_ENTER_BBMODE = T_OFF(T_SHOW_CURSOR) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_WRAP);
+static const char *T_ENTER_BBMODE = T_OFF(T_SHOW_CURSOR ";" T_WRAP) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
 static const char *T_LEAVE_BBMODE = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN) T_ON(T_SHOW_CURSOR ";" T_WRAP);
 static const char *T_LEAVE_BBMODE_PARTIAL = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR) T_ON(T_WRAP);
 
@@ -1312,6 +1312,7 @@ void bb_browse(bb_t *bb, const char *path)
                 move_cursor(tty_out, 0, 3 + bb->cursor - bb->scroll);
                 fputs("\033[K", tty_out);
             }
+            fputs(T_ON(T_SHOW_CURSOR), tty_out);
             close_term();
             run_cmd_on_selection(bb, binding->command);
             init_term();
