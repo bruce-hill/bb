@@ -1313,8 +1313,7 @@ void bb_browse(bb_t *bb, const char *path)
             run_cmd_on_selection(bb, binding->command);
             init_term();
             fputs(T_ON(T_ALT_SCREEN), tty_out);
-            if (binding->flags & NORMAL_TERM)
-                bb->dirty = 1;
+            bb->dirty = 1;
             check_cmds = 1;
             goto redraw;
         }
