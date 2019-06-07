@@ -1308,10 +1308,6 @@ void bb_browse(bb_t *bb, const char *path)
             move_cursor(tty_out, 0, termheight-1);
             if (binding->flags & NORMAL_TERM)
                 fputs(T_OFF(T_ALT_SCREEN), tty_out);
-            if (binding->flags & AT_CURSOR && !bb->firstselected) {
-                move_cursor(tty_out, 0, 3 + bb->cursor - bb->scroll);
-                fputs("\033[K", tty_out);
-            }
             fputs(T_ON(T_SHOW_CURSOR), tty_out);
             close_term();
             run_cmd_on_selection(bb, binding->command);
