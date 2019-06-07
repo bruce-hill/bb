@@ -1,31 +1,50 @@
+NAME=bb
 PREFIX=
 CC=gcc
 CFLAGS=-O0 -std=gnu99 -D_XOPEN_SOURCE=500 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L
 CWARN= -Wall -Wpedantic -Wno-unknown-pragmas -fsanitize=address -fno-omit-frame-pointer
-UNAME := $(shell uname)
-ifeq ($(UNAME),Darwin)
+G=-g
+PICK=
+ASK=
+ASKECHO=
+
+ifeq ($(shell uname),Darwin)
 CFLAGS += -D_DARWIN_C_SOURCE
 CWARN += -Weverything -Wno-missing-field-initializers -Wno-padded\
 		  -Wno-missing-noreturn -Wno-cast-qual
 endif
-LIBS=
-NAME=bb
-G=-g
 
 ifneq (, $(shell which ask))
-CFLAGS += -D'ASKECHO(prompt,...)="ask " ## __VA_ARGS__ " \"" prompt "\""' -D'FUZZY(prompt,...)="ask " ## __VA_ARGS__ " \"" prompt "\""'
+ifeq (, $(ASKECHO)$(ASK))
+ASKECHO="ask --prompt=\"" prompt "\" --query=\"" initial "\""
+endif
+ifeq (, $(PICK))
+PICK="ask --prompt=\"" prompt "\" --query=\"" initial "\""
+endif
+endif
+
+ifneq (, $(ASKECHO))
+CFLAGS += -D'ASKECHO(prompt,initial)=$(ASKECHO)'
+endif
+
+ifneq (, $(ASK))
+CFLAGS += -D'ASK(var,prompt,initial)=$(ASK)'
+endif
+
+ifneq (, $(PICK))
+CFLAGS += -D'PICK(prompt, initial)=$(PICK)'
 endif
 
 all: $(NAME)
 
 clean:
-	rm $(NAME)
+	rm -f $(NAME)
 
 config.h:
 	cp config.def.h config.h
 
 $(NAME): $(NAME).c bterm.h config.h
-	$(CC) $(NAME).c $(LIBS) $(CFLAGS) $(CWARN) $(G) -o $(NAME)
+	$(CC) $(NAME).c $(CFLAGS) $(CWARN) $(G) -o $(NAME)
 	
 install: $(NAME)
 	@prefix="$(PREFIX)"; \
