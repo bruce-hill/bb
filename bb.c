@@ -744,7 +744,7 @@ entry_t* load_entry(bb_t *bb, const char *path)
         strcpy(pbuf, bb->path);
         strcat(pbuf, path);
     }
-    if (pbuf[strlen(pbuf)-1] == '/')
+    if (pbuf[strlen(pbuf)-1] == '/' && pbuf[1])
         pbuf[strlen(pbuf)-1] = '\0';
 
     // Check for pre-existing:
@@ -768,9 +768,13 @@ entry_t* load_entry(bb_t *bb, const char *path)
     char *end = stpcpy(entry->fullname, pbuf);
     if (linkpathlen >= 0)
         entry->linkname = strcpy(end + 1, linkbuf);
-    entry->name = strrchr(entry->fullname, '/');
-    if (!entry->name) err("No slash found in '%s'", entry->fullname);
-    ++entry->name;
+    if (strcmp(entry->fullname, "/") == 0) {
+        entry->name = entry->fullname;
+    } else {
+        entry->name = strrchr(entry->fullname, '/');
+        if (!entry->name) err("No slash found in '%s' from '%s'", entry->fullname, path);
+        ++entry->name;
+    }
     if (S_ISLNK(filestat.st_mode))
         entry->linkedmode = linkedstat.st_mode;
     entry->info = filestat;
