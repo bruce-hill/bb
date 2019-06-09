@@ -25,7 +25,7 @@
         ..:[01]                   Whether to show ".." in each directory
         cd:<path>                 Navigate to <path>
         columns:<columns>         Change which columns are visible, and in what order
-        deselect:<filename>       Deselect <filename>
+        deselect:<filename>|*     Deselect <filename> or all ("*")
         dotfiles:[01]             Whether dotfiles are visible
         goto:<filename>           Move the cursor to <filename> (changing directory if needed)
         interleave:[01]           Whether or not directories should be interleaved with files in the display
@@ -35,7 +35,7 @@
         quit                      Quit bb
         refresh                   Refresh the file listing
         scroll:<num*>             Scroll the view a numeric amount
-        select:<filename>         Select <filename>
+        select:<filename>|*       Select <filename> or all visible files in current directory ("*")
         sort:([+-]method)+        List of sortings (if equal on one, move to the next)
         spread:<num*>             Spread the selection state at the cursor
         toggle:<filename>         Toggle the selection status of <filename>
@@ -164,46 +164,48 @@ binding_t bindings[] = {
         B("Open")" file/directory", NORMAL_TERM},
     {{' ','v','V'}, "+toggle", B("Toggle")" selection"},
     {{KEY_ESC}, "+deselect:*", B("Clear")" selection"},
-    {{'e'}, "$EDITOR \"$@\"", B("Edit")" file in $EDITOR", NORMAL_TERM},
+    {{'e'}, "$EDITOR \"$@\" || "PAUSE, B("Edit")" file in $EDITOR", NORMAL_TERM},
     {{KEY_CTRL_F}, "bb \"+g:`find | "PICK("Find: ", "")"`\"", B("Search")" for file"},
     {{'/'}, "bb \"+g:`ls -a | "PICK("Pick: ", "")"`\"", B("Pick")" file"},
-    {{'d', KEY_DELETE}, "rm -rfi \"$@\"; bb '+deselect:*' +r", B("Delete")" files"},
-    {{'D'}, "rm -rf \"$@\"; bb '+deselect:*' +r", B("Delete")" files (without confirmation)"},
-    {{'M'}, "mv -i \"$@\" .; bb '+deselect:*' +r; for f; do bb \"+sel:`pwd`/`basename \"$f\"`\"; done",
+    {{'d', KEY_DELETE}, "rm -rfi \"$@\" && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files"},
+    {{'D'}, "rm -rf \"$@\" && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files (without confirmation)"},
+    {{'M'}, "mv -i \"$@\" . && bb '+deselect:*' +r && for f; do bb \"+sel:`pwd`/`basename \"$f\"`\"; done || "PAUSE,
         B("Move")" files to current directory"},
-    {{'c'}, "cp -ri \"$@\" .; bb +r", B("Copy")" files to current directory"},
-    {{'C'}, "bb '+de:*'; for f; do cp \"$f\" \"$f.copy\" && bb \"+sel:$f.copy\"; done; bb +r", B("Clone")" files"},
-    {{'n'}, "bb +r; " ASK("name", "New file: ", "")" && touch \"$name\"; bb \"+goto:$name\"", B("New file")},
-    {{'N'}, "bb +r; " ASK("name", "New dir: ", "")" && mkdir \"$name\"; bb \"+goto:$name\"", B("New directory")},
+    {{'c'}, "cp -ri \"$@\" . && bb +r || "PAUSE, B("Copy")" files to current directory"},
+    {{'C'}, "bb '+de:*' && for f; do cp \"$f\" \"$f.copy\" && bb \"+sel:$f.copy\"; done && bb +r || "PAUSE, B("Clone")" files"},
+    {{'n'}, ASK("name", "New file: ", "")" && touch \"$name\" && bb \"+goto:$name\" +r || "PAUSE, B("New file")},
+    {{'N'}, ASK("name", "New dir: ", "")" && mkdir \"$name\" && bb \"+goto:$name\" +r || "PAUSE, B("New directory")},
     {{KEY_CTRL_G}, "bb \"+cd:`" ASKECHO("Go to directory: ", "") "`\"", B("Go to")" directory"},
     {{'|'}, ASK("cmd", "|", "") " && printf '%s\\n' \"$@\" | sh -c \"$cmd\"; " PAUSE "; bb +r",
         B("Pipe")" selected files to a command"},
     {{':'}, "sh -c \"`" ASKECHO(":", "") "`\" -- \"$@\"; " PAUSE "; bb +refresh",
         B("Run")" a command"},
-    {{'>'}, "$SHELL", "Open a "B("shell"), NORMAL_TERM},
+    {{'>'}, "$SHELL; bb +r", "Open a "B("shell"), NORMAL_TERM},
     {{'m'}, "read -n1 -p 'Mark: ' m && bb \"+mark:$m;$PWD\"", "Set "B("mark")},
     {{'\''}, "read -n1 -p 'Jump: ' j && bb \"+jump:$j\"", B("Jump")" to mark"},
     {{'r'},
-        "bb '+deselect*' +refresh; "
+        "bb +refresh; "
         "for f; do "
-        "    if r=\"$(dirname \"$f\")/$("ASKECHO("Rename: ", "$(basename \"$f\")")")\" && "
-        "      test \"$r\" != \"$f\" && mv -i \"$f\" \"$r\"; then "
-        "        test $BBSELECTED && bb \"+select:$r\"; "
-        "    elif test $BBSELECTED; then bb \"+select:$f\"; fi; "
+        "    if r=\"$(dirname \"$f\")/$("ASKECHO("rename: ", "$(basename \"$f\")")")\"; then "
+        "      if test \"$r\" != \"$f\" && mv -i \"$f\" \"$r\"; then "
+        "          test $BBSELECTED && bb \"+deselect:$f\" \"+select:$r\"; "
+        "      fi; "
+        "    else break; "
+        "    fi; "
         "done", B("Rename")" files"},
     {{'R'},
-        "if "ASK("patt", "Rename pattern: ", "s/")"; then true; else bb +r; exit; fi; "
-        "if sed -E \"$patt\" </dev/null; then true; else " PAUSE "; bb +r; exit; fi; "
-        "bb '+deselect:*' +refresh; "
+        "if "ASK("patt", "Rename pattern: ", "s/")"; then true; else exit; fi; "
+        "if sed -E \"$patt\" </dev/null; then true; else " PAUSE "; exit; fi; "
+        "bb +refresh; "
         "for f; do "
-        "    renamed=\"`dirname \"$f\"`/`basename \"$f\" | sed -E \"$patt\"`\"; "
+        "    renamed=\"`dirname \"$f\"`/`basename \"$f\" | sed -E \"$patt\"`\" || "PAUSE" && exit; "
         "    if test \"$f\" != \"$renamed\" && mv -i \"$f\" \"$renamed\"; then "
-        "        test $BBSELECTED && bb \"+select:$renamed\"; "
-        "    elif test $BBSELECTED; then bb \"+select:$f\"; fi "
+        "        test $BBSELECTED && bb \"+deselect:$f\" \"+select:$renamed\"; "
+        "    fi; "
         "done", B("Regex rename")" files"},
     {{'P'},
         "patt=`ask 'Select pattern: '` && "
-        "for f in *; do echo \"$f\" | grep \"$patt\" >/dev/null 2>/dev/null && bb \"+sel:$f\"; done",
+        "for f in *; do echo \"$f\" | grep \"$patt\" >/dev/null && bb \"+sel:$f\"; done",
         B("Regex select")" files"},
     {{'J'}, "+spread:+1", B("Spread")" selection down"},
     {{'K'}, "+spread:-1", B("Spread")" selection up"},
