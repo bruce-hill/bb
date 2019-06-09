@@ -1007,7 +1007,17 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
                         return BB_OK;
                     } else {
                         entry_t *e = load_entry(bb, value);
-                        if (e) deselect_entry(bb, e);
+                        if (e) {
+                            deselect_entry(bb, e);
+                            return BB_OK;
+                        }
+                        // Filename may no longer exist:
+                        for (e = bb->firstselected; e; e = e->selected.next) {
+                            if (strcmp(e->fullname, value) == 0) {
+                                deselect_entry(bb, e);
+                                break;
+                            }
+                        }
                         return BB_OK;
                     }
                 }
