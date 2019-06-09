@@ -171,7 +171,7 @@ binding_t bindings[] = {
     {{'D'}, "rm -rf \"$@\"; bb '+deselect:*' +r", B("Delete")" files (without confirmation)"},
     {{'M'}, "mv -i \"$@\" .; bb '+deselect:*' +r; for f; do bb \"+sel:`pwd`/`basename \"$f\"`\"; done",
         B("Move")" files to current directory"},
-    {{'c'}, "cp -i \"$@\" .; bb +r", B("Copy")" files to current directory"},
+    {{'c'}, "cp -ri \"$@\" .; bb +r", B("Copy")" files to current directory"},
     {{'C'}, "bb '+de:*'; for f; do cp \"$f\" \"$f.copy\" && bb \"+sel:$f.copy\"; done; bb +r", B("Clone")" files"},
     {{'n'}, "bb +r; " ASK("name", "New file: ", "")" && touch \"$name\"; bb \"+goto:$name\"", B("New file")},
     {{'N'}, "bb +r; " ASK("name", "New dir: ", "")" && mkdir \"$name\"; bb \"+goto:$name\"", B("New directory")},
