@@ -30,7 +30,7 @@ create a new file, `N` to create a new directory, `:` to run a command with the
 selected files in `$@`, and `|` to pipe files to a command. Pressing `Ctrl-c`
 will cause `bb` to exit with a failure status and without printing anything.
 
-# bb's Philosophy
+## bb's Philosophy
 The core idea behind `bb` is that `bb` is a file **browser**, not a file
 **manager**, which means `bb` uses shell scripts to perform all modifications
 to the filesystem (passing selected files as arguments), rather than
@@ -99,5 +99,5 @@ For fish, put this in your `~/.config/fish/functions/fish_user_key_bindings.fish
 
     bind \cB 'bcd; commandline -f repaint'
 
-# License
+## License
 `bb` is released under the MIT license. See the `LICENSE` file for full details.
