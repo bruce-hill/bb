@@ -18,7 +18,8 @@ No dependencies, just:
 
 Run `bb` to launch the file browser. `bb` also has the flags:
 
-- `-d`: when `bb` exits successfully, print the directory `bb` was browsing.
+- `-d`: when `bb` exits successfully, print the directory `bb` was browsing
+  (see the section on "Changing Directories with bb" in the FAQ below).
 - `-s`: when `bb` exits successfully, print the files that were selected.
 - `-0`: use NULL-terminated strings instead of newline-separated strings with
   the `-s` flag.
