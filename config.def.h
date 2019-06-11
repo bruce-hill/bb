@@ -100,23 +100,18 @@ typedef struct {
 #define B(s) "\033[1m" s "\033[22m"
 
 // Macros for getting user input:
-#ifndef ASK
-#ifdef ASKECHO
+#ifdef USE_ASK
+#define ASKECHO(prompt, initial) "ask --prompt=\"" prompt "\" --query=\"" initial "\""
 #define ASK(var, prompt, initial) var "=\"$(" ASKECHO(prompt, initial) ")\""
 #else
-#define ASK(var, prompt, initial) "read -p \"" prompt "\" " var " </dev/tty >/dev/tty"
-#endif
-#endif
-
-#ifndef ASKECHO
-#define ASKECHO(prompt, initial) ASK("REPLY", prompt, initial) " && echo \"$REPLY\""
+#define ASK(var, prompt, initial) "read -ep \"" prompt "\" " var " </dev/tty >/dev/tty"
+#define ASKECHO(prompt, initial) "read -ep \"" prompt "\" </dev/tty >/dev/tty && echo \"$REPLY\""
 #endif
 
-// Get user input to choose an option (piped in). If you want to use
-// a fuzzy finder like fzy or fzf, then this should be something like:
-// "fzy --prompt=\"" prompt "\" --query=\"" initial "\""
+// Macros for picking from a list of options:
 #ifndef PICK
-#define PICK(prompt, initial) "grep -i -m1 \"^$(" ASKECHO(prompt, initial) " | sed 's/./[^&]*[&]/g')\""
+#define PICK(prompt, initial) " { printf '\\033[A' >/dev/tty; awk '{print length, $1}' | sort -n | cut -d' ' -f2- | "\
+    "grep -i -m1 \"^$(" ASKECHO(prompt, initial) " | sed 's/./[^&]*[&]/g')\"; } "
 #endif
 
 // Display a spinning indicator if command takes longer than 10ms:
@@ -194,7 +189,7 @@ binding_t bindings[] = {
     {{KEY_ESC}, "+deselect:*", B("Clear")" selection"},
     {{'e'}, "$EDITOR \"$@\" || "PAUSE, B("Edit")" file in $EDITOR"},
     {{KEY_CTRL_F}, "bb \"+g:`find | "PICK("Find: ", "")"`\"", B("Search")" for file"},
-    {{'/'}, "bb \"+g:`ls -pa | "PICK("Pick: ", "")"`\"", B("Pick")" file"},
+    {{'/'}, "bb \"+g:`ls -A | "PICK("Pick: ", "")"`\"", B("Pick")" file"},
     {{'d', KEY_DELETE}, "rm -rfi \"$@\" && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files"},
     {{'D'}, SPIN("rm -rf \"$@\"")" && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files (without confirmation)"},
     {{'M'}, SPIN("mv -i \"$@\" .")" && bb '+deselect:*' +r && for f; do bb \"+sel:`pwd`/`basename \"$f\"`\"; done || "PAUSE,
@@ -245,7 +240,7 @@ binding_t bindings[] = {
          "&& bb \"+sort:+$sort\" +refresh"),
         B("Sort")" by..."},
     {{'#'}, "bb \"+col:`"ASKECHO("Set columns: ", "")"`\"", "Set "B("columns")},
-    {{'.'}, "bb +dotfiles", "Toggle "B("dotfiles")},
+    {{'.'}, "+dotfiles", "Toggle "B("dotfiles")},
     {{'g', KEY_HOME}, "+move:0", "Go to "B("first")" file"},
     {{'G', KEY_END}, "+move:100%n", "Go to "B("last")" file"},
     {{KEY_F5, KEY_CTRL_R}, "+refresh", B("Refresh")},

@@ -4,7 +4,6 @@ CC=gcc
 CFLAGS=-O0 -std=gnu99 -D_XOPEN_SOURCE=500 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L
 CWARN= -Wall -Wpedantic -Wno-unknown-pragmas -fsanitize=address -fno-omit-frame-pointer
 G=-g
-PICKER=
 
 ifeq ($(shell uname),Darwin)
 CFLAGS += -D_DARWIN_C_SOURCE
@@ -12,19 +11,19 @@ CWARN += -Weverything -Wno-missing-field-initializers -Wno-padded\
 		  -Wno-missing-noreturn -Wno-cast-qual
 endif
 
-ifneq (, $(shell which ask))
-ifeq (, $(ASKECHO)$(ASK))
-CFLAGS += -D'ASKECHO(prompt,initial)="ask --prompt=\"" prompt "\" --query=\"" initial "\""'
+ifeq ($(PICKER),fzy)
+CFLAGS += -D'PICK(prompt, initial)=" { printf \"\\033[3A\" >/dev/tty; fzy --lines=3 --prompt=\"" prompt "\" --query=\"" initial "\"; } "'
 endif
-ifeq (, $(PICKER))
-PICKER=ask
+ifeq ($(PICKER),fzf)
+CFLAGS += -D'PICK(prompt, initial)=" { printf \"\\033[3A\" >/dev/tty; fzf --height=4 --prompt=\"" prompt "\" --query=\"" initial "\"; } "'
 endif
-endif
-
-ifneq (, $(PICKER))
-CFLAGS += -D'PICK(prompt, initial)="$(PICKER) --prompt=\"" prompt "\" --query=\"" initial "\""'
+ifeq ($(PICKER),ask)
+CFLAGS += -D'PICK(prompt, initial)=" ask --prompt=\"" prompt "\" --query=\"" initial "\" "'
 endif
 
+ifneq (, $(USE_ASK))
+CFLAGS += -D'USE_ASK=1'
+endif
 
 all: $(NAME)
 
