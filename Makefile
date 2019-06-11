@@ -4,9 +4,7 @@ CC=gcc
 CFLAGS=-O0 -std=gnu99 -D_XOPEN_SOURCE=500 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L
 CWARN= -Wall -Wpedantic -Wno-unknown-pragmas -fsanitize=address -fno-omit-frame-pointer
 G=-g
-PICK=
-ASK=
-ASKECHO=
+PICKER=
 
 ifeq ($(shell uname),Darwin)
 CFLAGS += -D_DARWIN_C_SOURCE
@@ -16,24 +14,17 @@ endif
 
 ifneq (, $(shell which ask))
 ifeq (, $(ASKECHO)$(ASK))
-ASKECHO="ask --prompt=\"" prompt "\" --query=\"" initial "\""
+CFLAGS += -D'ASKECHO(prompt,initial)="ask --prompt=\"" prompt "\" --query=\"" initial "\""'
 endif
-ifeq (, $(PICK))
-PICK="ask --prompt=\"" prompt "\" --query=\"" initial "\""
+ifeq (, $(PICKER))
+PICKER=ask
 endif
-endif
-
-ifneq (, $(ASKECHO))
-CFLAGS += -D'ASKECHO(prompt,initial)=$(ASKECHO)'
 endif
 
-ifneq (, $(ASK))
-CFLAGS += -D'ASK(var,prompt,initial)=$(ASK)'
+ifneq (, $(PICKER))
+CFLAGS += -D'PICK(prompt, initial)="$(PICKER) --prompt=\"" prompt "\" --query=\"" initial "\""'
 endif
 
-ifneq (, $(PICK))
-CFLAGS += -D'PICK(prompt, initial)=$(PICK)'
-endif
 
 all: $(NAME)
 

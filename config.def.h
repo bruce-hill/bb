@@ -1,19 +1,22 @@
 /*
-    BB Key Bindings
+    BB Configuration, Startup Commands, and Key Bindings
 
-    User-defined key bindings go in config.h, which is created by running `make`
+    User customization goes in config.h, which is created by running `make`
     (config.def.h is for keeping the defaults around, just in case)
 
-    The basic structure is:
-        <list of keys to bind>
-        <program to run>
-        <description> (for the help menu)
-        <flags> (whether to run in a full terminal window or silently, etc.)
+    This file contains:
+        - Global options, like which colors are used
+        - Column formatting (width and title)
+        - Startup commands
+        - User key bindings
 
-    When the scripts are run, the following values are provided as environment variables:
+    For startup commands and key bindings, the following values are provided as
+    environment variables:
 
-        $@ (the list of arguments): the full paths of the selected files
-        $BBCURSOR: the full name of the file under the cursor
+        $@ (the list of arguments): the full paths of the selected files, or if
+            no files are selected, the full path of the file under the cursor
+        $BBCURSOR: the full path of the file under the cursor
+        $BBSELECTED: "1" if any files are selected, otherwise ""
         $BB_DEPTH: the number of `bb` instances deep (in case you want to run a
             shell and have that shell print something special in the prompt)
         $BBCMD: a file to which `bb` commands can be written (used internally)
@@ -40,65 +43,33 @@
         spread:<num*>             Spread the selection state at the cursor
         toggle:<filename>         Toggle the selection status of <filename>
 
-    Internally, bb will write the commands (NUL terminated) to $BBCMD, if
-    $BBCMD is set, and read the file when file browsing resumes. These commands
-    can also be passed to bb at startup, and will run immediately.
-    E.g. `bb +col:n +sort:r .` will launch `bb` only showing the name column, randomly sorted.
-
-    *Note: for numeric-based commands (like scroll), the number can be either
+    Note: for numeric-based commands (like scroll), the number can be either
         an absolute value or a relative value (starting with '+' or '-'), and/or
         a percent (ending with '%'). Scrolling and moving, '%' means percent of
         screen height, and '%n' means percent of number of files (e.g. +50% means
         half a screen height down, and 100%n means the last file)
 
+    Internally, bb will write the commands (NUL terminated) to $BBCMD, if
+    $BBCMD is set, and read the file when file browsing resumes. These commands
+    can also be passed to bb at startup, and will run immediately.
+    E.g. `bb '+col:n' '+sort:+r' .` will launch `bb` only showing the name column, randomly sorted.
+
+    As a shorthand and performance optimization, commands that don't rely on any
+    shell variables or scripting can be written as "+move:+1" instead of "bb '+move:+1'",
+    which is a bit faster because internally it avoids writing to and reading from
+    the $BBCMD file.
+
  */
 #include "bterm.h"
 
-// Configurable options:
-#define KEY_DELAY 50
-#define SCROLLOFF MIN(5, (termheight-4)/2)
-
-#define CMDFILE_FORMAT "/tmp/bb.XXXXXX"
-
-#define SORT_INDICATOR  "↓"
-#define RSORT_INDICATOR "↑"
-#define SELECTED_INDICATOR " \033[31;7m \033[0m"
-#define NOT_SELECTED_INDICATOR "  "
-
-#define TITLE_COLOR      "\033[37;1m"
-#define NORMAL_COLOR     "\033[37m"
-#define CURSOR_COLOR     "\033[43;30;1m"
-#define LINK_COLOR       "\033[35m"
-#define DIR_COLOR        "\033[34m"
-#define EXECUTABLE_COLOR "\033[31m"
-
-#define PAUSE " read -n1 -p '\033[2mPress any key to continue...\033[0m\033[?25l'"
-
-#ifndef ASK
-#ifdef ASKECHO
-#define ASK(var, prompt, initial) var "=\"$(" ASKECHO(prompt, initial) ")\""
-#else
-#define ASK(var, prompt, initial) "read -p \"" prompt "\" " var
-#endif
-#endif
-
-#ifndef ASKECHO
-#define ASKECHO(prompt, initial) ASK("REPLY", prompt, initial) " && echo \"$REPLY\""
-#endif
-
-#ifndef PICK
-#define PICK(prompt, initial) "true && " ASKECHO(prompt, initial)
-#endif
-
-#define NORMAL_TERM     (1<<0)
-
+// Constants:
 #define MAX_REBINDINGS 8
 
+// Types:
 typedef struct {
     int keys[MAX_REBINDINGS+1];
     const char *command;
     const char *description;
-    int flags;
 } binding_t;
 
 typedef struct {
@@ -106,23 +77,68 @@ typedef struct {
     const char *name;
 } column_t;
 
+// Configurable options:
+#define KEY_DELAY 50
+#define SCROLLOFF   MIN(5, (termheight-4)/2)
+#define CMDFILE_FORMAT "/tmp/bb.XXXXXX"
+#define SORT_INDICATOR  "↓"
+#define RSORT_INDICATOR "↑"
+#define SELECTED_INDICATOR " \033[31;7m \033[0m"
+#define NOT_SELECTED_INDICATOR "  "
+// Colors (using ANSI escape sequences):
+#define TITLE_COLOR      "\033[37;1m"
+#define NORMAL_COLOR     "\033[37m"
+#define CURSOR_COLOR     "\033[43;30;1m"
+#define LINK_COLOR       "\033[35m"
+#define DIR_COLOR        "\033[34m"
+#define EXECUTABLE_COLOR "\033[31m"
+
+// Some handy macros for common shell script behaviors:
+#define PAUSE " read -n1 -p '\033[2mPress any key to continue...\033[0m\033[?25l'"
+
+// Bold text:
+#define B(s) "\033[1m" s "\033[22m"
+
+// Macros for getting user input:
+#ifndef ASK
+#ifdef ASKECHO
+#define ASK(var, prompt, initial) var "=\"$(" ASKECHO(prompt, initial) ")\""
+#else
+#define ASK(var, prompt, initial) "read -p \"" prompt "\" " var " </dev/tty >/dev/tty"
+#endif
+#endif
+
+#ifndef ASKECHO
+#define ASKECHO(prompt, initial) ASK("REPLY", prompt, initial) " && echo \"$REPLY\""
+#endif
+
+// Get user input to choose an option (piped in). If you want to use
+// a fuzzy finder like fzy or fzf, then this should be something like:
+// "fzy --prompt=\"" prompt "\" --query=\"" initial "\""
+#ifndef PICK
+#define PICK(prompt, initial) "grep -i -m1 \"^$(" ASKECHO(prompt, initial) " | sed 's/./[^&]*[&]/g')\""
+#endif
+
+// Display a spinning indicator if command takes longer than 10ms:
+#ifndef SPIN
+#define SPIN(cmd) "{ " cmd "; } & " \
+    "pid=$!; "\
+    "spinner='-\\|/'; "\
+    "sleep 0.01; "\
+    "while kill -0 $pid 2>/dev/null; do "\
+    "    printf '%c\\033[D' \"$spinner\" >/dev/tty; "\
+    "    spinner=\"`echo $spinner | sed 's/\\(.\\)\\(.*\\)/\\2\\1/'`\"; "\
+    "    sleep 0.1; "\
+    "done"
+#endif
+
+
 // These commands will run at startup (before command-line arguments)
 extern const char *startupcmds[];
 extern const column_t columns[128];
+extern binding_t bindings[];
 
-const char *startupcmds[] = {
-    //////////////////////////////////////////////
-    // User-defined startup commands can go here
-    //////////////////////////////////////////////
-    // Set some default marks:
-    "+mark:0", "+mark:~=~", "+mark:h=~", "+mark:/=/", "+mark:c=~/.config",
-    "+mark:l=~/.local", "+mark:s=<selection>",
-    // Default column and sorting options:
-    "+sort:+n", "+col:*smpn", "+..",
-    NULL, // NULL-terminated array
-};
-
-// Column widths:
+// Column widths and titles:
 const column_t columns[128] = {
     ['*'] = {2,  "*"},
     ['a'] = {21, "      Accessed"},
@@ -134,17 +150,29 @@ const column_t columns[128] = {
     ['s'] = {9,  "Size"},
 };
 
-extern binding_t bindings[];
-#define B(s) "\033[1m" s "\033[22m"
+// This is a list of commands that runs when `bb` launches:
+const char *startupcmds[] = {
+    // Set some default marks:
+    "+mark:0", "+mark:~=~", "+mark:h=~", "+mark:/=/", "+mark:c=~/.config",
+    "+mark:l=~/.local", "+mark:s=<selection>",
+    // Default column and sorting options:
+    "+sort:+n", "+col:*smpn", "+..",
+    NULL, // NULL-terminated array
+};
+
+/******************************************************************************
+ * These are all the key bindings for bb.
+ * The format is: {{keys,...}, "<script>", "<description>"}
+ *
+ * Please note that these are sh scripts, not bash scripts, so bash-isms
+ * won't work unless you make your script use `bash -c "<your bash script>"`
+ *
+ * If your editor is vim (and not neovim), you can replace `$EDITOR` below with
+ * `vim -c 'set t_ti= t_te=' "$@"` to prevent momentarily seeing the shell
+ * after editing.
+ *****************************************************************************/
 binding_t bindings[] = {
-    /*************************************************************************
-     * User-defined custom scripts can go here
-     * Format is: {{keys}, "script", "help text", flags}
-     *
-     * Please note that these are sh scripts, not bash scripts, so bash-isms
-     * won't work unless you make your script use `bash -c "<your script>"`
-     ************************************************************************/
-    {{'?', KEY_F1}, "bb -b | $PAGER -r", B("Help")" menu", NORMAL_TERM},
+    {{'?', KEY_F1}, "bb -b | $PAGER -rX", B("Help")" menu"},
     {{'q', 'Q'}, "+quit", B("Quit")},
     {{'j', KEY_ARROW_DOWN}, "+move:+1", B("Next")" file"},
     {{'k', KEY_ARROW_UP}, "+move:-1", B("Previous")" file"},
@@ -161,18 +189,19 @@ binding_t bindings[] = {
         "elif file -bi \"$BBCURSOR\" | grep '^\\(text/\\|inode/empty\\)' >/dev/null; then $EDITOR \"$BBCURSOR\"; "
         "else xdg-open \"$BBCURSOR\"; fi",
 #endif
-        B("Open")" file/directory", NORMAL_TERM},
+        B("Open")" file/directory"},
     {{' ','v','V'}, "+toggle", B("Toggle")" selection"},
     {{KEY_ESC}, "+deselect:*", B("Clear")" selection"},
-    {{'e'}, "$EDITOR \"$@\" || "PAUSE, B("Edit")" file in $EDITOR", NORMAL_TERM},
+    {{'e'}, "$EDITOR \"$@\" || "PAUSE, B("Edit")" file in $EDITOR"},
     {{KEY_CTRL_F}, "bb \"+g:`find | "PICK("Find: ", "")"`\"", B("Search")" for file"},
-    {{'/'}, "bb \"+g:`ls -a | "PICK("Pick: ", "")"`\"", B("Pick")" file"},
+    {{'/'}, "bb \"+g:`ls -pa | "PICK("Pick: ", "")"`\"", B("Pick")" file"},
     {{'d', KEY_DELETE}, "rm -rfi \"$@\" && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files"},
-    {{'D'}, "rm -rf \"$@\" && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files (without confirmation)"},
-    {{'M'}, "mv -i \"$@\" . && bb '+deselect:*' +r && for f; do bb \"+sel:`pwd`/`basename \"$f\"`\"; done || "PAUSE,
+    {{'D'}, SPIN("rm -rf \"$@\"")" && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files (without confirmation)"},
+    {{'M'}, SPIN("mv -i \"$@\" .")" && bb '+deselect:*' +r && for f; do bb \"+sel:`pwd`/`basename \"$f\"`\"; done || "PAUSE,
         B("Move")" files to current directory"},
-    {{'c'}, "cp -ri \"$@\" . && bb +r || "PAUSE, B("Copy")" files to current directory"},
-    {{'C'}, "bb '+de:*' && for f; do cp \"$f\" \"$f.copy\" && bb \"+sel:$f.copy\"; done && bb +r || "PAUSE, B("Clone")" files"},
+    {{'c'}, SPIN("cp -ri \"$@\" .")" && bb +r || "PAUSE, B("Copy")" files to current directory"},
+    {{'C'}, "bb '+de:*' && for f; do "SPIN("cp \"$f\" \"$f.copy\"")" && bb \"+sel:$f.copy\"; done && bb +r || "PAUSE,
+        B("Clone")" files"},
     {{'n'}, ASK("name", "New file: ", "")" && touch \"$name\" && bb \"+goto:$name\" +r || "PAUSE, B("New file")},
     {{'N'}, ASK("name", "New dir: ", "")" && mkdir \"$name\" && bb \"+goto:$name\" +r || "PAUSE, B("New directory")},
     {{KEY_CTRL_G}, "bb \"+cd:`" ASKECHO("Go to directory: ", "") "`\"", B("Go to")" directory"},
@@ -180,7 +209,7 @@ binding_t bindings[] = {
         B("Pipe")" selected files to a command"},
     {{':'}, "sh -c \"`" ASKECHO(":", "") "`\" -- \"$@\"; " PAUSE "; bb +refresh",
         B("Run")" a command"},
-    {{'>'}, "$SHELL; bb +r", "Open a "B("shell"), NORMAL_TERM},
+    {{'>'}, "tput rmcup >/dev/tty; $SHELL; bb +r", "Open a "B("shell")},
     {{'m'}, "read -n1 -p 'Mark: ' m && bb \"+mark:$m;$PWD\"", "Set "B("mark")},
     {{'\''}, "read -n1 -p 'Jump: ' j && bb \"+jump:$j\"", B("Jump")" to mark"},
     {{'r'},

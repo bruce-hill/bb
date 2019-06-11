@@ -1042,9 +1042,12 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
             if (!lastslash) return BB_INVALID;
             *lastslash = '\0'; // Split in two
             cd_to(bb, pbuf);
-            if (e->index >= 0)
+            e = load_entry(bb, lastslash+1);
+            if (!e) return BB_INVALID;
+            if (IS_VIEWED(e)) {
                 set_cursor(bb, e->index);
-            if (!IS_VIEWED(e) && !IS_SELECTED(e))
+                return BB_OK;
+            } else if (!IS_SELECTED(e))
                 remove_entry(e);
             return BB_OK;
         }
@@ -1320,8 +1323,6 @@ void bb_browse(bb_t *bb, const char *path)
                 goto redraw;
             }
             move_cursor(tty_out, 0, termheight-1);
-            if (binding->flags & NORMAL_TERM)
-                fputs(T_OFF(T_ALT_SCREEN), tty_out);
             fputs(T_ON(T_SHOW_CURSOR), tty_out);
             close_term();
             run_cmd_on_selection(bb, binding->command);

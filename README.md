@@ -8,22 +8,81 @@
 - Without any build dependencies other than the C standard library (no ncurses)
 - A good proof-of-concept for making a TUI from scratch
 
-The core idea behind `bb` is that almost all actions are performed by piping
-selected files to external scripts, rather than having the file manager itself
-try to anticipate and hard-code every possible user action. Unix tools are very
-good at doing file management, the thing that `bb` adds is immediate visual
-feedback and rapid navigation.
+## Building
+No dependencies, just:
 
-For example, instead of using `ls`, then `rm` and typing out file names, you can
-just open `bb`, scroll through the list of files, select the ones you want to
-delete, and hit `D`. The `D` key's behavior is defined in a single line of code
-in `config.h` as passing the selected files as arguments to `rm -rf "$@"`.
-That's it! If you want to add a mapping to upload files to your server, you can
-just add a binding for `scp user@example.com:~/ "$@"`. Want to zip files? Add
-a mapping for `read -p "Archive: " name && zip "$name" "$@"` or, if you have
-some complicated one-time task, you can just hit `>` to drop to a shell and run
-commands with the selected files available in `$@` (or use `|` to run a quick
-one-liner command that gets the selected files piped as input).
+`make`
+`sudo make install`
+
+## Usage
+
+Run `bb` to launch the file browser. `bb` also has the flags:
+
+- `-d`: when `bb` exits successfully, print the directory `bb` was browsing.
+- `-s`: when `bb` exits successfully, print the files that were selected.
+- `-0`: use NULL-terminated strings instead of newline-separated strings with
+  the `-s` flag.
+
+Within `bb`, press `?` for a full list of available key bindings. In short:
+`h`/`j`/`k`/`l` or arrow keys for navigation, `q` to quit, `<space>` to toggle
+selection, `d` to delete, `c` to copy, `M` to move, `r` to rename, `n` to
+create a new file, `N` to create a new directory, `:` to run a command with the
+selected files in `$@`, and `|` to pipe files to a command. Pressing `Ctrl-c`
+will cause `bb` to exit with a failure status and without printing anything.
+
+## Using bb to Change Directory
+Applications cannot change the shell's working directory on their own, but you
+can define a shell function that uses the shell's builtin `cd` function on the
+output of `bb -d` (print directory on exit). For bash (sh, zsh, etc.), you can
+put the following function in your `~/.profile` (or `~/.bashrc`, `~/.zshrc`,
+etc.):
+
+    function bcd() { cd "$(bb -d "$@" || pwd)"; }
+
+For [fish](https://fishshell.com/) (v3.0.0+), you can put this in your
+`~/.config/fish/functions/`:
+
+    function bcd; cd (bb -d $argv || pwd); end
+
+In both versions, `|| pwd` means the directory will not change if `bb` exits
+with failure (e.g. by pressing `Ctrl-c`).
+
+## Launching bb with a Keyboard Shortcut
+Using a keyboard shortcut to launch `bb` from the shell is something that is
+handled by your shell. Here are some examples for binding `Ctrl-b` to launch
+`bb` and change directory to `bb`'s directory (using the `bcd` function defined
+above). For sh and bash, put this in your `~/.profile`:
+
+    bind '"\C-b":"bcd\n"'
+
+For fish, put this in your `~/.config/fish/functions/fish_user_key_bindings.fish`:
+
+    bind \cB 'bcd; commandline -f repaint'
+
+# bb's Philosophy
+The core idea behind `bb` is that `bb` is a file **browser**, not a file
+**manager**, which means `bb` uses shell scripts to perform all modifications
+to the filesystem (passing selected files as arguments), rather than
+reinventing the wheel by hard-coding operations like `rm`, `mv`, `cp`, `touch`,
+and so on.  Shell scripts can be bound to keypresses in config.h (the user's
+version of [the defaults in config.def.h](config.def.h)). For example, `D` is
+bound to `rm -rf "$@"`, which means selecting `file_foo` and `dir_baz`, then
+pressing `D` will cause `bb` to run the shell command `rm -rf file_foo dir_baz`.
+
+`bb` comes with a bunch of pre-defined bindings for basic actions in
+[config.def.h](config.def.h) (within `bb`, press `?` to see descriptions of the
+bindings), but it's very easy to add new bindings for whatever custom scripts
+you want to run, just add a new entry in `bindings` in config.h with the form
+`{{keys...}, "<shell command>", "<description>"}` The description is shown when
+pressing `?` within `bb`.
+
+## User Input in Scripts
+If you need user input in a script, you can just use the `read` shell function
+like so: `read -p "Archive: " name && zip "$name" "$@"` However, `read` doesn't
+support a lot of functionality (e.g. using the arrow keys), so I would recommnd
+using [ask](https://bitbucket.org/spilt/ask) instead. If you have `ask`
+isntalled, making `bb` will automatically detect it and the default key
+bindings will use it instead of `read`.
 
 ## API
 `bb` also exposes an API so that programs can modify `bb`'s internal state.
@@ -44,18 +103,6 @@ code for ncurses. I hope anyone checking out this project can see it as a great
 example of how you can build a full TUI without ncurses or any external
 libraries as long as you're willing to hand-write a few escape sequences.
 
-## Building
-
-`make`
-`sudo make install`
-
-## Usage
-
-Just run `bb` to launch the file browser. Press `?` for a full list of
-available key bindings. In short: `h`/`j`/`k`/`l` or arrow keys for navigation,
-`q` to quit, `<space>` to toggle selection, `d` to delete, `c` to copy, `M` to
-move, `r` to rename, `n` to create a new file, `N` to create a new directory,
-and `|` to pipe files to a command.
 
 ## Hacking
 
