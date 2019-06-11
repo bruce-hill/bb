@@ -5,7 +5,7 @@
 - Extremely lightweight (under 2k lines of code)
 - Highly interoperable with unix pipelines
 - Highly customizable and hackable
-- Without any build dependencies other than the C standard library (no ncurses)
+- Free of any build dependencies other than the C standard library (no ncurses)
 - A good proof-of-concept for making a TUI from scratch
 
 ## Building
