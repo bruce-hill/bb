@@ -243,7 +243,7 @@ void cleanup(void)
         cmdfilename = NULL;
     }
     if (tty_out)
-        fputs(T_OFF(T_ALT_SCREEN), tty_out);
+        fputs(T_OFF(T_ALT_SCREEN) T_ON(T_SHOW_CURSOR), tty_out);
     close_term();
 }
 
