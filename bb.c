@@ -931,7 +931,7 @@ void populate_files(bb_t *bb, const char *path)
         for (struct dirent *dp; (dp = readdir(dir)) != NULL; ) {
             if (dp->d_name[0] == '.') {
                 if (dp->d_name[1] == '.' && dp->d_name[2] == '\0') {
-                    if (!bb->show_dotdot) continue;
+                    if (!bb->show_dotdot || strcmp(pathbuf, "/") == 0) continue;
                 } else if (dp->d_name[1] == '\0') {
                     if (!bb->show_dot) continue;
                 } else if (!bb->show_dotfiles) continue;
