@@ -11,8 +11,8 @@
 ## Building
 No dependencies, just:
 
-`make`
-`sudo make install`
+    make
+    sudo make install
 
 ## Usage
 
