@@ -122,7 +122,7 @@ typedef struct {
     "sleep 0.01; "\
     "while kill -0 $pid 2>/dev/null; do "\
     "    printf '%c\\033[D' \"$spinner\" >/dev/tty; "\
-    "    spinner=\"`echo $spinner | sed 's/\\(.\\)\\(.*\\)/\\2\\1/'`\"; "\
+    "    spinner=\"$(echo $spinner | sed 's/\\(.\\)\\(.*\\)/\\2\\1/')\"; "\
     "    sleep 0.1; "\
     "done"
 #endif
@@ -188,21 +188,21 @@ binding_t bindings[] = {
     {{' ','v','V'}, "+toggle", B("Toggle")" selection"},
     {{KEY_ESC}, "+deselect:*", B("Clear")" selection"},
     {{'e'}, "$EDITOR \"$@\" || "PAUSE, B("Edit")" file in $EDITOR"},
-    {{KEY_CTRL_F}, "bb \"+g:`find | "PICK("Find: ", "")"`\"", B("Search")" for file"},
-    {{'/'}, "bb \"+g:`ls -A | "PICK("Pick: ", "")"`\"", B("Pick")" file"},
+    {{KEY_CTRL_F}, "bb \"+goto:$(find | "PICK("Find: ", "")")\"", B("Search")" for file"},
+    {{'/'}, "bb \"+goto:$(ls -A | "PICK("Pick: ", "")")\"", B("Pick")" file"},
     {{'d', KEY_DELETE}, "rm -rfi \"$@\" && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files"},
     {{'D'}, SPIN("rm -rf \"$@\"")" && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files (without confirmation)"},
-    {{'M'}, SPIN("mv -i \"$@\" .")" && bb '+deselect:*' +r && for f; do bb \"+sel:`pwd`/`basename \"$f\"`\"; done || "PAUSE,
+    {{'M'}, SPIN("mv -i \"$@\" .")" && bb '+deselect:*' +r && for f; do printf \"$(pwd)/$(basename \"$f\")\\0\"; done | xargs -0 bb +sel: || "PAUSE,
         B("Move")" files to current directory"},
     {{'c'}, SPIN("cp -ri \"$@\" .")" && bb +r || "PAUSE, B("Copy")" files to current directory"},
-    {{'C'}, "bb '+de:*' && for f; do "SPIN("cp \"$f\" \"$f.copy\"")" && bb \"+sel:$f.copy\"; done && bb +r || "PAUSE,
+    {{'C'}, "for f; do "SPIN("cp \"$f\" \"$f.copy\"")"; done && bb +r || "PAUSE,
         B("Clone")" files"},
     {{'n'}, ASK("name", "New file: ", "")" && touch \"$name\" && bb \"+goto:$name\" +r || "PAUSE, B("New file")},
     {{'N'}, ASK("name", "New dir: ", "")" && mkdir \"$name\" && bb \"+goto:$name\" +r || "PAUSE, B("New directory")},
-    {{KEY_CTRL_G}, "bb \"+cd:`" ASKECHO("Go to directory: ", "") "`\"", B("Go to")" directory"},
+    {{KEY_CTRL_G}, "bb \"+cd:$(" ASKECHO("Go to directory: ", "") ")\"", B("Go to")" directory"},
     {{'|'}, ASK("cmd", "|", "") " && printf '%s\\n' \"$@\" | sh -c \"$cmd\"; " PAUSE "; bb +r",
         B("Pipe")" selected files to a command"},
-    {{':'}, "sh -c \"`" ASKECHO(":", "") "`\" -- \"$@\"; " PAUSE "; bb +refresh",
+    {{':'}, "sh -c \"$(" ASKECHO(":", "") ")\" -- \"$@\"; " PAUSE "; bb +refresh",
         B("Run")" a command"},
     {{'>'}, "tput rmcup >/dev/tty; $SHELL; bb +r", "Open a "B("shell")},
     {{'m'}, "read -n1 -p 'Mark: ' m && bb \"+mark:$m;$PWD\"", "Set "B("mark")},
@@ -222,24 +222,23 @@ binding_t bindings[] = {
         "if sed -E \"$patt\" </dev/null; then true; else " PAUSE "; exit; fi; "
         "bb +refresh; "
         "for f; do "
-        "    renamed=\"`dirname \"$f\"`/`basename \"$f\" | sed -E \"$patt\"`\" || "PAUSE" && exit; "
-        "    if test \"$f\" != \"$renamed\" && mv -i \"$f\" \"$renamed\"; then "
-        "        test $BBSELECTED && bb \"+deselect:$f\" \"+select:$renamed\"; "
-        "    fi; "
-        "done", B("Regex rename")" files"},
+        "    renamed=\"$(dirname \"$f\")/$(basename \"$f\" | sed -E \"$patt\")\"; "
+        "    if test \"$f\" != \"$renamed\" && mv -i \"$f\" \"$renamed\" && test $BBSELECTED; then "
+        "        printf \"+deselect:$f\\0+select:$renamed\\0\"; "
+        "    fi;"
+        "done | xargs -0 bb", B("Regex rename")" files"},
     {{'P'},
-        "patt=`ask 'Select pattern: '` && "
-        "for f in *; do echo \"$f\" | grep \"$patt\" >/dev/null && bb \"+sel:$f\"; done",
+        ASK("patt", "Select pattern: ", "")" && ls -A | grep \"$patt\" | xargs bb +sel:",
         B("Regex select")" files"},
     {{'J'}, "+spread:+1", B("Spread")" selection down"},
     {{'K'}, "+spread:-1", B("Spread")" selection up"},
-    {{'b'}, "bb \"+`"ASKECHO("bb +", "")"`\"", "Run a "B("bb command")},
+    {{'b'}, "bb \"+$("ASKECHO("bb +", "")")\"", "Run a "B("bb command")},
     {{'s'},
         ("sort=\"$(printf '%s\\n' n s m c a r p | "
          PICK("Sort (n)ame (s)ize (m)odification (c)reation (a)ccess (r)andom (p)ermissions: ", "") ")\" "
          "&& bb \"+sort:+$sort\" +refresh"),
         B("Sort")" by..."},
-    {{'#'}, "bb \"+col:`"ASKECHO("Set columns: ", "")"`\"", "Set "B("columns")},
+    {{'#'}, "bb \"+col:$("ASKECHO("Set columns: ", "")")\"", "Set "B("columns")},
     {{'.'}, "+dotfiles", "Toggle "B("dotfiles")},
     {{'g', KEY_HOME}, "+move:0", "Go to "B("first")" file"},
     {{'G', KEY_END}, "+move:100%n", "Go to "B("last")" file"},

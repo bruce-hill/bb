@@ -1387,6 +1387,8 @@ int main(int argc, char *argv[])
     for (int i = 1; i < argc; i++) {
         if (argv[i][0] == '+') {
             ++cmd_args;
+            char *colon = strchr(argv[i], ':');
+            if (colon && !colon[1]) break;
             continue;
         }
         if (strcmp(argv[i], "--") == 0) {
@@ -1423,7 +1425,15 @@ int main(int argc, char *argv[])
     int i;
     for (i = 1; i < argc; i++) {
         if (argv[i][0] == '+') {
-            write(cmdfd, argv[i]+1, strlen(argv[i]+1)+1);
+            char *colon = strchr(argv[i], ':');
+            if (colon && !colon[1]) {
+                for (int j = i+1; j < argc; j++) {
+                    write(cmdfd, argv[i]+1, strlen(argv[i]+1));
+                    write(cmdfd, argv[j], strlen(argv[j])+1);
+                }
+            } else {
+                write(cmdfd, argv[i]+1, strlen(argv[i]+1)+1);
+            }
             continue;
         }
         if (strcmp(argv[i], "--") == 0) break;

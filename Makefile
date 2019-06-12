@@ -1,9 +1,10 @@
 NAME=bb
 PREFIX=
 CC=gcc
-CFLAGS=-O0 -std=gnu99 -D_XOPEN_SOURCE=500 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L
-CWARN= -Wall -Wpedantic -Wno-unknown-pragmas -fsanitize=address -fno-omit-frame-pointer
-G=-g
+CFLAGS=-O2 -std=gnu99 -D_XOPEN_SOURCE=500 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L
+CWARN= -Wall -Wpedantic -Wno-unknown-pragmas
+#CWARN += -fsanitize=address -fno-omit-frame-pointer
+G=
 
 ifeq ($(shell uname),Darwin)
 CFLAGS += -D_DARWIN_C_SOURCE
