@@ -110,7 +110,7 @@ typedef struct {
 
 // Macros for picking from a list of options:
 #ifndef PICK
-#define PICK(prompt, initial) " { printf '\\033[A' >/dev/tty; awk '{print length, $1}' | sort -n | cut -d' ' -f2- | "\
+#define PICK(prompt, initial) " { awk '{print length, $1}' | sort -n | cut -d' ' -f2- | "\
     "grep -i -m1 \"^$(" ASKECHO(prompt, initial) " | sed 's/./[^&]*[&]/g')\"; } "
 #endif
 
