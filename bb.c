@@ -972,6 +972,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
     char *value = strchr(cmd, ':');
     if (value) ++value;
 #define set_bool(target) do { if (!value) { target = !target; } else { target = value[0] == '1'; } } while (0)
+    if (cmd[0] == '+') ++cmd;
     switch (cmd[0]) {
         case '.': { // +..:, +.:
             if (cmd[1] == '.') // +..:
