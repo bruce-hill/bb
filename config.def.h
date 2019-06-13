@@ -192,7 +192,7 @@ binding_t bindings[] = {
     {{'/'}, "bb \"+goto:$(ls -A | "PICK("Pick: ", "")")\"", B("Pick")" file"},
     {{'d', KEY_DELETE}, "rm -rfi \"$@\" && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files"},
     {{'D'}, SPIN("rm -rf \"$@\"")" && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files (without confirmation)"},
-    {{'M'}, SPIN("mv -i \"$@\" .")" && bb '+deselect:*' +r && for f; do bb \"+sel:$(basename \"$f\")\"; done || "PAUSE,
+    {{'M'}, SPIN("mv -i \"$@\" . && bb '+deselect:*' +r && for f; do bb \"+sel:$(basename \"$f\")\"; done")" || "PAUSE,
         B("Move")" files to current directory"},
     {{'c'}, SPIN("cp -ri \"$@\" .")" && bb +r || "PAUSE, B("Copy")" files to current directory"},
     {{'C'}, "for f; do "SPIN("cp \"$f\" \"$f.copy\"")"; done && bb +r || "PAUSE,
