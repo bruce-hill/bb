@@ -1,8 +1,9 @@
 NAME=bb
 PREFIX=
 CC=gcc
-CFLAGS=-O2 -std=gnu99 -D_XOPEN_SOURCE=500 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L
-CWARN= -Wall -Wpedantic -Wno-unknown-pragmas
+O=-O2
+CFLAGS=-std=gnu99 -D_XOPEN_SOURCE=500 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L
+CWARN=-Wall -Wpedantic -Wno-unknown-pragmas
 #CWARN += -fsanitize=address -fno-omit-frame-pointer
 G=
 
@@ -35,7 +36,7 @@ config.h:
 	cp config.def.h config.h
 
 $(NAME): $(NAME).c bterm.h config.h
-	$(CC) $(NAME).c $(CFLAGS) $(CWARN) $(G) -o $(NAME)
+	$(CC) $(NAME).c $(CFLAGS) $(CWARN) $(G) $(O) -o $(NAME)
 	
 install: $(NAME)
 	@prefix="$(PREFIX)"; \
