@@ -259,9 +259,9 @@ void* memcheck(void *p)
 }
 
 /*
- * Run a command with the selected files passed as sequential arguments to the
- * command (or pass the cursor file if none are selected).
- * Return the exit status of the command.
+ * Run a shell script with the selected files passed as sequential arguments to
+ * the script (or pass the cursor file if none are selected).
+ * Return the exit status of the script.
  */
 int run_script(bb_t *bb, const char *cmd)
 {
@@ -1321,13 +1321,13 @@ void bb_browse(bb_t *bb, const char *path)
           run_binding:
             if (cmdpos != 0)
                 err("Command file still open");
-            if (binding->command[0] == '+') {
-                process_cmd(bb, binding->command + 1);
+            if (binding->script[0] == '+') {
+                process_cmd(bb, binding->script + 1);
             } else {
                 move_cursor(tty_out, 0, termheight-1);
                 fputs(T_ON(T_SHOW_CURSOR), tty_out);
                 close_term();
-                run_script(bb, binding->command);
+                run_script(bb, binding->script);
                 init_term();
                 fputs(T_ON(T_ALT_SCREEN), tty_out);
                 check_cmds = 1;

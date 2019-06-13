@@ -68,7 +68,7 @@
 // Types:
 typedef struct {
     int keys[MAX_REBINDINGS+1];
-    const char *command;
+    const char *script;
     const char *description;
 } binding_t;
 
@@ -210,7 +210,7 @@ binding_t bindings[] = {
     {{'r'},
         "bb +refresh; "
         "for f; do "
-        "    if r=\"$(dirname \"$f\")/$("ASKECHO("rename: ", "$(basename \"$f\")")")\"; then "
+        "    if r=\"$(dirname \"$f\")/$("ASKECHO("Rename: ", "$(basename \"$f\")")")\"; then "
         "      if test \"$r\" != \"$f\" && mv -i \"$f\" \"$r\"; then "
         "          test $BBSELECTED && bb \"+deselect:$f\" \"+select:$r\"; "
         "      fi; "
