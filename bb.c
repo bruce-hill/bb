@@ -112,6 +112,7 @@ typedef struct bb_s {
     unsigned int show_dot : 1;
     unsigned int show_dotfiles : 1;
     unsigned int interleave_dirs : 1;
+    unsigned int should_quit : 1;
 } bb_t;
 
 typedef enum { BB_OK = 0, BB_INVALID, BB_QUIT } bb_result_t;
@@ -123,7 +124,7 @@ static void close_term(void);
 static void cleanup_and_exit(int sig);
 static void cleanup(void);
 static void* memcheck(void *p);
-static int run_cmd_on_selection(bb_t *bb, const char *cmd);
+static int run_script(bb_t *bb, const char *cmd);
 static int fputs_escaped(FILE *f, const char *str, const char *color);
 static const char* color_of(mode_t mode);
 static void set_sort(bb_t *bb, const char *sort);
@@ -145,7 +146,7 @@ static void sort_files(bb_t *bb);
 static void normalize_path(const char *root, const char *path, char *pbuf);
 static int cd_to(bb_t *bb, const char *path);
 static void populate_files(bb_t *bb, const char *path);
-static bb_result_t execute_cmd(bb_t *bb, const char *cmd);
+static bb_result_t process_cmd(bb_t *bb, const char *cmd);
 static void bb_browse(bb_t *bb, const char *path);
 static void print_bindings(void);
 
@@ -262,7 +263,7 @@ void* memcheck(void *p)
  * command (or pass the cursor file if none are selected).
  * Return the exit status of the command.
  */
-int run_cmd_on_selection(bb_t *bb, const char *cmd)
+int run_script(bb_t *bb, const char *cmd)
 {
     pid_t child;
     void (*old_handler)(int) = signal(SIGINT, SIG_IGN);
@@ -298,6 +299,8 @@ int run_cmd_on_selection(bb_t *bb, const char *cmd)
     int status;
     waitpid(child, &status, 0);
     signal(SIGINT, old_handler);
+
+    bb->dirty = 1;
     return status;
 }
 
@@ -749,8 +752,7 @@ entry_t* load_entry(bb_t *bb, const char *path)
 
     // Check for pre-existing:
     for (entry_t *e = bb->hash[(int)filestat.st_ino & HASH_MASK]; e; e = e->hash.next) {
-        if (e->info.st_ino == filestat.st_ino && e->info.st_dev == filestat.st_dev
-            && strcmp(e->fullname, pbuf) == 0)
+        if (e->info.st_ino == filestat.st_ino && e->info.st_dev == filestat.st_dev)
             return e;
     }
 
@@ -967,7 +969,7 @@ void populate_files(bb_t *bb, const char *path)
  * Run a bb internal command (e.g. "+refresh") and return an indicator of what
  * needs to happen next.
  */
-bb_result_t execute_cmd(bb_t *bb, const char *cmd)
+bb_result_t process_cmd(bb_t *bb, const char *cmd)
 {
     char *value = strchr(cmd, ':');
     if (value) ++value;
@@ -1107,6 +1109,7 @@ bb_result_t execute_cmd(bb_t *bb, const char *cmd)
             }
         }
         case 'q': // +quit
+            bb->should_quit = 1;
             return BB_QUIT;
         case 'r': // +refresh
             populate_files(bb, bb->path);
@@ -1178,13 +1181,12 @@ void bb_browse(bb_t *bb, const char *path)
     bb->cursor = 0;
 
     for (int i = 0; startupcmds[i]; i++) {
-        if (startupcmds[i][0] == '+') {
-            if (execute_cmd(bb, startupcmds[i] + 1) == BB_QUIT)
-                goto quit;
-        } else {
-            run_cmd_on_selection(bb, startupcmds[i]);
-            check_cmds = 1;
-        }
+        if (startupcmds[i][0] == '+')
+            process_cmd(bb, startupcmds[i] + 1);
+        else
+            run_script(bb, startupcmds[i]);
+        if (bb->should_quit)
+            goto quit;
     }
 
     init_term();
@@ -1219,7 +1221,8 @@ void bb_browse(bb_t *bb, const char *path)
         while (cmdfile && getdelim(&cmd, &space, '\0', cmdfile) >= 0) {
             cmdpos = ftell(cmdfile);
             if (!cmd[0]) continue;
-            if (execute_cmd(bb, cmd) == BB_QUIT) {
+            process_cmd(bb, cmd);
+            if (bb->should_quit) {
                 free(cmd);
                 fclose(cmdfile);
                 goto quit;
@@ -1319,18 +1322,17 @@ void bb_browse(bb_t *bb, const char *path)
             if (cmdpos != 0)
                 err("Command file still open");
             if (binding->command[0] == '+') {
-                if (execute_cmd(bb, binding->command + 1) == BB_QUIT)
-                    goto quit;
-                goto redraw;
+                process_cmd(bb, binding->command + 1);
+            } else {
+                move_cursor(tty_out, 0, termheight-1);
+                fputs(T_ON(T_SHOW_CURSOR), tty_out);
+                close_term();
+                run_script(bb, binding->command);
+                init_term();
+                fputs(T_ON(T_ALT_SCREEN), tty_out);
+                check_cmds = 1;
             }
-            move_cursor(tty_out, 0, termheight-1);
-            fputs(T_ON(T_SHOW_CURSOR), tty_out);
-            close_term();
-            run_cmd_on_selection(bb, binding->command);
-            init_term();
-            fputs(T_ON(T_ALT_SCREEN), tty_out);
-            bb->dirty = 1;
-            check_cmds = 1;
+            if (bb->should_quit) goto quit;
             goto redraw;
         }
     }
