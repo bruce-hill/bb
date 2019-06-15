@@ -156,7 +156,7 @@ extern const char *startupcmds[];
 extern const column_t columns[128];
 
 // Constants
-static const char *T_ENTER_BBMODE = T_OFF(T_SHOW_CURSOR ";" T_WRAP) T_ON(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
+static const char *T_ENTER_BBMODE = T_OFF(T_SHOW_CURSOR ";" T_WRAP) T_ON(T_ALT_SCREEN ";" T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
 static const char *T_LEAVE_BBMODE = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN) T_ON(T_SHOW_CURSOR ";" T_WRAP);
 static const char *T_LEAVE_BBMODE_PARTIAL = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR) T_ON(T_WRAP);
 
@@ -1190,7 +1190,6 @@ void bb_browse(bb_t *bb, const char *path)
     }
 
     init_term();
-    fputs(T_ON(T_ALT_SCREEN), tty_out);
     goto force_check_cmds;
 
   redraw:
@@ -1329,7 +1328,6 @@ void bb_browse(bb_t *bb, const char *path)
                 close_term();
                 run_script(bb, binding->script);
                 init_term();
-                fputs(T_ON(T_ALT_SCREEN), tty_out);
                 check_cmds = 1;
             }
             if (bb->should_quit) goto quit;
