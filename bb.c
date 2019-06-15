@@ -286,6 +286,7 @@ int run_script(bb_t *bb, const char *cmd)
         args[i] = NULL;
 
         setenv("BBSELECTED", bb->firstselected ? "1" : "", 1);
+        setenv("BBDOTFILES", bb->show_dotfiles ? "1" : "", 1);
         setenv("BBCURSOR", bb->nfiles ? bb->files[bb->cursor]->fullname : "", 1);
 
         execvp("sh", args);
@@ -1025,24 +1026,19 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
                 case 'e': { // +deselect:
                     if (!value && !bb->nfiles) return BB_INVALID;
                     if (!value) value = bb->files[bb->cursor]->fullname;
-                    if (strcmp(value, "*") == 0) {
-                        clear_selection(bb);
-                        return BB_OK;
-                    } else {
-                        entry_t *e = load_entry(bb, value);
-                        if (e) {
-                            deselect_entry(bb, e);
-                            return BB_OK;
-                        }
-                        // Filename may no longer exist:
-                        for (e = bb->firstselected; e; e = e->selected.next) {
-                            if (strcmp(e->fullname, value) == 0) {
-                                deselect_entry(bb, e);
-                                break;
-                            }
-                        }
+                    entry_t *e = load_entry(bb, value);
+                    if (e) {
+                        deselect_entry(bb, e);
                         return BB_OK;
                     }
+                    // Filename may no longer exist:
+                    for (e = bb->firstselected; e; e = e->selected.next) {
+                        if (strcmp(e->fullname, value) == 0) {
+                            deselect_entry(bb, e);
+                            break;
+                        }
+                    }
+                    return BB_OK;
                 }
                 case 'o': { // +dotfiles:
                     set_bool(bb->show_dotfiles);
@@ -1153,16 +1149,8 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
                 case '\0': case 'e': // +select:
                     if (!value && !bb->nfiles) return BB_INVALID;
                     if (!value) value = bb->files[bb->cursor]->fullname;
-                    if (strcmp(value, "*") == 0) {
-                        for (int i = 0; i < bb->nfiles; i++) {
-                            if (strcmp(bb->files[i]->name, ".")
-                                && strcmp(bb->files[i]->name, ".."))
-                                select_entry(bb, bb->files[i]);
-                        }
-                    } else {
-                        entry_t *e = load_entry(bb, value);
-                        if (e) select_entry(bb, e);
-                    }
+                    entry_t *e = load_entry(bb, value);
+                    if (e) select_entry(bb, e);
                     return BB_OK;
 
                 case 'o': // +sort:

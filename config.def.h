@@ -17,6 +17,7 @@
             no files are selected, the full path of the file under the cursor
         $BBCURSOR: the full path of the file under the cursor
         $BBSELECTED: "1" if any files are selected, otherwise ""
+        $BBDOTFILES: "1" if files beginning with "." are visible in bb, otherwise ""
         $BB_DEPTH: the number of `bb` instances deep (in case you want to run a
             shell and have that shell print something special in the prompt)
         $BBCMD: a file to which `bb` commands can be written (used internally)
@@ -28,7 +29,7 @@
         ..:[01]                   Whether to show ".." in each directory
         cd:<path>                 Navigate to <path>
         columns:<columns>         Change which columns are visible, and in what order
-        deselect:<filename>|*     Deselect <filename> or all ("*")
+        deselect:<filename>       Deselect <filename>
         dotfiles:[01]             Whether dotfiles are visible
         goto:<filename>           Move the cursor to <filename> (changing directory if needed)
         interleave:[01]           Whether or not directories should be interleaved with files in the display
@@ -38,8 +39,8 @@
         quit                      Quit bb
         refresh                   Refresh the file listing
         scroll:<num*>             Scroll the view a numeric amount
-        select:<filename>|*       Select <filename> or all visible files in current directory ("*")
-        sort:([+-]method)+        List of sortings (if equal on one, move to the next)
+        select:<filename>         Select <filename>
+        sort:([+-]method)+        Set sorting method (+: normal, -: reverse), additional methods act as tiebreaker
         spread:<num*>             Spread the selection state at the cursor
         toggle:<filename>         Toggle the selection status of <filename>
 
@@ -186,10 +187,12 @@ binding_t bindings[] = {
 #endif
         B("Open")" file/directory"},
     {{' ','v','V'}, "+toggle", B("Toggle")" selection"},
-    {{KEY_ESC}, "+deselect:*", B("Clear")" selection"},
+    {{KEY_ESC}, "bb +deselect: \"$@\"", B("Clear")" selection"},
     {{'e'}, "$EDITOR \"$@\" || "PAUSE, B("Edit")" file in $EDITOR"},
-    {{KEY_CTRL_F}, "bb \"+goto:$(find | "PICK("Find: ", "")")\"", B("Search")" for file"},
-    {{'/'}, "bb \"+goto:$(ls -A | "PICK("Pick: ", "")")\"", B("Pick")" file"},
+    {{KEY_CTRL_F}, "bb \"+goto:$(if test $BBDOTFILES; then find -mindepth 1; else find -mindepth 1 ! -path '*/.*'; fi "
+        "| "PICK("Find: ", "")")\"", B("Search")" for file"},
+    {{'/'}, "bb \"+goto:$(if test $BBDOTFILES; then find -mindepth 1 -maxdepth 1; else find -mindepth 1 -maxdepth 1 ! -path '*/.*'; fi "
+        "| "PICK("Pick: ", "")")\"", B("Pick")" file"},
     {{'d', KEY_DELETE}, "rm -rfi \"$@\" && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files"},
     {{'D'}, SPIN("rm -rf \"$@\"")" && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files (without confirmation)"},
     {{'M'}, SPIN("mv -i \"$@\" . && bb '+deselect:*' +r && for f; do bb \"+sel:$(basename \"$f\")\"; done")" || "PAUSE,
@@ -243,7 +246,9 @@ binding_t bindings[] = {
     {{'g', KEY_HOME}, "+move:0", "Go to "B("first")" file"},
     {{'G', KEY_END}, "+move:100%n", "Go to "B("last")" file"},
     {{KEY_F5, KEY_CTRL_R}, "+refresh", B("Refresh")},
-    {{KEY_CTRL_A}, "+select:*", B("Select all")" files in current directory"},
+    {{KEY_CTRL_A}, "if test $BBDOTFILES; then find -mindepth 1 -maxdepth 1 -print0; else find -mindepth 1 -maxdepth 1 ! -path '*/.*' -print0; fi "
+        "| xargs -0 bb +sel:",
+        B("Select all")" files in current directory"},
     {{KEY_PGDN}, "+scroll:+100%", B("Page down")},
     {{KEY_PGUP}, "+scroll:-100%", B("Page up")},
     {{KEY_CTRL_D}, "+scroll:+50%", B("Half page down")},
