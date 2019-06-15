@@ -1430,7 +1430,7 @@ int main(int argc, char *argv[])
         sprintf(depthstr, "%d", depth + 1);
         setenv("BB_DEPTH", depthstr, 1);
         setenv("BBCMD", cmdfilename, 1);
-    } else if (cmd_args > 0) {
+    } else {
         char *parent_bbcmd = getenv("BBCMD");
         if (!parent_bbcmd || parent_bbcmd[0] == '\0') {
             initial_path = ".";
@@ -1487,6 +1487,14 @@ int main(int argc, char *argv[])
             }
             continue;
         }
+    }
+
+    struct pollfd pfd = {STDIN_FILENO, POLLIN, 0};
+    if (poll(&pfd, 1, 0) == 1 && pfd.revents & POLLIN) {
+        ssize_t len;
+        char buf[1024];
+        while ((len = read(STDIN_FILENO, buf, sizeof(buf))) > 0)
+            write(cmdfd, buf, (size_t)len);
     }
 
     if (cmdfd != -1) {
