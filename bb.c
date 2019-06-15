@@ -752,7 +752,9 @@ entry_t* load_entry(bb_t *bb, const char *path)
 
     // Check for pre-existing:
     for (entry_t *e = bb->hash[(int)filestat.st_ino & HASH_MASK]; e; e = e->hash.next) {
-        if (e->info.st_ino == filestat.st_ino && e->info.st_dev == filestat.st_dev)
+        if (e->info.st_ino == filestat.st_ino && e->info.st_dev == filestat.st_dev
+            // Need to check filename in case of hard links
+            && strcmp(pbuf, e->fullname) == 0)
             return e;
     }
 
