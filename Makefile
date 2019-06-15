@@ -8,23 +8,34 @@ CWARN=-Wall -Wpedantic -Wno-unknown-pragmas
 G=
 
 ifeq ($(shell uname),Darwin)
-CFLAGS += -D_DARWIN_C_SOURCE
-CWARN += -Weverything -Wno-missing-field-initializers -Wno-padded\
-		  -Wno-missing-noreturn -Wno-cast-qual
+	CFLAGS += -D_DARWIN_C_SOURCE
+	CWARN += -Weverything -Wno-missing-field-initializers -Wno-padded\
+			  -Wno-missing-noreturn -Wno-cast-qual
 endif
 
-ifeq ($(PICKER),fzy)
-CFLAGS += -D'PICK(prompt, initial)=" { printf \"\\033[3A\" >/dev/tty; fzy --lines=3 --prompt=\"" prompt "\" --query=\"" initial "\"; } "'
+PICKER_FLAG=
+ifeq (, $(PICKER))
+	PICKER=$(shell sh -c "(which fzy >/dev/null 2>/dev/null && echo 'fzy') || (which fzf >/dev/null 2>/dev/null && echo 'fzf') || (which pick >/dev/null 2>/dev/null && echo 'pick') || (which ask >/dev/null 2>/dev/null && echo 'ask')")
 endif
-ifeq ($(PICKER),fzf)
-CFLAGS += -D'PICK(prompt, initial)=" { printf \"\\033[3A\" >/dev/tty; fzf --height=4 --prompt=\"" prompt "\" --query=\"" initial "\"; } "'
+ifneq (, $(PICKER))
+	PICKER_FLAG=-D"PICK(prompt, initial)=\"$(PICKER)\""
 endif
-ifeq ($(PICKER),ask)
-CFLAGS += -D'PICK(prompt, initial)=" ask --prompt=\"" prompt "\" --query=\"" initial "\" "'
+ifeq ($(shell which $(PICKER)),$(shell which fzy || echo '<none>'))
+	PICKER_FLAG=-D'PICK(prompt, initial)="{ printf \"\\033[3A\" >/dev/tty; fzy --lines=3 --prompt=\"" prompt "\" --query=\"" initial "\"; }"'
 endif
+ifeq ($(shell which $(PICKER)),$(shell which fzf || echo '<none>'))
+	PICKER_FLAG=-D'PICK(prompt, initial)="{ printf \"\\033[3A\" >/dev/tty; fzf --height=4 --prompt=\"" prompt "\" --query=\"" initial "\"; }"'
+endif
+ifeq ($(shell which $(PICKER)),$(shell which ask || echo '<none>'))
+	PICKER_FLAG=-D'PICK(prompt, initial)="ask --prompt=\"" prompt "\" --query=\"" initial "\""'
+endif
+ifeq ($(shell which $(PICKER)),$(shell which pick || echo '<none>'))
+	PICKER_FLAG=-D'PICK(prompt, initial)="pick -q \"" initial "\""'
+endif
+CFLAGS += $(PICKER_FLAG)
 
 ifneq (, $(USE_ASK))
-CFLAGS += -D'USE_ASK=1'
+	CFLAGS += -D'USE_ASK=1'
 endif
 
 all: $(NAME)
