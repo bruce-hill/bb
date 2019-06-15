@@ -164,6 +164,11 @@ const char *startupcmds[] = {
  * Please note that these are sh scripts, not bash scripts, so bash-isms
  * won't work unless you make your script use `bash -c "<your bash script>"`
  *
+ * All output should be redirected to /dev/tty, otherwise cd "$(bb -d)" will
+ * break because stdout will be polluted with all the keybindings that spammed
+ * stdout. Similarly, user input should be pulled from /dev/tty so anything
+ * piped into bb won't be misinterpreted as user input.
+ *
  * If your editor is vim (and not neovim), you can replace `$EDITOR` below with
  * `vim -c 'set t_ti= t_te=' "$@"` to prevent momentarily seeing the shell
  * after editing.
