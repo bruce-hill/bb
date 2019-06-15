@@ -817,9 +817,9 @@ void sort_files(bb_t *bb)
 }
 
 /*
- * Prepend `root` to relative paths, replace "~" with $HOME, remove ".",
- * replace "/foo/baz/../" with "/foo/", and make sure there's a trailing
- * slash. The normalized path is stored in `normalized`.
+ * Prepend `root` to relative paths, replace "~" with $HOME, replace "/foo/."
+ * with "/foo", replace "/foo/baz/.." with "/foo".
+ * The normalized path is stored in `normalized`.
  */
 void normalize_path(const char *root, const char *path, char *normalized)
 {
@@ -835,17 +835,17 @@ void normalize_path(const char *root, const char *path, char *normalized)
     }
     strcat(normalized, path);
 
-    if (normalized[strlen(normalized)-1] != '/')
-        strcat(normalized, "/");
-
     char *src = normalized, *dest = normalized;
     while (*src) {
-        if (strncmp(src, "/./", 3) == 0) {
-            src += 2;
-        } else if (strncmp(src, "/../", 4) == 0) {
-            src += 3;
-            while (dest > normalized && *(--dest) != '/')
-                ;
+        while (src[0] == '/' && src[1] == '.') {
+            // Replace "foo/./?" with "foo/?"
+            if (src[2] == '/' || src[2] == '\0') {
+                src += 2;
+            } else if (src[2] == '.' && (src[3] == '/' || src[3] == '\0')) {
+                // Replace "foo/baz/../?" with "foo/?"
+                src += 3;
+                while (dest > normalized && *(--dest) != '/');
+            } else break;
         }
         *(dest++) = *(src++);
     }
@@ -866,6 +866,8 @@ int cd_to(bb_t *bb, const char *path)
         if (chdir(pbuf)) return -1;
     } else {
         normalize_path(bb->path, path, pbuf);
+        if (pbuf[strlen(pbuf)-1] != '/')
+            strcat(pbuf, "/");
         if (chdir(pbuf)) return -1;
     }
 
@@ -944,6 +946,7 @@ void populate_files(bb_t *bb, const char *path)
             if ((size_t)bb->nfiles + 1 > space)
                 bb->files = memcheck(realloc(bb->files, (space += 100)*sizeof(void*)));
             strcpy(&pathbuf[pathbuflen], dp->d_name);
+            // Don't normalize path so we can get "." and ".."
             entry_t *entry = load_entry(bb, pathbuf);
             if (!entry) err("Failed to load entry: '%s'", dp->d_name);
             entry->index = bb->nfiles;
@@ -1026,14 +1029,16 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
                 case 'e': { // +deselect:
                     if (!value && !bb->nfiles) return BB_INVALID;
                     if (!value) value = bb->files[bb->cursor]->fullname;
-                    entry_t *e = load_entry(bb, value);
+                    char pbuf[PATH_MAX];
+                    normalize_path(bb->path, value, pbuf);
+                    entry_t *e = load_entry(bb, pbuf);
                     if (e) {
                         deselect_entry(bb, e);
                         return BB_OK;
                     }
                     // Filename may no longer exist:
                     for (e = bb->firstselected; e; e = e->selected.next) {
-                        if (strcmp(e->fullname, value) == 0) {
+                        if (strcmp(e->fullname, pbuf) == 0) {
                             deselect_entry(bb, e);
                             break;
                         }
@@ -1146,13 +1151,15 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
                     return BB_OK;
                 }
 
-                case '\0': case 'e': // +select:
+                case '\0': case 'e': { // +select:
                     if (!value && !bb->nfiles) return BB_INVALID;
                     if (!value) value = bb->files[bb->cursor]->fullname;
-                    entry_t *e = load_entry(bb, value);
+                    char pbuf[PATH_MAX];
+                    normalize_path(bb->path, value, pbuf);
+                    entry_t *e = load_entry(bb, pbuf);
                     if (e) select_entry(bb, e);
                     return BB_OK;
-
+                }
                 case 'o': // +sort:
                     if (!value) return BB_INVALID;
                     set_sort(bb, value);
@@ -1165,7 +1172,9 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
         case 't': { // +toggle:
             if (!value && !bb->nfiles) return BB_INVALID;
             if (!value) value = bb->files[bb->cursor]->fullname;
-            entry_t *e = load_entry(bb, value);
+            char pbuf[PATH_MAX];
+            normalize_path(bb->path, value, pbuf);
+            entry_t *e = load_entry(bb, pbuf);
             if (e) toggle_entry(bb, e);
             return BB_OK;
         }
