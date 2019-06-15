@@ -986,6 +986,24 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
             populate_files(bb, bb->path);
             return BB_OK;
         }
+        case 'b': { // +bind:
+            if (!value) return BB_INVALID;
+            char *script = strchr(value, ':');
+            if (!script) return BB_INVALID;
+            ++script;
+            int i;
+            for (i = 0; bindings[i].keys[0] > 0; i++) {
+                for (int j = 0; bindings[i].keys[j]; j++) {
+                    if (bindings[i].keys[j] == *value) {
+                        bindings[i].script = memcheck(strdup(script));
+                        return BB_OK;
+                    }
+                }
+            }
+            bindings[i].keys[0] = *value;
+            bindings[i].script = memcheck(strdup(script));
+            return BB_OK;
+        }
         case 'c': { // +cd:, +columns:
             switch (cmd[1]) {
                 case 'd': { // +cd:
@@ -1359,7 +1377,7 @@ void print_bindings(void)
     char buf[1024];
     char *kb = "Key Bindings";
     printf("\n\033[33;1;4m\033[%dG%s\033[0m\n\n", (width-(int)strlen(kb))/2, kb);
-    for (int i = 0; bindings[i].keys[0]; i++) {
+    for (int i = 0; bindings[i].keys[0] > 0; i++) {
         char *p = buf;
         for (int j = 0; bindings[i].keys[j]; j++) {
             if (j > 0) *(p++) = ',';

@@ -250,7 +250,11 @@ binding_t bindings[] = {
     {{KEY_CTRL_U}, "+scroll:-50%", B("Half page up")},
     {{KEY_MOUSE_WHEEL_DOWN}, "+scroll:+3", B("Scroll down")},
     {{KEY_MOUSE_WHEEL_UP}, "+scroll:-3", B("Scroll up")},
-    {{0}}, // Array must be 0-terminated
+    // Leave some space for a few (16) runtime-defined key bindings:
+    {{0}}, {{0}}, {{0}}, {{0}}, {{0}}, {{0}}, {{0}}, {{0}},
+    {{0}}, {{0}}, {{0}}, {{0}}, {{0}}, {{0}}, {{0}}, {{0}},
+    {{-1}}
+    // Array must be -1-terminated
 };
 
 // vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1
