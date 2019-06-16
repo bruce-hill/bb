@@ -134,7 +134,7 @@ static void init_term(void);
 static entry_t* load_entry(bb_t *bb, const char *path, int clear_dots);
 static void* memcheck(void *p);
 static void normalize_path(const char *root, const char *path, char *pbuf, int clear_dots);
-static void populate_files(bb_t *bb, const char *path);
+static void populate_files(bb_t *bb, int samedir);
 static void print_bindings(void);
 static bb_result_t process_cmd(bb_t *bb, const char *cmd);
 static void render(bb_t *bb);
@@ -796,6 +796,7 @@ void normalize_path(const char *root, const char *path, char *normalized, int cl
         normalized[0] = '\0';
     } else {
         strcpy(normalized, root);
+        if (root[strlen(root)-1] != '/') err("No trailing slash on root");
     }
     strcat(normalized, path);
 
@@ -807,9 +808,11 @@ void normalize_path(const char *root, const char *path, char *normalized, int cl
                 if (src[2] == '/' || src[2] == '\0') {
                     src += 2;
                 } else if (src[2] == '.' && (src[3] == '/' || src[3] == '\0')) {
-                    // Replace "foo/baz/../?" with "foo/?"
+                    // Replace "foo/baz/../asdf" with "foo/asdf"
                     src += 3;
-                    while (dest > normalized && *(--dest) != '/');
+                    *dest = '\0';
+                    if (dest[-1] == '/') dest[-1] = '\0';
+                    while (dest > normalized && *dest != '/') dest--;
                 } else break;
             }
             *(dest++) = *(src++);
@@ -842,7 +845,8 @@ int cd_to(bb_t *bb, const char *path)
         bb->marks['-'] = memcheck(strdup(bb->path));
     }
 
-    populate_files(bb, pbuf);
+    strcpy(bb->path, pbuf);
+    populate_files(bb, 0);
     if (prev[0]) {
         entry_t *p = load_entry(bb, prev, 0);
         if (p) {
@@ -854,10 +858,10 @@ int cd_to(bb_t *bb, const char *path)
 }
 
 /*
- * Remove all the files currently stored in bb->files and if `path` is non-NULL,
- * update `bb` with a listing of the files in `path`
+ * Remove all the files currently stored in bb->files and if `bb->path` is
+ * non-NULL, update `bb` with a listing of the files in `path`
  */
-void populate_files(bb_t *bb, const char *path)
+void populate_files(bb_t *bb, int samedir)
 {
     bb->dirty = 1;
 
@@ -873,16 +877,15 @@ void populate_files(bb_t *bb, const char *path)
     }
 
     int old_scroll = bb->scroll, old_cursor = bb->cursor;
-    int samedir = path && strcmp(bb->path, path) == 0;
     bb->nfiles = 0;
     bb->cursor = 0;
     bb->scroll = 0;
 
-    if (path == NULL || !path[0])
+    if (!bb->path[0])
         return;
 
     size_t space = 0;
-    if (strcmp(path, "<selection>") == 0) {
+    if (strcmp(bb->path, "<selection>") == 0) {
         for (entry_t *e = bb->firstselected; e; e = e->selected.next) {
             if ((size_t)bb->nfiles + 1 > space)
                 bb->files = memcheck(realloc(bb->files, (space += 100)*sizeof(void*)));
@@ -890,38 +893,28 @@ void populate_files(bb_t *bb, const char *path)
             bb->files[bb->nfiles++] = e;
         }
     } else {
-        DIR *dir = opendir(path);
+        DIR *dir = opendir(bb->path);
         if (!dir)
-            err("Couldn't open dir: %s", path);
+            err("Couldn't open dir: %s", bb->path);
 
-        if (path[strlen(path)-1] != '/')
-            err("No terminating slash on '%s'", path);
-
-        char pathbuf[PATH_MAX];
-        strcpy(pathbuf, path);
-        size_t pathbuflen = strlen(pathbuf);
         for (struct dirent *dp; (dp = readdir(dir)) != NULL; ) {
             if (dp->d_name[0] == '.') {
                 if (dp->d_name[1] == '.' && dp->d_name[2] == '\0') {
-                    if (!bb->show_dotdot || strcmp(pathbuf, "/") == 0) continue;
+                    if (!bb->show_dotdot || strcmp(bb->path, "/") == 0) continue;
                 } else if (dp->d_name[1] == '\0') {
                     if (!bb->show_dot) continue;
                 } else if (!bb->show_dotfiles) continue;
             }
             if ((size_t)bb->nfiles + 1 > space)
                 bb->files = memcheck(realloc(bb->files, (space += 100)*sizeof(void*)));
-            strcpy(&pathbuf[pathbuflen], dp->d_name);
             // Don't normalize path so we can get "." and ".."
-            entry_t *entry = load_entry(bb, pathbuf, 0);
+            entry_t *entry = load_entry(bb, dp->d_name, 0);
             if (!entry) err("Failed to load entry: '%s'", dp->d_name);
             entry->index = bb->nfiles;
             bb->files[bb->nfiles++] = entry;
         }
         closedir(dir);
     }
-
-    if (path != bb->path)
-        strcpy(bb->path, path);
 
     for (int i = 0; i < bb->nfiles; i++) {
         int j = rand() / (RAND_MAX / (i + 1)); // This is not optimal, but doesn't need to be
@@ -952,7 +945,7 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
                 set_bool(bb->show_dotdot);
             else // +.:
                 set_bool(bb->show_dot);
-            populate_files(bb, bb->path);
+            populate_files(bb, 1);
             return BB_OK;
         }
         case 'b': { // +bind:
@@ -1012,7 +1005,7 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
                 }
                 case 'o': { // +dotfiles:
                     set_bool(bb->show_dotfiles);
-                    populate_files(bb, bb->path);
+                    populate_files(bb, 1);
                     return BB_OK;
                 }
             }
@@ -1093,7 +1086,7 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
             bb->should_quit = 1;
             return BB_QUIT;
         case 'r': // +refresh
-            populate_files(bb, bb->path);
+            populate_files(bb, 1);
             return BB_OK;
         case 's': // +scroll:, +select:, +sort:, +spread:
             switch (cmd[1]) {
@@ -1310,7 +1303,8 @@ void bb_browse(bb_t *bb, const char *path)
     goto next_input;
 
   quit:
-    populate_files(bb, NULL);
+    bb->path[0] = '\0';
+    populate_files(bb, 0);
     if (tty_out) {
         fputs(T_LEAVE_BBMODE, tty_out);
         cleanup();
