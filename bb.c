@@ -118,37 +118,36 @@ typedef struct bb_s {
 typedef enum { BB_OK = 0, BB_INVALID, BB_QUIT } bb_result_t;
 
 // Functions
-static void update_term_size(int sig);
-static void init_term(void);
-static void close_term(void);
-static void cleanup_and_exit(int sig);
-static void cleanup(void);
-static void* memcheck(void *p);
-static int run_script(bb_t *bb, const char *cmd);
-static int fputs_escaped(FILE *f, const char *str, const char *color);
+static void bb_browse(bb_t *bb, const char *path);
+static int cd_to(bb_t *bb, const char *path);
 static const char* color_of(mode_t mode);
-static void set_sort(bb_t *bb, const char *sort);
-static void render(bb_t *bb);
+static void cleanup(void);
+static void cleanup_and_exit(int sig);
+static void close_term(void);
 #ifdef __APPLE__
 static int compare_files(void *v, const void *v1, const void *v2);
 #else
 static int compare_files(const void *v1, const void *v2, void *v);
 #endif
-static void clear_selection(bb_t *bb);
-static void select_entry(bb_t *bb, entry_t *e);
 static void deselect_entry(bb_t *bb, entry_t *e);
-static void toggle_entry(bb_t *bb, entry_t *e);
+static int fputs_escaped(FILE *f, const char *str, const char *color);
+static void init_term(void);
+static entry_t* load_entry(bb_t *bb, const char *path);
+static void* memcheck(void *p);
+static void normalize_path(const char *root, const char *path, char *pbuf);
+static void populate_files(bb_t *bb, const char *path);
+static void print_bindings(void);
+static bb_result_t process_cmd(bb_t *bb, const char *cmd);
+static void render(bb_t *bb);
+static int run_script(bb_t *bb, const char *cmd);
+static void select_entry(bb_t *bb, entry_t *e);
 static void set_cursor(bb_t *bb, int i);
 static void set_scroll(bb_t *bb, int i);
-static entry_t* load_entry(bb_t *bb, const char *path);
-static void remove_entry(entry_t *e);
+static void set_sort(bb_t *bb, const char *sort);
 static void sort_files(bb_t *bb);
-static void normalize_path(const char *root, const char *path, char *pbuf);
-static int cd_to(bb_t *bb, const char *path);
-static void populate_files(bb_t *bb, const char *path);
-static bb_result_t process_cmd(bb_t *bb, const char *cmd);
-static void bb_browse(bb_t *bb, const char *path);
-static void print_bindings(void);
+static void toggle_entry(bb_t *bb, entry_t *e);
+static int try_free_entry(entry_t *e);
+static void update_term_size(int sig);
 
 // Config options
 extern binding_t bindings[];
@@ -619,21 +618,6 @@ int compare_files(const void *v1, const void *v2, void *v)
 }
 
 /*
- * Deselect all files
- */
-void clear_selection(bb_t *bb)
-{
-    for (entry_t *next, *e = bb->firstselected; e; e = next) {
-        next = e->selected.next;
-        e->selected.atme = NULL;
-        e->selected.next = NULL;
-        if (!IS_VIEWED(e)) remove_entry(e);
-    }
-    bb->firstselected = NULL;
-    bb->dirty = 1;
-}
-
-/*
  * Select a file
  */
 void select_entry(bb_t *bb, entry_t *e)
@@ -663,7 +647,7 @@ void deselect_entry(bb_t *bb, entry_t *e)
         e->selected.next = NULL;
         e->selected.atme = NULL;
     }
-    if (!IS_VIEWED(e)) remove_entry(e);
+    try_free_entry(e);
 }
 
 /*
@@ -792,18 +776,25 @@ entry_t* load_entry(bb_t *bb, const char *path)
     return entry;
 }
 
-void remove_entry(entry_t *e)
+/*
+ * If the given entry is not viewed or selected, remove it from the
+ * hash, free it, and return 1.
+ */
+int try_free_entry(entry_t *e)
 {
-    if (IS_SELECTED(e)) err("Attempt to remove an entry while it is still selected.");
-    if (IS_VIEWED(e)) err("Attempt to remove an entry while it is still being viewed.");
+    if (IS_SELECTED(e) || IS_VIEWED(e)) return 0;
     if (e->hash.next)
         e->hash.next->hash.atme = e->hash.atme;
     *(e->hash.atme) = e->hash.next;
     e->hash.atme = NULL;
     e->hash.next = NULL;
-    if (!IS_SELECTED(e)) free(e);
+    free(e);
+    return 1;
 }
 
+/*
+ * Sort the files in bb according to bb's settings.
+ */
 void sort_files(bb_t *bb)
 {
 #ifdef __APPLE__
@@ -881,7 +872,7 @@ int cd_to(bb_t *bb, const char *path)
         entry_t *p = load_entry(bb, prev);
         if (p) {
             if (IS_VIEWED(p)) set_cursor(bb, p->index);
-            else if (!IS_SELECTED(p)) remove_entry(p);
+            else try_free_entry(p);
         }
     }
     return 0;
@@ -899,8 +890,7 @@ void populate_files(bb_t *bb, const char *path)
     if (bb->files) {
         for (int i = 0; i < bb->nfiles; i++) {
             bb->files[i]->index = -1;
-            if (!IS_SELECTED(bb->files[i]))
-                remove_entry(bb->files[i]);
+            try_free_entry(bb->files[i]);
             bb->files[i] = NULL;
         }
         free(bb->files);
@@ -1071,8 +1061,7 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
             if (IS_VIEWED(e)) {
                 set_cursor(bb, e->index);
                 return BB_OK;
-            } else if (!IS_SELECTED(e))
-                remove_entry(e);
+            } else try_free_entry(e);
             return BB_OK;
         }
         case 'i': { // +interleave
@@ -1548,7 +1537,13 @@ int main(int argc, char *argv[])
     if (print_dir)
         printf("%s\n", bb->path);
 
-    clear_selection(bb);
+    for (entry_t *next, *e = bb->firstselected; e; e = next) {
+        next = e->selected.next;
+        e->selected.atme = NULL;
+        e->selected.next = NULL;
+        try_free_entry(e);
+    }
+    bb->firstselected = NULL;
     for (int m = 0; m < 128; m++)
         if (bb->marks[m]) free(bb->marks[m]);
     free(bb);
