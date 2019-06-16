@@ -129,7 +129,6 @@ static int compare_files(void *v, const void *v1, const void *v2);
 #else
 static int compare_files(const void *v1, const void *v2, void *v);
 #endif
-static void deselect_entry(bb_t *bb, entry_t *e);
 static int fputs_escaped(FILE *f, const char *str, const char *color);
 static void init_term(void);
 static entry_t* load_entry(bb_t *bb, const char *path, int clear_dots);
@@ -140,12 +139,11 @@ static void print_bindings(void);
 static bb_result_t process_cmd(bb_t *bb, const char *cmd);
 static void render(bb_t *bb);
 static int run_script(bb_t *bb, const char *cmd);
-static void select_entry(bb_t *bb, entry_t *e);
 static void set_cursor(bb_t *bb, int i);
+static void set_selected(bb_t *bb, entry_t *e, int selected);
 static void set_scroll(bb_t *bb, int i);
 static void set_sort(bb_t *bb, const char *sort);
 static void sort_files(bb_t *bb);
-static void toggle_entry(bb_t *bb, entry_t *e);
 static int try_free_entry(entry_t *e);
 static void update_term_size(int sig);
 
@@ -618,27 +616,22 @@ int compare_files(const void *v1, const void *v2, void *v)
 }
 
 /*
- * Select a file
+ * Select or deselect a file.
  */
-void select_entry(bb_t *bb, entry_t *e)
+void set_selected(bb_t *bb, entry_t *e, int selected)
 {
-    if (IS_SELECTED(e)) return;
+    if (IS_SELECTED(e) == selected) return;
+
     if (bb->nfiles > 0 && e != bb->files[bb->cursor])
         bb->dirty = 1;
-    if (bb->firstselected)
-        bb->firstselected->selected.atme = &e->selected.next;
-    e->selected.next = bb->firstselected;
-    e->selected.atme = &bb->firstselected;
-    bb->firstselected = e;
-}
 
-/*
- * Deselect a file
- */
-void deselect_entry(bb_t *bb, entry_t *e)
-{
-    (void)bb;
-    if (IS_SELECTED(e)) {
+    if (selected) {
+        if (bb->firstselected)
+            bb->firstselected->selected.atme = &e->selected.next;
+        e->selected.next = bb->firstselected;
+        e->selected.atme = &bb->firstselected;
+        bb->firstselected = e;
+    } else {
         if (bb->nfiles > 0 && e != bb->files[bb->cursor])
             bb->dirty = 1;
         if (e->selected.next)
@@ -646,17 +639,8 @@ void deselect_entry(bb_t *bb, entry_t *e)
         *(e->selected.atme) = e->selected.next;
         e->selected.next = NULL;
         e->selected.atme = NULL;
+        try_free_entry(e);
     }
-    try_free_entry(e);
-}
-
-/*
- * Toggle a file's selection state
- */
-void toggle_entry(bb_t *bb, entry_t *e)
-{
-    if (IS_SELECTED(e)) deselect_entry(bb, e);
-    else select_entry(bb, e);
 }
 
 /*
@@ -1014,13 +998,13 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
                     normalize_path(bb->path, value, pbuf, 1);
                     entry_t *e = load_entry(bb, pbuf, 0);
                     if (e) {
-                        deselect_entry(bb, e);
+                        set_selected(bb, e, 0);
                         return BB_OK;
                     }
                     // Filename may no longer exist:
                     for (e = bb->firstselected; e; e = e->selected.next) {
                         if (strcmp(e->fullname, pbuf) == 0) {
-                            deselect_entry(bb, e);
+                            set_selected(bb, e, 0);
                             break;
                         }
                     }
@@ -1098,10 +1082,8 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
                     else set_cursor(bb, n);
                     if (cmd[0] == 's') { // +spread:
                         int sel = IS_SELECTED(bb->files[oldcur]);
-                        for (int i = bb->cursor; i != oldcur; i += (oldcur > i ? 1 : -1)) {
-                            if (sel != IS_SELECTED(bb->files[i]))
-                                toggle_entry(bb, bb->files[i]);
-                        }
+                        for (int i = bb->cursor; i != oldcur; i += (oldcur > i ? 1 : -1))
+                            set_selected(bb, bb->files[i], sel);
                     }
                     return BB_OK;
                 }
@@ -1133,7 +1115,7 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
                     if (!value && !bb->nfiles) return BB_INVALID;
                     if (!value) value = bb->files[bb->cursor]->fullname;
                     entry_t *e = load_entry(bb, value, 1);
-                    if (e) select_entry(bb, e);
+                    if (e) set_selected(bb, e, 1);
                     return BB_OK;
                 }
                 case 'o': // +sort:
@@ -1149,7 +1131,7 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
             if (!value && !bb->nfiles) return BB_INVALID;
             if (!value) value = bb->files[bb->cursor]->fullname;
             entry_t *e = load_entry(bb, value, 1);
-            if (e) toggle_entry(bb, e);
+            if (e) set_selected(bb, e, !IS_SELECTED(e));
             return BB_OK;
         }
         default: err("UNKNOWN COMMAND: '%s'", cmd); break;
@@ -1257,7 +1239,7 @@ void bb_browse(bb_t *bb, const char *path)
                 int clicked = bb->scroll + (mouse_y - 2);
                 if (clicked > bb->nfiles - 1) goto next_input;
                 if (column[1] == COL_SELECTED) {
-                    toggle_entry(bb, bb->files[clicked]);
+                    set_selected(bb, bb->files[clicked], !IS_SELECTED(bb->files[clicked]));
                     bb->dirty = 1;
                     goto redraw;
                 }
