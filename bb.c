@@ -337,6 +337,9 @@ const char* color_of(mode_t mode)
     else return NORMAL_COLOR;
 }
 
+/*
+ * Set the sorting method used by bb to display files.
+ */
 void set_sort(bb_t *bb, const char *sort)
 {
     for (const char *s = sort; s[0] && s[1]; s += 2) {
