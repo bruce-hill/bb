@@ -187,9 +187,13 @@ void update_term_size(int sig)
  */
 void init_term(void)
 {
+    static int first_time = 1;
     tty_in = fopen("/dev/tty", "r");
     tty_out = fopen("/dev/tty", "w");
-    tcgetattr(fileno(tty_out), &orig_termios);
+    if (first_time) {
+        tcgetattr(fileno(tty_out), &orig_termios);
+        first_time = 0;
+    }
     memcpy(&bb_termios, &orig_termios, sizeof(bb_termios));
     cfmakeraw(&bb_termios);
     bb_termios.c_cc[VMIN] = 0;
