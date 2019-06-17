@@ -41,7 +41,7 @@
 #define IS_VIEWED(p) ((p)->index >= 0)
 #define LOWERCASE(c) ('A' <= (c) && (c) <= 'Z' ? ((c) + 'a' - 'A') : (c))
 #define E_ISDIR(e) (S_ISDIR(S_ISLNK((e)->info.st_mode) ? (e)->linkedmode : (e)->info.st_mode))
-#define ONSCREEN (termheight - 4)
+#define ONSCREEN (termheight - 3)
 
 #ifdef __APPLE__
 #define mtime(s) (s).st_mtimespec
@@ -416,11 +416,11 @@ void render(bb_t *bb)
     }
 
     entry_t **files = bb->files;
-    for (int i = bb->scroll; i < bb->scroll + termheight - 3; i++) {
+    for (int i = bb->scroll; i < bb->scroll + ONSCREEN; i++) {
         if (!bb->dirty) {
             if (i == bb->cursor || i == lastcursor)
                 goto do_render;
-            if (i < lastscroll || i >= lastscroll + termheight - 3)
+            if (i < lastscroll || i >= lastscroll + ONSCREEN)
                 goto do_render;
             continue;
         }
@@ -697,15 +697,15 @@ void set_cursor(bb_t *bb, int newcur)
     if (oldcur < bb->cursor) {
         if (bb->scroll > bb->cursor)
             bb->scroll = MAX(0, bb->cursor);
-        else if (bb->scroll < bb->cursor - ONSCREEN + SCROLLOFF)
-            bb->scroll = MIN(bb->nfiles - 1 - ONSCREEN,
+        else if (bb->scroll < bb->cursor - ONSCREEN + 1 + SCROLLOFF)
+            bb->scroll = MIN(bb->nfiles - 1 - ONSCREEN + 1,
                              bb->scroll + (newcur - oldcur));
     } else {
         if (bb->scroll > bb->cursor - SCROLLOFF)
             bb->scroll = MAX(0, bb->scroll + (newcur - oldcur));//bb->cursor - SCROLLOFF);
-        else if (bb->scroll < bb->cursor - ONSCREEN)
-            bb->scroll = MIN(bb->cursor - ONSCREEN,
-                             bb->nfiles - 1 - ONSCREEN);
+        else if (bb->scroll < bb->cursor - ONSCREEN + 1)
+            bb->scroll = MIN(bb->cursor - ONSCREEN + 1,
+                             bb->nfiles - 1 - ONSCREEN + 1);
     }
 }
 
@@ -718,8 +718,8 @@ void set_scroll(bb_t *bb, int newscroll)
     if (bb->nfiles <= ONSCREEN) {
         newscroll = 0;
     } else {
-        if (newscroll > bb->nfiles - 1 - ONSCREEN)
-            newscroll = bb->nfiles - 1 - ONSCREEN;
+        if (newscroll > bb->nfiles - 1 - ONSCREEN + 1)
+            newscroll = bb->nfiles - 1 - ONSCREEN + 1;
         if (newscroll < 0) newscroll = 0;
     }
 
