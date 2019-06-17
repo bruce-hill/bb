@@ -6,6 +6,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -196,8 +197,8 @@ void init_term(void)
     }
     memcpy(&bb_termios, &orig_termios, sizeof(bb_termios));
     cfmakeraw(&bb_termios);
-    bb_termios.c_cc[VMIN] = 0;
-    bb_termios.c_cc[VTIME] = 0;
+    bb_termios.c_cc[VMIN] = 1;
+    bb_termios.c_cc[VTIME] = 1;
     if (tcsetattr(fileno(tty_out), TCSAFLUSH, &bb_termios) == -1)
         err("Couldn't tcsetattr");
     update_term_size(0);
