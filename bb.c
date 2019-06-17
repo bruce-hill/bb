@@ -119,37 +119,34 @@ typedef struct bb_s {
 typedef enum { BB_OK = 0, BB_INVALID, BB_QUIT } bb_result_t;
 
 // Functions
-static void update_term_size(int sig);
-static void init_term(void);
-static void close_term(void);
-static void cleanup_and_exit(int sig);
-static void cleanup(void);
-static void* memcheck(void *p);
-static int run_script(bb_t *bb, const char *cmd);
-static int fputs_escaped(FILE *f, const char *str, const char *color);
+static void bb_browse(bb_t *bb, const char *path);
+static int cd_to(bb_t *bb, const char *path);
 static const char* color_of(mode_t mode);
-static void set_sort(bb_t *bb, const char *sort);
-static void render(bb_t *bb);
+static void cleanup(void);
+static void cleanup_and_exit(int sig);
+static void close_term(void);
 #ifdef __APPLE__
 static int compare_files(void *v, const void *v1, const void *v2);
 #else
 static int compare_files(const void *v1, const void *v2, void *v);
 #endif
-static void clear_selection(bb_t *bb);
-static void select_entry(bb_t *bb, entry_t *e);
-static void deselect_entry(bb_t *bb, entry_t *e);
-static void toggle_entry(bb_t *bb, entry_t *e);
-static void set_cursor(bb_t *bb, int i);
-static void set_scroll(bb_t *bb, int i);
-static entry_t* load_entry(bb_t *bb, const char *path);
-static void remove_entry(entry_t *e);
-static void sort_files(bb_t *bb);
-static void normalize_path(const char *root, const char *path, char *pbuf);
-static int cd_to(bb_t *bb, const char *path);
+static int fputs_escaped(FILE *f, const char *str, const char *color);
+static void init_term(void);
+static entry_t* load_entry(bb_t *bb, const char *path, int clear_dots);
+static void* memcheck(void *p);
+static void normalize_path(const char *root, const char *path, char *pbuf, int clear_dots);
 static void populate_files(bb_t *bb, const char *path);
-static bb_result_t process_cmd(bb_t *bb, const char *cmd);
-static void bb_browse(bb_t *bb, const char *path);
 static void print_bindings(void);
+static bb_result_t process_cmd(bb_t *bb, const char *cmd);
+static void render(bb_t *bb);
+static int run_script(bb_t *bb, const char *cmd);
+static void set_cursor(bb_t *bb, int i);
+static void set_selected(bb_t *bb, entry_t *e, int selected);
+static void set_scroll(bb_t *bb, int i);
+static void set_sort(bb_t *bb, const char *sort);
+static void sort_files(bb_t *bb);
+static int try_free_entry(entry_t *e);
+static void update_term_size(int sig);
 
 // Config options
 extern binding_t bindings[];
@@ -624,42 +621,22 @@ int compare_files(const void *v1, const void *v2, void *v)
 }
 
 /*
- * Deselect all files
+ * Select or deselect a file.
  */
-void clear_selection(bb_t *bb)
+void set_selected(bb_t *bb, entry_t *e, int selected)
 {
-    for (entry_t *next, *e = bb->firstselected; e; e = next) {
-        next = e->selected.next;
-        e->selected.atme = NULL;
-        e->selected.next = NULL;
-        if (!IS_VIEWED(e)) remove_entry(e);
-    }
-    bb->firstselected = NULL;
-    bb->dirty = 1;
-}
+    if (IS_SELECTED(e) == selected) return;
 
-/*
- * Select a file
- */
-void select_entry(bb_t *bb, entry_t *e)
-{
-    if (IS_SELECTED(e)) return;
     if (bb->nfiles > 0 && e != bb->files[bb->cursor])
         bb->dirty = 1;
-    if (bb->firstselected)
-        bb->firstselected->selected.atme = &e->selected.next;
-    e->selected.next = bb->firstselected;
-    e->selected.atme = &bb->firstselected;
-    bb->firstselected = e;
-}
 
-/*
- * Deselect a file
- */
-void deselect_entry(bb_t *bb, entry_t *e)
-{
-    (void)bb;
-    if (IS_SELECTED(e)) {
+    if (selected) {
+        if (bb->firstselected)
+            bb->firstselected->selected.atme = &e->selected.next;
+        e->selected.next = bb->firstselected;
+        e->selected.atme = &bb->firstselected;
+        bb->firstselected = e;
+    } else {
         if (bb->nfiles > 0 && e != bb->files[bb->cursor])
             bb->dirty = 1;
         if (e->selected.next)
@@ -667,17 +644,8 @@ void deselect_entry(bb_t *bb, entry_t *e)
         *(e->selected.atme) = e->selected.next;
         e->selected.next = NULL;
         e->selected.atme = NULL;
+        try_free_entry(e);
     }
-    if (!IS_VIEWED(e)) remove_entry(e);
-}
-
-/*
- * Toggle a file's selection state
- */
-void toggle_entry(bb_t *bb, entry_t *e)
-{
-    if (IS_SELECTED(e)) deselect_entry(bb, e);
-    else select_entry(bb, e);
 }
 
 /*
@@ -735,24 +703,13 @@ void set_scroll(bb_t *bb, int newscroll)
  * Warning: this does not deduplicate entries, and it's best if there aren't
  * duplicate entries hanging around.
  */
-entry_t* load_entry(bb_t *bb, const char *path)
+entry_t* load_entry(bb_t *bb, const char *path, int clear_dots)
 {
     struct stat linkedstat, filestat;
     if (!path || !path[0]) return NULL;
     if (lstat(path, &filestat) == -1) return NULL;
     char pbuf[PATH_MAX];
-    if (path[0] == '~' && (path[1] == '\0' || path[1] == '/')) {
-        char *home;
-        if (!(home = getenv("HOME")))
-            return NULL;
-        strcpy(pbuf, home);
-        strcat(pbuf, path+1);
-    } else if (path[0] == '/') {
-        strcpy(pbuf, path);
-    } else {
-        strcpy(pbuf, bb->path);
-        strcat(pbuf, path);
-    }
+    normalize_path(bb->path, path, pbuf, clear_dots);
     if (pbuf[strlen(pbuf)-1] == '/' && pbuf[1])
         pbuf[strlen(pbuf)-1] = '\0';
 
@@ -797,18 +754,25 @@ entry_t* load_entry(bb_t *bb, const char *path)
     return entry;
 }
 
-void remove_entry(entry_t *e)
+/*
+ * If the given entry is not viewed or selected, remove it from the
+ * hash, free it, and return 1.
+ */
+int try_free_entry(entry_t *e)
 {
-    if (IS_SELECTED(e)) err("Attempt to remove an entry while it is still selected.");
-    if (IS_VIEWED(e)) err("Attempt to remove an entry while it is still being viewed.");
+    if (IS_SELECTED(e) || IS_VIEWED(e)) return 0;
     if (e->hash.next)
         e->hash.next->hash.atme = e->hash.atme;
     *(e->hash.atme) = e->hash.next;
     e->hash.atme = NULL;
     e->hash.next = NULL;
-    if (!IS_SELECTED(e)) free(e);
+    free(e);
+    return 1;
 }
 
+/*
+ * Sort the files in bb according to bb's settings.
+ */
 void sort_files(bb_t *bb)
 {
 #ifdef __APPLE__
@@ -822,11 +786,11 @@ void sort_files(bb_t *bb)
 }
 
 /*
- * Prepend `root` to relative paths, replace "~" with $HOME, replace "/foo/."
- * with "/foo", replace "/foo/baz/.." with "/foo".
+ * Prepend `root` to relative paths, replace "~" with $HOME.
+ * If clear_dots is 1, then also replace "/foo/." with "/foo" and replace "/foo/baz/.." with "/foo".
  * The normalized path is stored in `normalized`.
  */
-void normalize_path(const char *root, const char *path, char *normalized)
+void normalize_path(const char *root, const char *path, char *normalized, int clear_dots)
 {
     if (path[0] == '~' && (path[1] == '\0' || path[1] == '/')) {
         char *home;
@@ -840,21 +804,23 @@ void normalize_path(const char *root, const char *path, char *normalized)
     }
     strcat(normalized, path);
 
-    char *src = normalized, *dest = normalized;
-    while (*src) {
-        while (src[0] == '/' && src[1] == '.') {
-            // Replace "foo/./?" with "foo/?"
-            if (src[2] == '/' || src[2] == '\0') {
-                src += 2;
-            } else if (src[2] == '.' && (src[3] == '/' || src[3] == '\0')) {
-                // Replace "foo/baz/../?" with "foo/?"
-                src += 3;
-                while (dest > normalized && *(--dest) != '/');
-            } else break;
+    if (clear_dots) {
+        char *src = normalized, *dest = normalized;
+        while (*src) {
+            while (src[0] == '/' && src[1] == '.') {
+                // Replace "foo/./?" with "foo/?"
+                if (src[2] == '/' || src[2] == '\0') {
+                    src += 2;
+                } else if (src[2] == '.' && (src[3] == '/' || src[3] == '\0')) {
+                    // Replace "foo/baz/../?" with "foo/?"
+                    src += 3;
+                    while (dest > normalized && *(--dest) != '/');
+                } else break;
+            }
+            *(dest++) = *(src++);
         }
-        *(dest++) = *(src++);
+        *dest = '\0';
     }
-    *dest = '\0';
 }
 
 int cd_to(bb_t *bb, const char *path)
@@ -870,7 +836,7 @@ int cd_to(bb_t *bb, const char *path)
         strcpy(pbuf, bb->marks['-']);
         if (chdir(pbuf)) return -1;
     } else {
-        normalize_path(bb->path, path, pbuf);
+        normalize_path(bb->path, path, pbuf, 1);
         if (pbuf[strlen(pbuf)-1] != '/')
             strcat(pbuf, "/");
         if (chdir(pbuf)) return -1;
@@ -883,10 +849,10 @@ int cd_to(bb_t *bb, const char *path)
 
     populate_files(bb, pbuf);
     if (prev[0]) {
-        entry_t *p = load_entry(bb, prev);
+        entry_t *p = load_entry(bb, prev, 0);
         if (p) {
             if (IS_VIEWED(p)) set_cursor(bb, p->index);
-            else if (!IS_SELECTED(p)) remove_entry(p);
+            else try_free_entry(p);
         }
     }
     return 0;
@@ -904,8 +870,7 @@ void populate_files(bb_t *bb, const char *path)
     if (bb->files) {
         for (int i = 0; i < bb->nfiles; i++) {
             bb->files[i]->index = -1;
-            if (!IS_SELECTED(bb->files[i]))
-                remove_entry(bb->files[i]);
+            try_free_entry(bb->files[i]);
             bb->files[i] = NULL;
         }
         free(bb->files);
@@ -952,7 +917,7 @@ void populate_files(bb_t *bb, const char *path)
                 bb->files = memcheck(realloc(bb->files, (space += 100)*sizeof(void*)));
             strcpy(&pathbuf[pathbuflen], dp->d_name);
             // Don't normalize path so we can get "." and ".."
-            entry_t *entry = load_entry(bb, pathbuf);
+            entry_t *entry = load_entry(bb, pathbuf, 0);
             if (!entry) err("Failed to load entry: '%s'", dp->d_name);
             entry->index = bb->nfiles;
             bb->files[bb->nfiles++] = entry;
@@ -1035,16 +1000,16 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
                     if (!value && !bb->nfiles) return BB_INVALID;
                     if (!value) value = bb->files[bb->cursor]->fullname;
                     char pbuf[PATH_MAX];
-                    normalize_path(bb->path, value, pbuf);
-                    entry_t *e = load_entry(bb, pbuf);
+                    normalize_path(bb->path, value, pbuf, 1);
+                    entry_t *e = load_entry(bb, pbuf, 0);
                     if (e) {
-                        deselect_entry(bb, e);
+                        set_selected(bb, e, 0);
                         return BB_OK;
                     }
                     // Filename may no longer exist:
                     for (e = bb->firstselected; e; e = e->selected.next) {
                         if (strcmp(e->fullname, pbuf) == 0) {
-                            deselect_entry(bb, e);
+                            set_selected(bb, e, 0);
                             break;
                         }
                     }
@@ -1059,7 +1024,7 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
         }
         case 'g': { // +goto:
             if (!value) return BB_INVALID;
-            entry_t *e = load_entry(bb, value);
+            entry_t *e = load_entry(bb, value, 1);
             if (!e) return BB_INVALID;
             if (IS_VIEWED(e)) {
                 set_cursor(bb, e->index);
@@ -1071,13 +1036,10 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
             if (!lastslash) return BB_INVALID;
             *lastslash = '\0'; // Split in two
             cd_to(bb, pbuf);
-            e = load_entry(bb, lastslash+1);
-            if (!e) return BB_INVALID;
             if (IS_VIEWED(e)) {
                 set_cursor(bb, e->index);
                 return BB_OK;
-            } else if (!IS_SELECTED(e))
-                remove_entry(e);
+            } else try_free_entry(e);
             return BB_OK;
         }
         case 'i': { // +interleave
@@ -1125,10 +1087,8 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
                     else set_cursor(bb, n);
                     if (cmd[0] == 's') { // +spread:
                         int sel = IS_SELECTED(bb->files[oldcur]);
-                        for (int i = bb->cursor; i != oldcur; i += (oldcur > i ? 1 : -1)) {
-                            if (sel != IS_SELECTED(bb->files[i]))
-                                toggle_entry(bb, bb->files[i]);
-                        }
+                        for (int i = bb->cursor; i != oldcur; i += (oldcur > i ? 1 : -1))
+                            set_selected(bb, bb->files[i], sel);
                     }
                     return BB_OK;
                 }
@@ -1159,10 +1119,8 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
                 case '\0': case 'e': { // +select:
                     if (!value && !bb->nfiles) return BB_INVALID;
                     if (!value) value = bb->files[bb->cursor]->fullname;
-                    char pbuf[PATH_MAX];
-                    normalize_path(bb->path, value, pbuf);
-                    entry_t *e = load_entry(bb, pbuf);
-                    if (e) select_entry(bb, e);
+                    entry_t *e = load_entry(bb, value, 1);
+                    if (e) set_selected(bb, e, 1);
                     return BB_OK;
                 }
                 case 'o': // +sort:
@@ -1177,10 +1135,8 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
         case 't': { // +toggle:
             if (!value && !bb->nfiles) return BB_INVALID;
             if (!value) value = bb->files[bb->cursor]->fullname;
-            char pbuf[PATH_MAX];
-            normalize_path(bb->path, value, pbuf);
-            entry_t *e = load_entry(bb, pbuf);
-            if (e) toggle_entry(bb, e);
+            entry_t *e = load_entry(bb, value, 1);
+            if (e) set_selected(bb, e, !IS_SELECTED(e));
             return BB_OK;
         }
         default: err("UNKNOWN COMMAND: '%s'", cmd); break;
@@ -1288,7 +1244,7 @@ void bb_browse(bb_t *bb, const char *path)
                 int clicked = bb->scroll + (mouse_y - 2);
                 if (clicked > bb->nfiles - 1) goto next_input;
                 if (column[1] == COL_SELECTED) {
-                    toggle_entry(bb, bb->files[clicked]);
+                    set_selected(bb, bb->files[clicked], !IS_SELECTED(bb->files[clicked]));
                     bb->dirty = 1;
                     goto redraw;
                 }
@@ -1527,7 +1483,7 @@ int main(int argc, char *argv[])
     char path[PATH_MAX], curdir[PATH_MAX];
     getcwd(curdir, PATH_MAX);
     strcat(curdir, "/");
-    normalize_path(curdir, initial_path, path);
+    normalize_path(curdir, initial_path, path, 1);
     if (chdir(path)) err("Not a valid path: %s\n", path);
 
     bb_t *bb = memcheck(calloc(1, sizeof(bb_t)));
@@ -1553,7 +1509,13 @@ int main(int argc, char *argv[])
     if (print_dir)
         printf("%s\n", bb->path);
 
-    clear_selection(bb);
+    for (entry_t *next, *e = bb->firstselected; e; e = next) {
+        next = e->selected.next;
+        e->selected.atme = NULL;
+        e->selected.next = NULL;
+        try_free_entry(e);
+    }
+    bb->firstselected = NULL;
     for (int m = 0; m < 128; m++)
         if (bb->marks[m]) free(bb->marks[m]);
     free(bb);

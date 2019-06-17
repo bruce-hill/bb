@@ -19,18 +19,18 @@ ifeq (, $(PICKER))
 endif
 ifneq (, $(PICKER))
 	PICKER_FLAG=-D"PICK(prompt, initial)=\"$(PICKER)\""
-endif
-ifeq ($(shell which $(PICKER)),$(shell which fzy || echo '<none>'))
-	PICKER_FLAG=-D'PICK(prompt, initial)="{ printf \"\\033[3A\" >/dev/tty; fzy --lines=3 --prompt=\"" prompt "\" --query=\"" initial "\"; }"'
-endif
-ifeq ($(shell which $(PICKER)),$(shell which fzf || echo '<none>'))
-	PICKER_FLAG=-D'PICK(prompt, initial)="{ printf \"\\033[3A\" >/dev/tty; fzf --height=4 --prompt=\"" prompt "\" --query=\"" initial "\"; }"'
-endif
-ifeq ($(shell which $(PICKER)),$(shell which ask || echo '<none>'))
-	PICKER_FLAG=-D'PICK(prompt, initial)="ask --prompt=\"" prompt "\" --query=\"" initial "\""'
-endif
-ifeq ($(shell which $(PICKER)),$(shell which pick || echo '<none>'))
-	PICKER_FLAG=-D'PICK(prompt, initial)="pick -q \"" initial "\""'
+	ifeq ($(shell which $(PICKER)),$(shell which fzy 2>/dev/null || echo '<none>'))
+		PICKER_FLAG=-D'PICK(prompt, initial)="{ printf \"\\033[3A\" >/dev/tty; fzy --lines=3 --prompt=\"" prompt "\" --query=\"" initial "\"; }"'
+	endif
+	ifeq ($(shell which $(PICKER)),$(shell which fzf 2>/dev/null || echo '<none>'))
+		PICKER_FLAG=-D'PICK(prompt, initial)="{ printf \"\\033[3A\" >/dev/tty; fzf --height=4 --prompt=\"" prompt "\" --query=\"" initial "\"; }"'
+	endif
+	ifeq ($(shell which $(PICKER)),$(shell which ask 2>/dev/null || echo '<none>'))
+		PICKER_FLAG=-D'PICK(prompt, initial)="ask --prompt=\"" prompt "\" --query=\"" initial "\""'
+	endif
+	ifeq ($(shell which $(PICKER)),$(shell which pick 2>/dev/null || echo '<none>'))
+		PICKER_FLAG=-D'PICK(prompt, initial)="pick -q \"" initial "\""'
+	endif
 endif
 CFLAGS += $(PICKER_FLAG)
 
