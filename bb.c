@@ -733,7 +733,8 @@ entry_t* load_entry(bb_t *bb, const char *path, int clear_dots)
     if (S_ISLNK(filestat.st_mode)) {
         linkpathlen = readlink(pbuf, linkbuf, sizeof(linkbuf));
         if (linkpathlen < 0) err("Couldn't read link: '%s'", pbuf);
-        linkbuf[linkpathlen] = 0;
+        linkbuf[linkpathlen] = '\0';
+        while (linkpathlen > 0 && linkbuf[linkpathlen-1] == '/') linkbuf[--linkpathlen] = '\0';
         if (stat(pbuf, &linkedstat) == -1) memset(&linkedstat, 0, sizeof(linkedstat));
     }
     size_t pathlen = strlen(pbuf);
