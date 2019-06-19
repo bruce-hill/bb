@@ -10,7 +10,6 @@
 #ifndef FILE__BTERM_H
 #define FILE__BTERM_H
 
-#include <poll.h>
 #include <stdio.h>
 
 #define KEY_F1               (0xFFFF-0)
@@ -112,11 +111,9 @@ const char *bkeyname(int key);
 
 static inline int nextchar(int fd, int timeout)
 {
+    (void)timeout;
     char c;
-    struct pollfd pfd = {fd, POLLIN, 0};
-    if (poll(&pfd, 1, timeout) > 0)
-        return read(fd, &c, 1) == 1 ? c : -1;
-    return -1;
+    return read(fd, &c, 1) == 1 ? c : -1;
 }
 
 /*
