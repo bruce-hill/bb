@@ -80,7 +80,6 @@ typedef struct {
 } column_t;
 
 // Configurable options:
-#define KEY_DELAY 50
 #define SCROLLOFF   MIN(5, (termheight-4)/2)
 #define CMDFILE_FORMAT "/tmp/bb.XXXXXX"
 #define SORT_INDICATOR  "↓"

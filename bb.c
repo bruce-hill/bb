@@ -1216,7 +1216,7 @@ void bb_browse(bb_t *bb, const char *path)
 
     int key;
   get_keyboard_input:
-    key = bgetkey(tty_in, &mouse_x, &mouse_y, KEY_DELAY);
+    key = bgetkey(tty_in, &mouse_x, &mouse_y);
     switch (key) {
         case KEY_MOUSE_LEFT: {
             struct timespec clicktime;

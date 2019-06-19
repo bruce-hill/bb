@@ -103,15 +103,11 @@
 
 #define move_cursor(f, x, y) fprintf((f), CSI "%d;%dH", (int)(y)+1, (int)(x)+1)
 
-
-#define ESC_DELAY 10
-
-int bgetkey(FILE *in, int *mouse_x, int *mouse_y, int timeout);
+int bgetkey(FILE *in, int *mouse_x, int *mouse_y);
 const char *bkeyname(int key);
 
-static inline int nextchar(int fd, int timeout)
+static inline int nextchar(int fd)
 {
-    (void)timeout;
     char c;
     return read(fd, &c, 1) == 1 ? c : -1;
 }
@@ -121,18 +117,18 @@ static inline int nextchar(int fd, int timeout)
  * If mouse_x or mouse_y are non-null and a mouse event occurs, they will be
  * set to the position of the mouse (0-indexed).
  */
-int bgetkey(FILE *in, int *mouse_x, int *mouse_y, int timeout)
+int bgetkey(FILE *in, int *mouse_x, int *mouse_y)
 {
     int fd = fileno(in);
     int numcode = 0, super = 0;
-    int c = nextchar(fd, timeout);
+    int c = nextchar(fd);
     if (c == '\x1b')
         goto escape;
 
     return c;
 
   escape:
-    c = nextchar(fd, ESC_DELAY);
+    c = nextchar(fd);
     // Actual escape key:
     if (c < 0)
         return KEY_ESC;
@@ -146,7 +142,7 @@ int bgetkey(FILE *in, int *mouse_x, int *mouse_y, int timeout)
     }
 
   CSI_start:
-    c = nextchar(fd, ESC_DELAY);
+    c = nextchar(fd);
     if (c == -1)
         return -1;
 
@@ -213,7 +209,7 @@ int bgetkey(FILE *in, int *mouse_x, int *mouse_y, int timeout)
     return -1;
 
   SS3:
-    switch (nextchar(fd, ESC_DELAY)) {
+    switch (nextchar(fd)) {
         case 'P': return KEY_F1;
         case 'Q': return KEY_F2;
         case 'R': return KEY_F3;
