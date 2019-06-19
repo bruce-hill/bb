@@ -1311,8 +1311,6 @@ void bb_browse(bb_t *bb, const char *path)
     goto next_input;
 
   quit:
-    bb->path[0] = '\0';
-    populate_files(bb, 0);
     if (tty_out) {
         fputs(T_LEAVE_BBMODE, tty_out);
         cleanup();
@@ -1506,6 +1504,9 @@ int main(int argc, char *argv[])
     if (print_dir)
         printf("%s\n", bb->path);
 
+    // Cleanup:
+    bb->path[0] = '\0';
+    populate_files(bb, 0);
     for (entry_t *next, *e = bb->firstselected; e; e = next) {
         next = e->selected.next;
         e->selected.atme = NULL;
