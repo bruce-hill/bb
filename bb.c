@@ -291,6 +291,11 @@ int run_script(bb_t *bb, const char *cmd)
         setenv("BBDOTFILES", bb->show_dotfiles ? "1" : "", 1);
         setenv("BBCURSOR", bb->nfiles ? bb->files[bb->cursor]->fullname : "", 1);
 
+        int ttyout, ttyin;
+        ttyout = open("/dev/tty", O_RDWR);
+        ttyin = open("/dev/tty", O_RDONLY);
+        dup2(ttyout, STDOUT_FILENO);
+        dup2(ttyin, STDIN_FILENO);
         execvp("sh", args);
         err("Failed to execute command: '%s'", cmd);
         return -1;

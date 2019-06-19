@@ -164,17 +164,11 @@ const char *startupcmds[] = {
  * Please note that these are sh scripts, not bash scripts, so bash-isms
  * won't work unless you make your script use `bash -c "<your bash script>"`
  *
- * All output should be redirected to /dev/tty, otherwise cd "$(bb -d)" will
- * break because stdout will be polluted with all the keybindings that spammed
- * stdout. Similarly, user input should be pulled from /dev/tty so anything
- * piped into bb won't be misinterpreted as user input.
- *
  * If your editor is vim (and not neovim), you can replace `$EDITOR` below with
  * `vim -c 'set t_ti= t_te=' "$@"` to prevent momentarily seeing the shell
  * after editing.
  *****************************************************************************/
 binding_t bindings[] = {
-    {{'1'}, "echo \"you said: '$(sed 1q </dev/tty)'\" >/dev/tty; "PAUSE, "repeat"},
     {{'?', KEY_F1}, "bb -b | $PAGER -rX", B("Help")" menu"},
     {{'q', 'Q'}, "+quit", B("Quit")},
     {{'j', KEY_ARROW_DOWN}, "+move:+1", B("Next")" file"},
@@ -184,11 +178,12 @@ binding_t bindings[] = {
     {{'\r', KEY_MOUSE_DOUBLE_LEFT},
 #ifdef __APPLE__
         "if test -d \"$BBCURSOR\"; then bb \"+cd:$BBCURSOR\"; "
-        "elif test -x \"$BBCURSOR\"; then \"$BBCURSOR\" >/dev/tty </dev/tty; " PAUSE "; "
+        "elif test -x \"$BBCURSOR\"; then \"$BBCURSOR\"; " PAUSE "; "
         "elif file -bI \"$BBCURSOR\" | grep -q '^\\(text/\\|inode/empty\\)'; then $EDITOR \"$BBCURSOR\"; "
         "else open \"$BBCURSOR\"; fi",
 #else
         "if test -d \"$BBCURSOR\"; then bb \"+cd:$BBCURSOR\"; "
+        "elif test -x \"$BBCURSOR\"; then \"$BBCURSOR\"; " PAUSE "; "
         "elif file -bi \"$BBCURSOR\" | grep -q '^\\(text/\\|inode/empty\\)'; then $EDITOR \"$BBCURSOR\"; "
         "else xdg-open \"$BBCURSOR\"; fi",
 #endif
@@ -200,23 +195,23 @@ binding_t bindings[] = {
         "| "PICK("Find: ", "")")\"", B("Search")" for file"},
     {{'/'}, "bb \"+goto:$(if test $BBDOTFILES; then find -mindepth 1 -maxdepth 1; else find -mindepth 1 -maxdepth 1 ! -path '*/.*'; fi "
         "| "PICK("Pick: ", "")")\"", B("Pick")" file"},
-    {{'d', KEY_DELETE}, "rm -rfi \"$@\" >/dev/tty </dev/tty && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files"},
-    {{'D'}, SPIN("rm -rf \"$@\"")" >/dev/tty </dev/tty && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files (without confirmation)"},
-    {{'M'}, SPIN("mv -i \"$@\" . >/dev/tty </dev/tty && bb '+deselect:*' +r && for f; do bb \"+sel:$(basename \"$f\")\"; done")" || "PAUSE,
+    {{'d', KEY_DELETE}, "rm -rfi \"$@\" && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files"},
+    {{'D'}, SPIN("rm -rf \"$@\"")" && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files (without confirmation)"},
+    {{'M'}, SPIN("mv -i \"$@\" . && bb '+deselect:*' +r && for f; do bb \"+sel:$(basename \"$f\")\"; done")" || "PAUSE,
         B("Move")" files to current directory"},
-    {{'c'}, SPIN("cp -ri \"$@\" .")" >/dev/tty </dev/tty && bb +r || "PAUSE, B("Copy")" files to current directory"},
-    {{'C'}, "for f; do "SPIN("cp -ri \"$f\" \"$f.copy\"")" >/dev/tty </dev/tty; done && bb +r || "PAUSE,
+    {{'c'}, SPIN("cp -ri \"$@\" .")" && bb +r || "PAUSE, B("Copy")" files to current directory"},
+    {{'C'}, "for f; do "SPIN("cp -ri \"$f\" \"$f.copy\"")"; done && bb +r || "PAUSE,
         B("Clone")" files"},
     {{'n'}, ASK("name", "New file: ", "")" && touch \"$name\" && bb \"+goto:$name\" +r || "PAUSE, B("New file")},
     {{'N'}, ASK("name", "New dir: ", "")" && mkdir \"$name\" && bb \"+goto:$name\" +r || "PAUSE, B("New directory")},
     {{KEY_CTRL_G}, "bb \"+cd:$(" ASKECHO("Go to directory: ", "") ")\"", B("Go to")" directory"},
-    {{'|'}, ASK("cmd", "|", "") " && printf '%s\\n' \"$@\" | sh -c \"$cmd\" >/dev/tty; " PAUSE "; bb +r",
+    {{'|'}, ASK("cmd", "|", "") " && printf '%s\\n' \"$@\" | sh -c \"$cmd\"; " PAUSE "; bb +r",
         B("Pipe")" selected files to a command"},
-    {{':'}, "sh -c \"$(" ASKECHO(":", "") ")\" -- \"$@\" >/dev/tty </dev/tty; " PAUSE "; bb +refresh",
+    {{':'}, "sh -c \"$(" ASKECHO(":", "") ")\" -- \"$@\"; " PAUSE "; bb +refresh",
         B("Run")" a command"},
-    {{'>'}, "tput rmcup >/dev/tty; $SHELL; bb +r", "Open a "B("shell")},
-    {{'m'}, "read -n1 -p 'Mark: ' m >/dev/tty </dev/tty && bb \"+mark:$m;$PWD\"", "Set "B("mark")},
-    {{'\''}, "read -n1 -p 'Jump: ' j >/dev/tty </dev/tty && bb \"+jump:$j\"", B("Jump")" to mark"},
+    {{'>'}, "tput rmcup; $SHELL; bb +r", "Open a "B("shell")},
+    {{'m'}, "read -n1 -p 'Mark: ' m && bb \"+mark:$m;$PWD\"", "Set "B("mark")},
+    {{'\''}, "read -n1 -p 'Jump: ' j && bb \"+jump:$j\"", B("Jump")" to mark"},
     {{'r'},
         "bb +refresh; "
         "for f; do "
