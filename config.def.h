@@ -175,14 +175,11 @@ binding_t bindings[] = {
     {{'h', KEY_ARROW_LEFT}, "+cd:..", B("Parent")" directory"},
     {{'l', KEY_ARROW_RIGHT}, "test -d \"$BBCURSOR\" && bb \"+cd:$BBCURSOR\"", B("Enter")" a directory"},
     {{'\r', KEY_MOUSE_DOUBLE_LEFT},
-#ifdef __APPLE__
         "if test -d \"$BBCURSOR\"; then bb \"+cd:$BBCURSOR\"; "
-        "elif test -x \"$BBCURSOR\"; then \"$BBCURSOR\"; " PAUSE "; "
+#ifdef __APPLE__
         "elif file -bI \"$BBCURSOR\" | grep -q '^\\(text/\\|inode/empty\\)'; then $EDITOR \"$BBCURSOR\"; "
         "else open \"$BBCURSOR\"; fi",
 #else
-        "if test -d \"$BBCURSOR\"; then bb \"+cd:$BBCURSOR\"; "
-        "elif test -x \"$BBCURSOR\"; then \"$BBCURSOR\"; " PAUSE "; "
         "elif file -bi \"$BBCURSOR\" | grep -q '^\\(text/\\|inode/empty\\)'; then $EDITOR \"$BBCURSOR\"; "
         "else xdg-open \"$BBCURSOR\"; fi",
 #endif
@@ -194,9 +191,9 @@ binding_t bindings[] = {
         "| "PICK("Find: ", "")")\"", B("Search")" for file"},
     {{'/'}, "bb \"+goto:$(if test $BBDOTFILES; then find -mindepth 1 -maxdepth 1; else find -mindepth 1 -maxdepth 1 ! -path '*/.*'; fi "
         "| "PICK("Pick: ", "")")\"", B("Pick")" file"},
-    {{'d', KEY_DELETE}, "rm -rfi \"$@\" && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files"},
-    {{'D'}, SPIN("rm -rf \"$@\"")" && bb '+deselect:*' +r ||" PAUSE, B("Delete")" files (without confirmation)"},
-    {{'M'}, SPIN("mv -i \"$@\" . && bb '+deselect:*' +r && for f; do bb \"+sel:$(basename \"$f\")\"; done")" || "PAUSE,
+    {{'d', KEY_DELETE}, "rm -rfi \"$@\" && bb +refresh +deselect: \"$@\" ||" PAUSE, B("Delete")" files"},
+    {{'D'}, SPIN("rm -rf \"$@\"")" && bb +refresh +deselect: \"$@\" ||" PAUSE, B("Delete")" files (without confirmation)"},
+    {{'M'}, SPIN("mv -i \"$@\" . && bb +refresh +deselect: \"$@\" && for f; do bb \"+sel:$(basename \"$f\")\"; done")" || "PAUSE,
         B("Move")" files to current directory"},
     {{'c'}, SPIN("cp -ri \"$@\" .")" && bb +r || "PAUSE, B("Copy")" files to current directory"},
     {{'C'}, "for f; do "SPIN("cp -ri \"$f\" \"$f.copy\"")"; done && bb +r || "PAUSE,
