@@ -155,7 +155,10 @@ int bgetkey(FILE *in, int *mouse_x, int *mouse_y)
         case 'H': return KEY_HOME;
         case '~':
             switch (numcode) {
+                case 1: return KEY_HOME;
+                case 2: return KEY_INSERT;
                 case 3: return KEY_DELETE;
+                case 4: return KEY_END;
                 case 5: return KEY_PGUP;
                 case 6: return KEY_PGDN;
                 case 15: return KEY_F5;
