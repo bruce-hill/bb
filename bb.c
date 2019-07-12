@@ -1382,7 +1382,8 @@ void print_bindings(int fd)
         *p = '\0';
         sprintf(buf2, "\033[1m\033[%dG%s\033[0m", termwidth/2 - 1 - (int)strlen(buf), buf);
         write(fd, buf2, strlen(buf2));
-        sprintf(buf2, "\033[0m\033[%dG\033[34m%s\033[0m", termwidth/2 + 1, bindings[i].description);
+        sprintf(buf2, "\033[0m\033[%dG\033[34m%s\033[0m", termwidth/2 + 1,
+                bindings[i].description ? bindings[i].description : bindings[i].script);
         write(fd, buf2, strlen(buf2));
         write(fd, "\033[0m\n", strlen("\033[0m\n"));
     }
