@@ -135,7 +135,7 @@ static entry_t* load_entry(bb_t *bb, const char *path, int clear_dots);
 static void* memcheck(void *p);
 static void normalize_path(const char *root, const char *path, char *pbuf, int clear_dots);
 static void populate_files(bb_t *bb, int samedir);
-static void print_bindings(void);
+static void print_bindings(int fd);
 static bb_result_t process_cmd(bb_t *bb, const char *cmd);
 static void render(bb_t *bb);
 static int run_script(bb_t *bb, const char *cmd);
@@ -156,6 +156,19 @@ extern const column_t columns[128];
 static const char *T_ENTER_BBMODE = T_OFF(T_SHOW_CURSOR ";" T_WRAP) T_ON(T_ALT_SCREEN ";" T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
 static const char *T_LEAVE_BBMODE = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN) T_ON(T_SHOW_CURSOR ";" T_WRAP);
 static const char *T_LEAVE_BBMODE_PARTIAL = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR) T_ON(T_WRAP);
+
+static const char *bbcmdfn = "bb() {\n"
+"    if $# -eq 0; then cat >> $BBCMD; return; fi\n"
+"    for arg; do\n"
+"        shift;\n"
+"        if echo \"$arg\" | grep \"^+[^:]*:$\" >/dev/null 2>/dev/null; then\n"
+"            if test $# -gt 0; then printf \"$arg%s\\0\" \"$@\" >> $BBCMD\n"
+"            else sed \"s/\\([^\\x00]\\+\\)/$arg\\1/g\" >> $BBCMD; fi\n"
+"            return\n"
+"        fi\n"
+"        printf \"$arg\\0\" >> $BBCMD\n"
+"    done\n"
+"}\n";
 
 // Global variables
 static struct termios orig_termios, bb_termios;
@@ -276,7 +289,10 @@ int run_script(bb_t *bb, const char *cmd)
         size_t i = 0;
         args[i++] = "sh";
         args[i++] = "-c";
-        args[i++] = (char*)cmd;
+        char *fullcmd = calloc(strlen(cmd) + strlen(bbcmdfn) + 1, sizeof(char));
+        strcpy(fullcmd, bbcmdfn);
+        strcat(fullcmd, cmd);
+        args[i++] = fullcmd;
         args[i++] = "--"; // ensure files like "-i" are not interpreted as flags for sh
         entry_t *first = bb->firstselected ? bb->firstselected : (bb->nfiles ? bb->files[bb->cursor] : NULL);
         for (entry_t *e = first; e; e = e->selected.next) {
@@ -1043,6 +1059,25 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
             } else try_free_entry(e);
             return BB_OK;
         }
+        case 'h': { // +help
+            close_term();
+            int fds[2];
+            pipe(fds);
+            pid_t child = fork();
+            if (child != 0) {
+                close(fds[0]);
+                print_bindings(fds[1]);
+                waitpid(child, NULL, 0);
+            } else {
+                close(fds[1]);
+                dup2(fds[0], STDIN_FILENO);
+                char *args[] = {"sh", "-c", "$PAGER -rX", NULL};
+                execvp("sh", args);
+            }
+            init_term();
+            bb->dirty = 1;
+            return BB_OK;
+        }
         case 'i': { // +interleave
             set_bool(bb->interleave_dirs);
             sort_files(bb);
@@ -1325,16 +1360,12 @@ void bb_browse(bb_t *bb, const char *path)
 /*
  * Print the current key bindings
  */
-void print_bindings(void)
+void print_bindings(int fd)
 {
-    struct winsize sz = {0};
-    ioctl(STDOUT_FILENO, TIOCGWINSZ, &sz);
-    int width = sz.ws_col;
-    if (width == 0) width = 80;
-
-    char buf[1024];
+    char buf[1024], buf2[1024];
     char *kb = "Key Bindings";
-    printf("\n\033[33;1;4m\033[%dG%s\033[0m\n\n", (width-(int)strlen(kb))/2, kb);
+    sprintf(buf, "\n\033[33;1;4m\033[%dG%s\033[0m\n\n", (termwidth-(int)strlen(kb))/2, kb);
+    write(fd, buf, strlen(buf));
     for (int i = 0; bindings[i].keys[0] > 0; i++) {
         char *p = buf;
         for (int j = 0; bindings[i].keys[j]; j++) {
@@ -1349,11 +1380,13 @@ void print_bindings(void)
                 p += sprintf(p, "\033[31m\\x%02X", key);
         }
         *p = '\0';
-        printf("\033[1m\033[%dG%s\033[0m", width/2 - 1 - (int)strlen(buf), buf);
-        printf("\033[0m\033[%dG\033[34m%s\033[0m", width/2 + 1, bindings[i].description);
-        printf("\033[0m\n");
+        sprintf(buf2, "\033[1m\033[%dG%s\033[0m", termwidth/2 - 1 - (int)strlen(buf), buf);
+        write(fd, buf2, strlen(buf2));
+        sprintf(buf2, "\033[0m\033[%dG\033[34m%s\033[0m", termwidth/2 + 1, bindings[i].description);
+        write(fd, buf2, strlen(buf2));
+        write(fd, "\033[0m\n", strlen("\033[0m\n"));
     }
-    printf("\n");
+    write(fd, "\n", 1);
 }
 
 int main(int argc, char *argv[])
@@ -1362,10 +1395,8 @@ int main(int argc, char *argv[])
     char sep = '\n';
     int print_dir = 0, print_selection = 0;
 
-    int cmd_args = 0;
     for (int i = 1; i < argc; i++) {
         if (argv[i][0] == '+') {
-            ++cmd_args;
             char *colon = strchr(argv[i], ':');
             if (colon && !colon[1]) break;
             continue;
@@ -1377,29 +1408,19 @@ int main(int argc, char *argv[])
         if (argv[i][0] != '-' && !initial_path)
             initial_path = argv[i];
     }
-    if (!initial_path && cmd_args == 0) initial_path = ".";
+    if (!initial_path)
+        initial_path = ".";
 
-    int cmdfd = -1;
-    if (initial_path) {
-      has_initial_path:
-        cmdfilename = memcheck(strdup(CMDFILE_FORMAT));
-        if ((cmdfd = mkostemp(cmdfilename, O_APPEND)) == -1)
-            err("Couldn't create tmpfile: '%s'", CMDFILE_FORMAT);
-        // Set up environment variables
-        char *curdepth = getenv("BB_DEPTH");
-        int depth = curdepth ? atoi(curdepth) : 0;
-        sprintf(depthstr, "%d", depth + 1);
-        setenv("BB_DEPTH", depthstr, 1);
-        setenv("BBCMD", cmdfilename, 1);
-    } else {
-        char *parent_bbcmd = getenv("BBCMD");
-        if (!parent_bbcmd || parent_bbcmd[0] == '\0') {
-            initial_path = ".";
-            goto has_initial_path;
-        }
-        cmdfd = open(parent_bbcmd, O_WRONLY | O_APPEND | O_CREAT, 0644);
-        if (cmdfd == -1) err("Couldn't open cmdfile: '%s'\n", parent_bbcmd);
-    }
+    cmdfilename = memcheck(strdup(CMDFILE_FORMAT));
+    int cmdfd;
+    if ((cmdfd = mkostemp(cmdfilename, O_APPEND)) == -1)
+        err("Couldn't create tmpfile: '%s'", CMDFILE_FORMAT);
+    // Set up environment variables
+    char *curdepth = getenv("BB_DEPTH");
+    int depth = curdepth ? atoi(curdepth) : 0;
+    sprintf(depthstr, "%d", depth + 1);
+    setenv("BB_DEPTH", depthstr, 1);
+    setenv("BBCMD", cmdfilename, 1);
 
     int i;
     for (i = 1; i < argc; i++) {
@@ -1419,7 +1440,7 @@ int main(int argc, char *argv[])
         if (strcmp(argv[i], "--help") == 0) {
           usage:
             printf("bb - an itty bitty console TUI file browser\n");
-            printf("Usage: bb [-h/--help] [-s] [-b] [-d] [-0] (+command)* [path]\n");
+            printf("Usage: bb [-h/--help] [-s] [-d] [-0] (+command)* [path]\n");
             return 0;
         }
         if (strcmp(argv[i], "--version") == 0) {
@@ -1442,8 +1463,6 @@ int main(int argc, char *argv[])
                               break;
                     case 's': print_selection = 1;
                               break;
-                    case 'b': print_bindings();
-                              return 0;
                 }
             }
             continue;

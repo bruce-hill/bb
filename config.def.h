@@ -105,14 +105,14 @@ typedef struct {
 #define ASKECHO(prompt, initial) "ask --prompt=\"" prompt "\" --query=\"" initial "\""
 #define ASK(var, prompt, initial) var "=\"$(" ASKECHO(prompt, initial) ")\""
 #else
-#define ASK(var, prompt, initial) "read -ep \"" prompt "\" " var " </dev/tty >/dev/tty"
-#define ASKECHO(prompt, initial) "read -ep \"" prompt "\" </dev/tty >/dev/tty && echo \"$REPLY\""
+#define ASK(var, prompt, initial) "read -p \"" prompt "\" " var " </dev/tty >/dev/tty"
+#define ASKECHO(prompt, initial) "read -p \"" prompt "\" REPLY </dev/tty >/dev/tty && echo \"$REPLY\""
 #endif
 
 // Macros for picking from a list of options:
 #ifndef PICK
 #define PICK(prompt, initial) " { awk '{print length, $1}' | sort -n | cut -d' ' -f2- | "\
-    "grep -i -m1 \"^$(" ASKECHO(prompt, initial) " | sed 's/./[^&]*[&]/g')\"; } "
+    "grep -i -m1 \"$(" ASKECHO(prompt, initial) " | sed 's;.;[^/&]*[&];g')\"; } "
 #endif
 
 // Display a spinning indicator if command takes longer than 10ms:
@@ -168,7 +168,7 @@ const char *startupcmds[] = {
  * after editing.
  *****************************************************************************/
 binding_t bindings[] = {
-    {{'?', KEY_F1}, "bb -b | $PAGER -rX", B("Help")" menu"},
+    {{'?', KEY_F1}, "+help", B("Help")" menu"},
     {{'q', 'Q'}, "+quit", B("Quit")},
     {{'j', KEY_ARROW_DOWN}, "+move:+1", B("Next")" file"},
     {{'k', KEY_ARROW_UP}, "+move:-1", B("Previous")" file"},
@@ -191,9 +191,9 @@ binding_t bindings[] = {
         "| "PICK("Find: ", "")")\"", B("Search")" for file"},
     {{'/'}, "bb \"+goto:$(if test $BBDOTFILES; then find -mindepth 1 -maxdepth 1; else find -mindepth 1 -maxdepth 1 ! -path '*/.*'; fi "
         "| "PICK("Pick: ", "")")\"", B("Pick")" file"},
-    {{'d', KEY_DELETE}, "rm -rfi \"$@\" && bb +refresh +deselect: \"$@\" ||" PAUSE, B("Delete")" files"},
-    {{'D'}, SPIN("rm -rf \"$@\"")" && bb +refresh +deselect: \"$@\" ||" PAUSE, B("Delete")" files (without confirmation)"},
-    {{'M'}, SPIN("mv -i \"$@\" . && bb +refresh +deselect: \"$@\" && for f; do bb \"+sel:$(basename \"$f\")\"; done")" || "PAUSE,
+    {{'d', KEY_DELETE}, "rm -rfi \"$@\" && bb +refresh && bb +deselect: \"$@\" ||" PAUSE, B("Delete")" files"},
+    {{'D'}, SPIN("rm -rf \"$@\"")" && bb +refresh && bb +deselect: \"$@\" ||" PAUSE, B("Delete")" files (without confirmation)"},
+    {{'M'}, SPIN("mv -i \"$@\" . && bb +refresh && bb +deselect: \"$@\" && for f; do bb \"+sel:$(basename \"$f\")\"; done")" || "PAUSE,
         B("Move")" files to current directory"},
     {{'c'}, SPIN("cp -ri \"$@\" .")" && bb +r || "PAUSE, B("Copy")" files to current directory"},
     {{'C'}, "for f; do "SPIN("cp -ri \"$f\" \"$f.copy\"")"; done && bb +r || "PAUSE,
@@ -205,7 +205,7 @@ binding_t bindings[] = {
         B("Pipe")" selected files to a command"},
     {{':'}, "sh -c \"$(" ASKECHO(":", "") ")\" -- \"$@\"; " PAUSE "; bb +refresh",
         B("Run")" a command"},
-    {{'>'}, "tput rmcup; $SHELL; bb +r", "Open a "B("shell")},
+    {{'>'}, "tput rmcup >/dev/tty; $SHELL; bb +r", "Open a "B("shell")},
     {{'m'}, "read -n1 -p 'Mark: ' m && bb \"+mark:$m;$PWD\"", "Set "B("mark")},
     {{'\''}, "read -n1 -p 'Jump: ' j && bb \"+jump:$j\"", B("Jump")" to mark"},
     {{'r'},
@@ -229,7 +229,7 @@ binding_t bindings[] = {
         "    fi;"
         "done", B("Regex rename")" files"},
     {{'S'},
-        ASK("patt", "Select pattern: ", "")" && bb +sel: $patt",
+        ASK("patt", "Select pattern: ", "")" && bb +sel: \"$patt\"",
         B("Select")" file(s) by pattern"},
     {{'J'}, "+spread:+1", B("Spread")" selection down"},
     {{'K'}, "+spread:-1", B("Spread")" selection up"},
@@ -244,8 +244,7 @@ binding_t bindings[] = {
     {{'g', KEY_HOME}, "+move:0", "Go to "B("first")" file"},
     {{'G', KEY_END}, "+move:100%n", "Go to "B("last")" file"},
     {{KEY_F5, KEY_CTRL_R}, "+refresh", B("Refresh")},
-    {{KEY_CTRL_A}, "if test $BBDOTFILES; then find -mindepth 1 -maxdepth 1 -print0; else find -mindepth 1 -maxdepth 1 ! -path '*/.*' -print0; fi "
-        "| xargs -0 bb +sel:",
+    {{KEY_CTRL_A}, "if test $BBDOTFILES; then find -mindepth 1 -maxdepth 1 -print0; else find -mindepth 1 -maxdepth 1 ! -path '*/.*' -print0; fi | bb +sel:",
         B("Select all")" files in current directory"},
     {{KEY_PGDN}, "+scroll:+100%", B("Page down")},
     {{KEY_PGUP}, "+scroll:-100%", B("Page up")},
