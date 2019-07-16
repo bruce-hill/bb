@@ -59,9 +59,9 @@ is set to 1. This is used in a few key bindings by default, including `n` and
 ### Fuzzy Finding
 To select from a list of options with a fuzzy finder in a binding, you can use
 the `PICK` macro. During the `make` process, you can use `PICKER=fzy`,
-`PICKER=fzf`, or `PICKER=ask` to choose which fuzzy finder program `bb` will
-use (and provide some default arguments). This is used in the `/` and `Ctrl-f`
-key bindings by default.
+`PICKER=fzf`, `PICKER=dmenu`, or `PICKER=ask` to choose which fuzzy finder
+program `bb` will use (and provide some default arguments). This is used in the
+`/` and `Ctrl-f` key bindings by default.
 
 ### API
 `bb` also exposes an API that allows shell scripts to modify `bb`'s internal
