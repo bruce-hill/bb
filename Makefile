@@ -31,6 +31,9 @@ ifneq (, $(PICKER))
 	ifeq ($(shell which $(PICKER)),$(shell which pick 2>/dev/null || echo '<none>'))
 		PICKER_FLAG=-D'PICK(prompt, initial)="pick -q \"" initial "\""'
 	endif
+	ifeq ($(shell which $(PICKER)),$(shell which dmenu 2>/dev/null || echo '<none>'))
+		PICKER_FLAG=-D'PICK(prompt, initial)="dmenu -p \"" prompt "\""'
+	endif
 endif
 CFLAGS += $(PICKER_FLAG)
 
