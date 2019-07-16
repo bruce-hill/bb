@@ -1362,7 +1362,7 @@ void bb_browse(bb_t *bb, const char *path)
  */
 void print_bindings(int fd)
 {
-    char buf[1024], buf2[1024];
+    char buf[1000], buf2[1024];
     char *kb = "Key Bindings";
     sprintf(buf, "\n\033[33;1;4m\033[%dG%s\033[0m\n\n", (termwidth-(int)strlen(kb))/2, kb);
     write(fd, buf, strlen(buf));
