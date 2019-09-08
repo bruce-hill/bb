@@ -236,9 +236,8 @@ binding_t bindings[] = {
     {{'K'}, "+spread:-1", B("Spread")" selection up"},
     {{'b'}, "bb \"+$("ASKECHO("bb +", "")")\"", "Run a "B("bb command")},
     {{'s'},
-        "sort=\"$(printf '%s\\n' n s m c a r p | "
-        PICK("Sort (n)ame (s)ize (m)odification (c)reation (a)ccess (r)andom (p)ermissions: ", "") ")\" "
-        "&& bb \"+sort:+$sort\" +refresh",
+        "read -n1 -p \"" B("Sort (n)ame (s)ize (m)odification (c)reation (a)ccess (r)andom (p)ermissions: ") "\" sort"
+        " && bb \"+sort:+$sort\" +refresh",
         B("Sort")" by..."},
     {{'#'}, "bb \"+col:$("ASKECHO("Set columns: ", "")")\"", "Set "B("columns")},
     {{'.'}, "+dotfiles", "Toggle "B("dotfiles")},
