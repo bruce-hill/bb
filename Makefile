@@ -54,10 +54,10 @@ $(NAME): $(NAME).c bterm.h config.h
 	
 install: $(NAME)
 	@prefix="$(PREFIX)"; \
-	if test -n $$prefix; then \
+	if test -z $$prefix; then \
 		read -p $$'\033[1mWhere do you want to install? (default: /usr/local) \033[0m' prefix; \
 	fi; \
-	if test -n $$prefix; then \
+	if test -z $$prefix; then \
 		prefix="/usr/local"; \
 	fi; \
 	mkdir -pv $$prefix/bin $$prefix/share/man/man1 \
@@ -66,10 +66,10 @@ install: $(NAME)
 
 uninstall:
 	@prefix="$(PREFIX)"; \
-	if test -n $$prefix; then \
+	if test -z $$prefix; then \
 		read -p $$'\033[1mWhere do you want to uninstall from? (default: /usr/local) \033[0m' prefix; \
 	fi; \
-	if test -n $$prefix; then \
+	if test -z $$prefix; then \
 		prefix="/usr/local"; \
 	fi; \
 	echo "Deleting..."; \
