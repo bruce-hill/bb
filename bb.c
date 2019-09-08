@@ -158,7 +158,7 @@ static const char *T_LEAVE_BBMODE = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUS
 static const char *T_LEAVE_BBMODE_PARTIAL = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR) T_ON(T_WRAP);
 
 static const char *bbcmdfn = "bb() {\n"
-"    if $# -eq 0; then cat >> $BBCMD; return; fi\n"
+"    if test $# -eq 0; then cat >> $BBCMD; return; fi\n"
 "    for arg; do\n"
 "        shift;\n"
 "        if echo \"$arg\" | grep \"^+[^:]*:$\" >/dev/null 2>/dev/null; then\n"
