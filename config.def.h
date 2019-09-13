@@ -34,8 +34,6 @@
         dotfiles:[01]             Whether dotfiles are visible
         goto:<filename>           Move the cursor to <filename> (changing directory if needed)
         interleave:[01]           Whether or not directories should be interleaved with files in the display
-        jump:<key>                Jump to the mark associated with <key>
-        mark:<key>[=<path>]       Associate <key> with <path> (or current dir, if blank)
         move:<num*>               Move the cursor a numeric amount
         quit                      Quit bb
         refresh                   Refresh the file listing
@@ -149,8 +147,11 @@ const column_t columns[128] = {
 // This is a list of commands that runs when `bb` launches:
 const char *startupcmds[] = {
     // Set some default marks:
-    "+mark:0", "+mark:~=~", "+mark:h=~", "+mark:/=/", "+mark:c=~/.config",
-    "+mark:l=~/.local", "+mark:s=<selection>",
+    "mkdir -p ~/.config/bb/marks",
+    "ln -sfT ~ ~/.config/bb/marks/home",
+    "ln -sfT / ~/.config/bb/marks/root",
+    "ln -sfT ~/.config ~/.config/bb/marks/config",
+    "ln -sfT ~/.local ~/.config/bb/marks/local",
     // Default column and sorting options:
     "+sort:+n", "+col:*smpn", "+..",
     NULL, // NULL-terminated array
@@ -207,8 +208,12 @@ binding_t bindings[] = {
     {{':'}, "sh -c \"$(" ASKECHO(":", "") ")\" -- \"$@\"; " PAUSE "; bb +refresh",
         B("Run")" a command"},
     {{'>'}, "tput rmcup >/dev/tty; $SHELL; bb +r", "Open a "B("shell")},
-    {{'m'}, "read -n1 -p 'Mark: ' m && bb \"+mark:$m;$PWD\"", "Set "B("mark")},
-    {{'\''}, "read -n1 -p 'Jump: ' j && bb \"+jump:$j\"", B("Jump")" to mark"},
+    {{'\''}, "bb +cd:\"$(readlink -f ~/.config/bb/marks/\"$(ls ~/.config/bb/marks | " PICK("Jump to: ", "") ")\")\"",
+        B("Jump")" to a directory"},
+    {{'-'}, "test $BBPREVPATH && bb +cd:\"$BBPREVPATH\"", "Go to "B("previous")" directory"},
+    {{';'}, "bb +cd:'<selection>'", "Go to "B("previous")" directory"},
+    {{'0'}, "bb +cd:\"$BBINITIALPATH\"", "Go to "B("initial")" directory"},
+    {{'m'}, "ln -s \"$PWD\" ~/.config/bb/marks/\"$("ASKECHO("Mark: ", "")")\"", B("Mark")" this directory"},
     {{'r'},
         "bb +refresh; "
         "for f; do "

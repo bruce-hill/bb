@@ -101,10 +101,10 @@ typedef struct bb_s {
     entry_t **files;
     entry_t *firstselected;
     char path[PATH_MAX];
+    char prev_path[PATH_MAX];
     int nfiles;
     int scroll, cursor;
 
-    char *marks[128]; // Mapping from key to directory
     char sort[MAX_SORT+1];
     char columns[MAX_COLS+1];
     unsigned int dirty : 1;
@@ -856,11 +856,9 @@ int cd_to(bb_t *bb, const char *path)
     strcpy(prev, bb->path);
     if (strcmp(path, "<selection>") == 0) {
         strcpy(pbuf, path);
-        if (bb->marks['-']) free(bb->marks['-']);
-        bb->marks['-'] = memcheck(strdup(bb->path));
     } else if (strcmp(path, "..") == 0 && strcmp(bb->path, "<selection>") == 0) {
-        if (!bb->marks['-']) return -1;
-        strcpy(pbuf, bb->marks['-']);
+        if (!bb->prev_path[0]) return -1;
+        strcpy(pbuf, bb->prev_path);
         if (chdir(pbuf)) return -1;
     } else {
         normalize_path(bb->path, path, pbuf, 1);
@@ -870,8 +868,8 @@ int cd_to(bb_t *bb, const char *path)
     }
 
     if (strcmp(bb->path, "<selection>") != 0) {
-        if (bb->marks['-']) free(bb->marks['-']);
-        bb->marks['-'] = memcheck(strdup(bb->path));
+        strcpy(bb->prev_path, prev);
+        setenv("BBPREVPATH", bb->prev_path, 1);
     }
 
     strcpy(bb->path, pbuf);
@@ -1083,52 +1081,24 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
             sort_files(bb);
             return BB_OK;
         }
-        case 'j': { // +jump:
+        case 'm': { // +move:
+            int oldcur, isdelta, n;
+          move:
             if (!value) return BB_INVALID;
-            bb->dirty = 1;
-            char key = value[0];
-            if (bb->marks[(int)key]) {
-                value = bb->marks[(int)key];
-                if (!value) return BB_INVALID;
-                if (cd_to(bb, value)) return BB_INVALID;
-                return BB_OK;
+            if (!bb->nfiles) return BB_INVALID;
+            oldcur = bb->cursor;
+            isdelta = value[0] == '-' || value[0] == '+';
+            n = (int)strtol(value, &value, 10);
+            if (*value == '%')
+                n = (n * (value[1] == 'n' ? bb->nfiles : termheight)) / 100;
+            if (isdelta) set_cursor(bb, bb->cursor + n);
+            else set_cursor(bb, n);
+            if (cmd[0] == 's') { // +spread:
+                int sel = IS_SELECTED(bb->files[oldcur]);
+                for (int i = bb->cursor; i != oldcur; i += (oldcur > i ? 1 : -1))
+                    set_selected(bb, bb->files[i], sel);
             }
-            return BB_INVALID;
-        }
-        case 'm': { // +move:, +mark:
-            switch (cmd[1]) {
-                case 'a': { // +mark:
-                    if (!value) return BB_INVALID;
-                    char key = value[0];
-                    if (key < 0) return BB_INVALID;
-                    value = strchr(value, '=');
-                    if (!value) value = bb->path;
-                    else ++value;
-                    if (bb->marks[(int)key])
-                        free(bb->marks[(int)key]);
-                    bb->marks[(int)key] = memcheck(strdup(value));
-                    return BB_OK;
-                }
-                default: { // +move:
-                    int oldcur, isdelta, n;
-                  move:
-                    if (!value) return BB_INVALID;
-                    if (!bb->nfiles) return BB_INVALID;
-                    oldcur = bb->cursor;
-                    isdelta = value[0] == '-' || value[0] == '+';
-                    n = (int)strtol(value, &value, 10);
-                    if (*value == '%')
-                        n = (n * (value[1] == 'n' ? bb->nfiles : termheight)) / 100;
-                    if (isdelta) set_cursor(bb, bb->cursor + n);
-                    else set_cursor(bb, n);
-                    if (cmd[0] == 's') { // +spread:
-                        int sel = IS_SELECTED(bb->files[oldcur]);
-                        for (int i = bb->cursor; i != oldcur; i += (oldcur > i ? 1 : -1))
-                            set_selected(bb, bb->files[i], sel);
-                    }
-                    return BB_OK;
-                }
-            }
+            return BB_OK;
         }
         case 'q': // +quit
             bb->should_quit = 1;
@@ -1189,7 +1159,6 @@ void bb_browse(bb_t *bb, const char *path)
     int lastwidth = termwidth, lastheight = termheight;
     int check_cmds = 1;
 
-    bb->marks['-'] = memcheck(strdup(path));
     cd_to(bb, path);
     bb->scroll = 0;
     bb->cursor = 0;
@@ -1505,6 +1474,7 @@ int main(int argc, char *argv[])
     strcat(curdir, "/");
     normalize_path(curdir, initial_path, path, 1);
     if (chdir(path)) err("Not a valid path: %s\n", path);
+    setenv("BBINITIALPATH", path, 1);
 
     bb_t *bb = memcheck(calloc(1, sizeof(bb_t)));
     bb->columns[0] = COL_NAME;
@@ -1539,8 +1509,6 @@ int main(int argc, char *argv[])
         try_free_entry(e);
     }
     bb->firstselected = NULL;
-    for (int m = 0; m < 128; m++)
-        if (bb->marks[m]) free(bb->marks[m]);
     free(bb);
     if (cmdfilename) free(cmdfilename);
 
