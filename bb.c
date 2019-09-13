@@ -975,24 +975,6 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
             populate_files(bb, 1);
             return BB_OK;
         }
-        case 'b': { // +bind:
-            if (!value) return BB_INVALID;
-            char *script = strchr(value, ':');
-            if (!script) return BB_INVALID;
-            ++script;
-            int i;
-            for (i = 0; bindings[i].keys[0] > 0; i++) {
-                for (int j = 0; bindings[i].keys[j]; j++) {
-                    if (bindings[i].keys[j] == *value) {
-                        bindings[i].script = memcheck(strdup(script));
-                        return BB_OK;
-                    }
-                }
-            }
-            bindings[i].keys[0] = *value;
-            bindings[i].script = memcheck(strdup(script));
-            return BB_OK;
-        }
         case 'c': { // +cd:, +columns:
             switch (cmd[1]) {
                 case 'd': { // +cd:

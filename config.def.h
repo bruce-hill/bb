@@ -27,7 +27,6 @@
 
         .:[01]                    Whether to show "." in each directory
         ..:[01]                   Whether to show ".." in each directory
-        bind:key:script           Add or modify a key binding
         cd:<path>                 Navigate to <path>
         columns:<columns>         Change which columns are visible, and in what order
         deselect:<filename>       Deselect <filename>
