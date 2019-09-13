@@ -208,7 +208,7 @@ binding_t bindings[] = {
     {{':'}, "sh -c \"$(" ASKECHO(":", "") ")\" -- \"$@\"; " PAUSE "; bb +refresh",
         B("Run")" a command"},
     {{'>'}, "tput rmcup >/dev/tty; $SHELL; bb +r", "Open a "B("shell")},
-    {{'\''}, "bb +cd:\"$(readlink -f ~/.config/bb/marks/\"$(ls ~/.config/bb/marks | " PICK("Jump to: ", "") ")\")\"",
+    {{'\''}, "mark=\"$(ls ~/.config/bb/marks | " PICK("Jump to: ", "") ")\" && bb +cd:\"$(readlink -f ~/.config/bb/marks/\"$mark\")\"",
         B("Jump")" to a directory"},
     {{'-'}, "test $BBPREVPATH && bb +cd:\"$BBPREVPATH\"", "Go to "B("previous")" directory"},
     {{';'}, "bb +cd:'<selection>'", "Go to "B("previous")" directory"},
