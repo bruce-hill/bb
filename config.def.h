@@ -102,8 +102,8 @@ typedef struct {
 #define ASKECHO(prompt, initial) "ask --prompt=\"" prompt "\" --query=\"" initial "\""
 #define ASK(var, prompt, initial) var "=\"$(" ASKECHO(prompt, initial) ")\""
 #else
-#define ASK(var, prompt, initial) "read -p \"" prompt "\" " var " </dev/tty >/dev/tty"
-#define ASKECHO(prompt, initial) "read -p \"" prompt "\" REPLY </dev/tty >/dev/tty && echo \"$REPLY\""
+#define ASK(var, prompt, initial) "read -p \"" B(prompt) "\" " var " </dev/tty >/dev/tty"
+#define ASKECHO(prompt, initial) "read -p \"" B(prompt) "\" REPLY </dev/tty >/dev/tty && echo \"$REPLY\""
 #endif
 
 // Macros for picking from a list of options:
@@ -123,6 +123,11 @@ typedef struct {
     "    spinner=\"$(echo $spinner | sed 's/\\(.\\)\\(.*\\)/\\2\\1/')\"; "\
     "    sleep 0.1; "\
     "done"
+#endif
+
+#ifndef CONFIRM
+#define CONFIRM(action, files) " { { echo \""B(action)"\"; printf '%s\\n' \""files"\"; } | more; " \
+    ASK("REPLY", "Is that okay? [y/N] ", "")"; test \"$REPLY\" = 'y'; } "
 #endif
 
 
@@ -147,10 +152,11 @@ const column_t columns[128] = {
 const char *startupcmds[] = {
     // Set some default marks:
     "mkdir -p ~/.config/bb/marks",
-    "ln -sfT ~ ~/.config/bb/marks/home",
-    "ln -sfT / ~/.config/bb/marks/root",
-    "ln -sfT ~/.config ~/.config/bb/marks/config",
-    "ln -sfT ~/.local ~/.config/bb/marks/local",
+    "ln -sT ~/.config/bb/marks ~/.config/bb/marks/marks 2>/dev/null",
+    "ln -sT ~ ~/.config/bb/marks/home 2>/dev/null",
+    "ln -sT / ~/.config/bb/marks/root 2>/dev/null",
+    "ln -sT ~/.config ~/.config/bb/marks/config 2>/dev/null",
+    "ln -sT ~/.local ~/.config/bb/marks/local 2>/dev/null",
     // Default column and sorting options:
     "+sort:+n", "+col:*smpn", "+..",
     NULL, // NULL-terminated array
@@ -191,27 +197,35 @@ binding_t bindings[] = {
         "| "PICK("Find: ", "")")\"", B("Search")" for file"},
     {{'/'}, "bb \"+goto:$(if test $BBDOTFILES; then find -mindepth 1 -maxdepth 1; else find -mindepth 1 -maxdepth 1 ! -path '*/.*'; fi "
         "| "PICK("Pick: ", "")")\"", B("Pick")" file"},
-    {{'d', KEY_DELETE}, "rm -rfi \"$@\" && bb +refresh && bb +deselect: \"$@\" ||" PAUSE, B("Delete")" files"},
-    {{'D'}, SPIN("rm -rf \"$@\"")" && bb +refresh && bb +deselect: \"$@\" ||" PAUSE, B("Delete")" files (without confirmation)"},
-    {{'M'}, SPIN("mv -i \"$@\" . && bb +refresh && bb +deselect: \"$@\" && for f; do bb \"+sel:$(basename \"$f\")\"; done")" || "PAUSE,
+    {{'d', KEY_DELETE}, CONFIRM("The following files will be deleted:", "$@") " && rm -rf \"$@\" && bb +refresh && bb +deselect: \"$@\"",
+        B("Delete")" files"},
+    {{'M'}, CONFIRM("The following files will be moved here:", "$@") " && " SPIN("mv -i \"$@\" . && bb +refresh && bb +deselect: \"$@\" && for f; do bb \"+sel:$(basename \"$f\")\"; done")" || "PAUSE,
         B("Move")" files to current directory"},
-    {{'c'}, "if test $BBSELECTED; then " SPIN("cp -ri \"$@\" .")" && bb +r || "PAUSE "; fi",
-        B("Copy")" files to current directory"},
-    {{'C'}, "for f; do "SPIN("cp -ri \"$f\" \"$f.copy\"")"; done && bb +r || "PAUSE,
-        B("Clone")" files"},
+    {{'c'}, CONFIRM("The following files will be copied here:", "$@")
+        " && for f; do if test \"./$(basename \"$f\")\" -ef \"$f\"; then "
+        SPIN("cp -ri \"$f\" \"$(basename \"$f\").copy\"")"; "
+        "else "SPIN("cp -ri \"$f\" .")"; fi; done; bb +refresh",
+        B("Copy")" the selected files here"},
     {{'n'}, ASK("name", "New file: ", "")" && touch \"$name\" && bb \"+goto:$name\" +r || "PAUSE, B("New file")},
     {{'N'}, ASK("name", "New dir: ", "")" && mkdir \"$name\" && bb \"+goto:$name\" +r || "PAUSE, B("New directory")},
     {{KEY_CTRL_G}, "bb \"+cd:$(" ASKECHO("Go to directory: ", "") ")\"", B("Go to")" directory"},
+    {{KEY_CTRL_S}, ASK("savename", "Save selection as: ", "") " && printf '%s\\0' \"$@\" > ~/.config/bb/\"$savename\"",
+        B("Save")" the selection"},
+    {{KEY_CTRL_O}, "loadpath=\"$(find ~/.config/bb -maxdepth 1 -type f | " PICK("Load selection: ", "") ")\" "
+        "&& test -e \"$loadpath\" && bb +deselect:'*' "
+        "&& while IFS= read -r -d $'\\0'; do bb +select:\"$REPLY\"; done < \"$loadpath\"",
+        B("Open")" a selection"},
     {{'|'}, ASK("cmd", "|", "") " && printf '%s\\n' \"$@\" | sh -c \"$cmd\"; " PAUSE "; bb +r",
         B("Pipe")" selected files to a command"},
     {{':'}, "sh -c \"$(" ASKECHO(":", "") ")\" -- \"$@\"; " PAUSE "; bb +refresh",
         B("Run")" a command"},
     {{'>'}, "tput rmcup >/dev/tty; $SHELL; bb +r", "Open a "B("shell")},
-    {{'\''}, "mark=\"$(ls ~/.config/bb/marks | " PICK("Jump to: ", "") ")\" && bb +cd:\"$(readlink -f ~/.config/bb/marks/\"$mark\")\"",
+    {{'\''}, "mark=\"$(ls ~/.config/bb/marks | " PICK("Jump to: ", "") ")\" "
+        "&& bb +cd:\"$(readlink -f ~/.config/bb/marks/\"$mark\")\"",
         B("Jump")" to a directory"},
     {{'-'}, "test $BBPREVPATH && bb +cd:\"$BBPREVPATH\"", "Go to "B("previous")" directory"},
-    {{';'}, "bb +cd:'<selection>'", "Go to "B("previous")" directory"},
-    {{'0'}, "bb +cd:\"$BBINITIALPATH\"", "Go to "B("initial")" directory"},
+    {{';'}, "bb +cd:'<selection>'", "Show "B("selected files")},
+    {{'0'}, "bb +cd:\"$BBINITIALPATH\"", "Go to "B("initial directory")},
     {{'m'}, "ln -s \"$PWD\" ~/.config/bb/marks/\"$("ASKECHO("Mark: ", "")")\"", B("Mark")" this directory"},
     {{'r'},
         "bb +refresh; "
@@ -256,9 +270,6 @@ binding_t bindings[] = {
     {{KEY_CTRL_U}, "+scroll:-50%", B("Half page up")},
     {{KEY_MOUSE_WHEEL_DOWN}, "+scroll:+3", B("Scroll down")},
     {{KEY_MOUSE_WHEEL_UP}, "+scroll:-3", B("Scroll up")},
-    // Leave some space for a few (16) runtime-defined key bindings:
-    {{0}}, {{0}}, {{0}}, {{0}}, {{0}}, {{0}}, {{0}}, {{0}},
-    {{0}}, {{0}}, {{0}}, {{0}}, {{0}}, {{0}}, {{0}}, {{0}},
     {{-1}}
     // Array must be -1-terminated
 };
