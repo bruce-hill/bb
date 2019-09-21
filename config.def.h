@@ -228,7 +228,8 @@ binding_t bindings[] = {
     {{'\''}, "mark=\"$(ls ~/.config/bb/marks | " PICK("Jump to: ", "") ")\" "
         "&& bb +cd:\"$(readlink -f ~/.config/bb/marks/\"$mark\")\"",
         B("Jump")" to a directory"},
-    {{'-'}, "test $BBPREVPATH && bb +cd:\"$BBPREVPATH\"", "Go to "B("previous")" directory"},
+    {{'-', KEY_BACKSPACE, KEY_BACKSPACE2},
+        "test $BBPREVPATH && bb +cd:\"$BBPREVPATH\"", "Go to "B("previous")" directory"},
     {{';'}, "bb +cd:'<selection>'", "Show "B("selected files")},
     {{'0'}, "bb +cd:\"$BBINITIALPATH\"", "Go to "B("initial directory")},
     {{'m'}, "ln -s \"$PWD\" ~/.config/bb/marks/\"$("ASKECHO("Mark: ", "")")\"", B("Mark")" this directory"},
