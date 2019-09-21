@@ -194,6 +194,7 @@ binding_t bindings[] = {
     {{' ','v','V'}, "+toggle", B("Toggle")" selection"},
     {{KEY_ESC}, "bb +deselect: \"$@\"", B("Clear")" selection"},
     {{'e'}, "$EDITOR \"$@\" || "PAUSE, B("Edit")" file in $EDITOR"},
+    {{'p'}, "$PAGER \"$@\"", B("Page")" through a file in $PAGER"},
     {{KEY_CTRL_F}, "bb \"+goto:$(if test $BBDOTFILES; then find -mindepth 1; else find -mindepth 1 ! -path '*/.*'; fi "
         "| "PICK("Find: ", "")")\"", B("Search")" for file"},
     {{'/'}, "bb \"+goto:$(if test $BBDOTFILES; then find -mindepth 1 -maxdepth 1; else find -mindepth 1 -maxdepth 1 ! -path '*/.*'; fi "
