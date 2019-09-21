@@ -123,7 +123,7 @@ static int cd_to(bb_t *bb, const char *path);
 static const char* color_of(mode_t mode);
 static void cleanup(void);
 static void cleanup_and_exit(int sig);
-static void close_term(void);
+static void restore_term(struct termios *term);
 #ifdef __APPLE__
 static int compare_files(void *v, const void *v1, const void *v2);
 #else
@@ -172,6 +172,26 @@ static const char *bbcmdfn = "bb() {\n"
 
 // Global variables
 static struct termios orig_termios, bb_termios;
+static struct termios default_termios = {
+    .c_iflag = ICRNL,
+    .c_oflag = OPOST | ONLCR | NL0 | CR0 | TAB0 | BS0 | VT0 | FF0,
+    .c_lflag = ISIG | ICANON | IEXTEN | ECHO | ECHOE | ECHOK | ECHOCTL | ECHOKE,
+    .c_cflag = CS8 | CREAD,
+    .c_cc[VINTR] = '',
+    .c_cc[VQUIT] = '',
+    .c_cc[VERASE] = 127,
+    .c_cc[VKILL] = '',
+    .c_cc[VEOF] = '',
+    .c_cc[VSTART] = '',
+    .c_cc[VSTOP] = '',
+    .c_cc[VSUSP] = '',
+    .c_cc[VREPRINT] = '',
+    .c_cc[VWERASE] = '',
+    .c_cc[VLNEXT] = '',
+    .c_cc[VDISCARD] = '',
+    .c_cc[VMIN] = 1,
+    .c_cc[VTIME] = 0,
+};
 static FILE *tty_out = NULL, *tty_in = NULL;
 static int termwidth, termheight;
 static int mouse_x, mouse_y;
@@ -219,10 +239,10 @@ void init_term(void)
 /*
  * Close the /dev/tty terminals and restore some of the attributes.
  */
-void close_term(void)
+void restore_term(struct termios *term)
 {
     if (tty_out) {
-        tcsetattr(fileno(tty_out), TCSAFLUSH, &orig_termios);
+        tcsetattr(fileno(tty_out), TCSAFLUSH, term);
         fputs(T_LEAVE_BBMODE_PARTIAL, tty_out);
         fflush(tty_out);
         fclose(tty_out);
@@ -259,7 +279,7 @@ void cleanup(void)
     }
     if (tty_out)
         fputs(T_OFF(T_ALT_SCREEN) T_ON(T_SHOW_CURSOR), tty_out);
-    close_term();
+    restore_term(&orig_termios);
 }
 
 /*
@@ -1040,7 +1060,7 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
             return BB_OK;
         }
         case 'h': { // +help
-            close_term();
+            restore_term(&default_termios);
             int fds[2];
             pipe(fds);
             pid_t child = fork();
@@ -1253,7 +1273,7 @@ void bb_browse(bb_t *bb, const char *path)
 
         case KEY_CTRL_Z:
             fputs(T_OFF(T_ALT_SCREEN), tty_out);
-            close_term();
+            restore_term(&orig_termios);
             raise(SIGTSTP);
             init_term();
             bb->dirty = 1;
@@ -1293,7 +1313,7 @@ void bb_browse(bb_t *bb, const char *path)
             } else {
                 move_cursor(tty_out, 0, termheight-1);
                 fputs(T_ON(T_SHOW_CURSOR), tty_out);
-                close_term();
+                restore_term(&default_termios);
                 run_script(bb, binding->script);
                 init_term();
                 check_cmds = 1;
