@@ -114,7 +114,7 @@ typedef struct {
 
 // Display a spinning indicator if command takes longer than 10ms:
 #ifndef SPIN
-#define SPIN(cmd) "{ " cmd "; } & " \
+#define SPIN(cmd) "{ { " cmd "; } & " \
     "pid=$!; "\
     "spinner='-\\|/'; "\
     "sleep 0.01; "\
@@ -122,7 +122,8 @@ typedef struct {
     "    printf '%c\\033[D' \"$spinner\" >/dev/tty; "\
     "    spinner=\"$(echo $spinner | sed 's/\\(.\\)\\(.*\\)/\\2\\1/')\"; "\
     "    sleep 0.1; "\
-    "done"
+    "done; "\
+    "wait $pid; }"
 #endif
 
 #ifndef CONFIRM
@@ -197,11 +198,14 @@ binding_t bindings[] = {
         "| "PICK("Find: ", "")")\"", B("Search")" for file"},
     {{'/'}, "bb \"+goto:$(if test $BBDOTFILES; then find -mindepth 1 -maxdepth 1; else find -mindepth 1 -maxdepth 1 ! -path '*/.*'; fi "
         "| "PICK("Pick: ", "")")\"", B("Pick")" file"},
-    {{'d', KEY_DELETE}, CONFIRM("The following files will be deleted:", "$@") " && rm -rf \"$@\" && bb +refresh && bb +deselect: \"$@\"",
+    {{'d', KEY_DELETE}, CONFIRM("The following will be deleted:", "$@") " && rm -rf \"$@\" && bb +refresh && bb +deselect: \"$@\"",
         B("Delete")" files"},
-    {{'M'}, CONFIRM("The following files will be moved here:", "$@") " && " SPIN("mv -i \"$@\" . && bb +refresh && bb +deselect: \"$@\" && for f; do bb \"+sel:$(basename \"$f\")\"; done")" || "PAUSE,
+    {{'M'}, "test $BBSELECTED || exit; "
+        "if " CONFIRM("The following will be moved here:", "$@") "; then "
+        SPIN("mv -i \"$@\" . && bb +refresh && bb +deselect: \"$@\" && for f; do bb \"+sel:$(basename \"$f\")\"; done")" || "PAUSE
+        "; fi",
         B("Move")" files to current directory"},
-    {{'c'}, CONFIRM("The following files will be copied here:", "$@")
+    {{'c'}, CONFIRM("The following will be copied here:", "$@")
         " && for f; do if test \"./$(basename \"$f\")\" -ef \"$f\"; then "
         SPIN("cp -ri \"$f\" \"$(basename \"$f\").copy\"")"; "
         "else "SPIN("cp -ri \"$f\" .")"; fi; done; bb +refresh",
