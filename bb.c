@@ -1044,9 +1044,11 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
             int fds[2];
             pipe(fds);
             pid_t child = fork();
+            void (*old_handler)(int) = signal(SIGINT, SIG_IGN);
             if (child != 0) {
                 close(fds[0]);
                 print_bindings(fds[1]);
+                close(fds[1]);
                 waitpid(child, NULL, 0);
             } else {
                 close(fds[1]);
@@ -1055,6 +1057,7 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
                 execvp("sh", args);
             }
             init_term();
+            signal(SIGINT, old_handler);
             bb->dirty = 1;
             return BB_OK;
         }
