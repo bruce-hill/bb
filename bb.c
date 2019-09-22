@@ -388,15 +388,20 @@ const char* color_of(mode_t mode)
  */
 void set_sort(bb_t *bb, const char *sort)
 {
-    for (const char *s = sort; s[0] && s[1]; s += 2) {
+    char sortbuf[strlen(sort)+1];
+    strcpy(sortbuf, sort);
+    for (char *s = sortbuf; s[0] && s[1]; s += 2) {
         char *found;
         if ((found = strchr(bb->sort, s[1]))) {
+            if (*s == '~')
+                *s = found[-1] == '+' ? '-' : '+';
             memmove(found-1, found+1, strlen(found+1)+1);
-        }
+        } else if (*s == '~')
+            *s = '+';
     }
     size_t len = MIN(MAX_SORT, strlen(sort));
     memmove(bb->sort + len, bb->sort, MAX_SORT+1 - len);
-    memmove(bb->sort, sort, len);
+    memmove(bb->sort, sortbuf, len);
 }
 
 /*
@@ -588,7 +593,7 @@ void render(bb_t *bb)
         move_cursor(tty_out, MAX(0, x), termheight - 1);
         fprintf(tty_out, "\033[41;30m %d Selected \033[0m", n);
     } else {
-        move_cursor(tty_out, MAX(0, termwidth/2), termheight - 1);
+        move_cursor(tty_out, termwidth/2, termheight - 1);
         fputs("\033[0m\033[K", tty_out);
     }
 
