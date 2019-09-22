@@ -1273,7 +1273,7 @@ void bb_browse(bb_t *bb, const char *path)
             cleanup_and_exit(SIGINT);
 
         case KEY_CTRL_Z:
-            fputs(T_OFF(T_ALT_SCREEN), tty_out);
+            fputs(T_LEAVE_BBMODE, tty_out);
             restore_term(&orig_termios);
             raise(SIGTSTP);
             init_term();
