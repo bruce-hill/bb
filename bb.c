@@ -24,7 +24,7 @@
 #include "config.h"
 #include "bterm.h"
 
-#define BB_VERSION "0.15.0"
+#define BB_VERSION "0.15.1"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
