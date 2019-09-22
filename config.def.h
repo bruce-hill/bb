@@ -251,7 +251,7 @@ binding_t bindings[] = {
     {{'p'}, "$PAGER \"$@\"", B("Page")" through a file in $PAGER"},
     {{'|'}, ASK("cmd", "|", "") " && printf '%s\\n' \"$@\" | sh -c \"$BBSHELLFUNC$cmd\"; " PAUSE "; bb +r",
         B("Pipe")" selected files to a command"},
-    {{':'}, ASK("cmd", ":", "")" && sh -c \"$BBSHELLFUNC; $cmd\" -- \"$@\"; " PAUSE "; bb +refresh",
+    {{':'}, ASK("cmd", ":", "")" && sh -c \"$BBSHELLFUNC$cmd\" -- \"$@\"; " PAUSE "; bb +refresh",
         B("Run")" a command"},
     {{'>'}, "tput rmcup >/dev/tty; $SHELL; bb +r", "Open a "B("shell")},
     {{'r', KEY_F2},
