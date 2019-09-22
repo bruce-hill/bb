@@ -241,7 +241,7 @@ binding_t bindings[] = {
     {{'e'}, "$EDITOR \"$@\" || "PAUSE, B("Edit")" file in $EDITOR"},
     {{'d', KEY_DELETE}, CONFIRM("The following will be deleted:", "$@") " && rm -rf \"$@\" && bb +refresh && bb +deselect: \"$@\"",
         B("Delete")" files"},
-    {{'m'}, "test $BBSELECTED || exit; "
+    {{KEY_CTRL_V}, "test $BBSELECTED || exit; "
         "if " CONFIRM("The following will be moved here:", "$@") "; then "
         SPIN("mv -i \"$@\" . && bb +refresh && bb +deselect: \"$@\" && for f; do bb \"+sel:$(basename \"$f\")\"; done")" || "PAUSE
         "; fi",
@@ -251,8 +251,10 @@ binding_t bindings[] = {
         SPIN("cp -ri \"$f\" \"$(basename \"$f\").copy\"")"; "
         "else "SPIN("cp -ri \"$f\" .")"; fi; done; bb +refresh",
         B("Copy")" the selected files here"},
-    {{'n'}, ASK("name", "New file: ", "")" && touch \"$name\" && bb \"+goto:$name\" +r || "PAUSE, B("New file")},
-    {{'N'}, ASK("name", "New dir: ", "")" && mkdir \"$name\" && bb \"+goto:$name\" +r || "PAUSE, B("New directory")},
+    {{KEY_CTRL_N}, "type=\"$(printf '%s\\n' File Directory | "PICK("Create new: ", "")")\" "
+        "&& "ASK("name", "New $type: ", "")" && "
+        "{ if test $type = File; then touch \"$name\"; else mkdir \"$name\"; fi "
+        "&& bb \"+goto:$name\" +r || "PAUSE"; }", B("New")" file/directory"},
     {{'p'}, "$PAGER \"$@\"", B("Page")" through a file in $PAGER"},
     {{'|'}, ASK("cmd", "|", "") " && printf '%s\\n' \"$@\" | sh -c \"$BBSHELLFUNC$cmd\"; " PAUSE "; bb +r",
         B("Pipe")" selected files to a command"},
