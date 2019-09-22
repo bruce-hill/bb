@@ -32,13 +32,20 @@ ifneq (, $(PICKER))
 		PICKER_FLAG=-D'PICK(prompt, initial)="pick -q \"" initial "\""'
 	endif
 	ifeq ($(shell which $(PICKER)),$(shell which dmenu 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK(prompt, initial)="dmenu -p \"" prompt "\""'
+		PICKER_FLAG=-D'PICK(prompt, initial)="dmenu -i -l 10 -p \"" prompt "\""'
 	endif
 endif
 CFLAGS += $(PICKER_FLAG)
 
-ifneq (, $(USE_ASK))
-	CFLAGS += -D'USE_ASK=1'
+ifneq (, $(ASKER))
+	ifeq ($(shell which $(ASKER)),$(shell which ask 2>/dev/null || echo '<none>'))
+		CFLAGS += -D'ASKECHO(prompt, initial)="ask --prompt=\"" prompt "\" --query=\"" initial "\""'
+		CFLAGS += -D'ASK(var, prompt, initial)=var "=\"$$(ask --prompt=\"" prompt "\" --query=\"" initial "\")\""'
+	endif
+	ifeq ($(shell which $(ASKER)),$(shell which dmenu 2>/dev/null || echo '<none>'))
+		CFLAGS += -D'ASKECHO(prompt, initial)="{ printf \"" initial "\" | dmenu -p \"" prompt "\"; }"'
+		CFLAGS += -D'ASK(var, prompt, initial)=var "=\"$$(printf \"" initial "\" | dmenu -p \"" prompt "\")\""'
+	endif
 endif
 
 all: $(NAME)
