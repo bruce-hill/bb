@@ -131,6 +131,8 @@ typedef struct {
     ASK("REPLY", "Is that okay? [y/N] ", "")"; test \"$REPLY\" = 'y'; } "
 #endif
 
+#define SECTION(name) {{0}, NULL, name}
+
 
 // These commands will run at startup (before command-line arguments)
 extern const char *startupcmds[];
@@ -175,12 +177,57 @@ const char *startupcmds[] = {
  * after editing.
  *****************************************************************************/
 binding_t bindings[] = {
+    SECTION("Key Bindings"),
     {{'?', KEY_F1}, "+help", B("Help")" menu"},
     {{'q', 'Q'}, "+quit", B("Quit")},
+
+    SECTION("Navigation"),
     {{'j', KEY_ARROW_DOWN}, "+move:+1", B("Next")" file"},
     {{'k', KEY_ARROW_UP}, "+move:-1", B("Previous")" file"},
     {{'h', KEY_ARROW_LEFT}, "+cd:..", B("Parent")" directory"},
     {{'l', KEY_ARROW_RIGHT}, "test -d \"$BBCURSOR\" && bb \"+cd:$BBCURSOR\"", B("Enter")" a directory"},
+    {{KEY_CTRL_F}, "bb \"+goto:$(if test $BBDOTFILES; then find -mindepth 1; else find -mindepth 1 ! -path '*/.*'; fi "
+        "| "PICK("Find: ", "")")\"", B("Search")" for file"},
+    {{'/'}, "bb \"+goto:$(if test $BBDOTFILES; then find -mindepth 1 -maxdepth 1; else find -mindepth 1 -maxdepth 1 ! -path '*/.*'; fi "
+        "| "PICK("Pick: ", "")")\"", B("Pick")" file"},
+    {{KEY_CTRL_G}, "bb \"+cd:$(" ASKECHO("Go to directory: ", "") ")\"", B("Go to")" directory"},
+    {{'m'}, "ln -s \"$PWD\" ~/.config/bb/marks/\"$("ASKECHO("Mark: ", "")")\"", B("Mark")" this directory"},
+    {{'\''}, "mark=\"$(ls ~/.config/bb/marks | " PICK("Jump to: ", "") ")\" "
+        "&& bb +cd:\"$(readlink -f ~/.config/bb/marks/\"$mark\")\"",
+        "Go to a "B("marked")" directory"},
+    {{'-', KEY_BACKSPACE, KEY_BACKSPACE2},
+        "test $BBPREVPATH && bb +cd:\"$BBPREVPATH\"", "Go to "B("previous")" directory"},
+    {{';'}, "bb +cd:'<selection>'", "Show "B("selected files")},
+    {{'0'}, "bb +cd:\"$BBINITIALPATH\"", "Go to "B("initial directory")},
+    {{'g', KEY_HOME}, "+move:0", "Go to "B("first")" file"},
+    {{'G', KEY_END}, "+move:100%n", "Go to "B("last")" file"},
+    {{KEY_PGDN}, "+scroll:+100%", B("Page down")},
+    {{KEY_PGUP}, "+scroll:-100%", B("Page up")},
+    {{KEY_CTRL_D}, "+scroll:+50%", B("Half page down")},
+    {{KEY_CTRL_U}, "+scroll:-50%", B("Half page up")},
+    {{KEY_MOUSE_WHEEL_DOWN}, "+scroll:+3", B("Scroll down")},
+    {{KEY_MOUSE_WHEEL_UP}, "+scroll:-3", B("Scroll up")},
+
+    SECTION("File Selection"),
+    {{' ','v','V'}, "+toggle", B("Toggle")" selection at cursor"},
+    {{KEY_ESC}, "bb +deselect: \"$@\"", B("Clear")" selection"},
+    {{KEY_CTRL_S}, ASK("savename", "Save selection as: ", "") " && printf '%s\\0' \"$@\" > ~/.config/bb/\"$savename\"",
+        B("Save")" the selection"},
+    {{KEY_CTRL_O}, "loadpath=\"$(find ~/.config/bb -maxdepth 1 -type f | " PICK("Load selection: ", "") ")\" "
+        "&& test -e \"$loadpath\" && bb +deselect:'*' "
+        "&& while IFS= read -r -d $'\\0'; do bb +select:\"$REPLY\"; done < \"$loadpath\"",
+        B("Open")" a saved selection"},
+    {{'S'},
+        ASK("patt", "Select pattern: ", "")" && bb +sel: \"$patt\"",
+        B("Select")" file(s) by pattern"},
+    {{'J'}, "+spread:+1", B("Spread")" selection down"},
+    {{'K'}, "+spread:-1", B("Spread")" selection up"},
+    {{KEY_CTRL_A},
+        "if test $BBDOTFILES; then find -mindepth 1 -maxdepth 1 -print0; "
+        "else find -mindepth 1 -maxdepth 1 ! -path '*/.*' -print0; fi | bb +sel:",
+        B("Select all")" files here"},
+
+    SECTION("Actions"),
     {{'\r', KEY_MOUSE_DOUBLE_LEFT},
         "if test -d \"$BBCURSOR\"; then bb \"+cd:$BBCURSOR\"; "
 #ifdef __APPLE__
@@ -191,21 +238,14 @@ binding_t bindings[] = {
         "else xdg-open \"$BBCURSOR\"; fi",
 #endif
         B("Open")" file/directory"},
-    {{' ','v','V'}, "+toggle", B("Toggle")" selection"},
-    {{KEY_ESC}, "bb +deselect: \"$@\"", B("Clear")" selection"},
     {{'e'}, "$EDITOR \"$@\" || "PAUSE, B("Edit")" file in $EDITOR"},
-    {{'p'}, "$PAGER \"$@\"", B("Page")" through a file in $PAGER"},
-    {{KEY_CTRL_F}, "bb \"+goto:$(if test $BBDOTFILES; then find -mindepth 1; else find -mindepth 1 ! -path '*/.*'; fi "
-        "| "PICK("Find: ", "")")\"", B("Search")" for file"},
-    {{'/'}, "bb \"+goto:$(if test $BBDOTFILES; then find -mindepth 1 -maxdepth 1; else find -mindepth 1 -maxdepth 1 ! -path '*/.*'; fi "
-        "| "PICK("Pick: ", "")")\"", B("Pick")" file"},
     {{'d', KEY_DELETE}, CONFIRM("The following will be deleted:", "$@") " && rm -rf \"$@\" && bb +refresh && bb +deselect: \"$@\"",
         B("Delete")" files"},
-    {{'M'}, "test $BBSELECTED || exit; "
+    {{'m'}, "test $BBSELECTED || exit; "
         "if " CONFIRM("The following will be moved here:", "$@") "; then "
         SPIN("mv -i \"$@\" . && bb +refresh && bb +deselect: \"$@\" && for f; do bb \"+sel:$(basename \"$f\")\"; done")" || "PAUSE
         "; fi",
-        B("Move")" files to current directory"},
+        B("Move")" files here"},
     {{'c'}, CONFIRM("The following will be copied here:", "$@")
         " && for f; do if test \"./$(basename \"$f\")\" -ef \"$f\"; then "
         SPIN("cp -ri \"$f\" \"$(basename \"$f\").copy\"")"; "
@@ -213,26 +253,12 @@ binding_t bindings[] = {
         B("Copy")" the selected files here"},
     {{'n'}, ASK("name", "New file: ", "")" && touch \"$name\" && bb \"+goto:$name\" +r || "PAUSE, B("New file")},
     {{'N'}, ASK("name", "New dir: ", "")" && mkdir \"$name\" && bb \"+goto:$name\" +r || "PAUSE, B("New directory")},
-    {{KEY_CTRL_G}, "bb \"+cd:$(" ASKECHO("Go to directory: ", "") ")\"", B("Go to")" directory"},
-    {{KEY_CTRL_S}, ASK("savename", "Save selection as: ", "") " && printf '%s\\0' \"$@\" > ~/.config/bb/\"$savename\"",
-        B("Save")" the selection"},
-    {{KEY_CTRL_O}, "loadpath=\"$(find ~/.config/bb -maxdepth 1 -type f | " PICK("Load selection: ", "") ")\" "
-        "&& test -e \"$loadpath\" && bb +deselect:'*' "
-        "&& while IFS= read -r -d $'\\0'; do bb +select:\"$REPLY\"; done < \"$loadpath\"",
-        B("Open")" a selection"},
-    {{'|'}, ASK("cmd", "|", "") " && printf '%s\\n' \"$@\" | sh -c \"$cmd\"; " PAUSE "; bb +r",
+    {{'p'}, "$PAGER \"$@\"", B("Page")" through a file in $PAGER"},
+    {{'|'}, ASK("cmd", "|", "") " && printf '%s\\n' \"$@\" | sh -c \"$BBSHELLFUNC$cmd\"; " PAUSE "; bb +r",
         B("Pipe")" selected files to a command"},
-    {{':'}, "sh -c \"$(" ASKECHO(":", "") ")\" -- \"$@\"; " PAUSE "; bb +refresh",
+    {{':'}, "sh -c \"$BBSHELLFUNC$(" ASKECHO(":", "") ")\" -- \"$@\"; " PAUSE "; bb +refresh",
         B("Run")" a command"},
     {{'>'}, "tput rmcup >/dev/tty; $SHELL; bb +r", "Open a "B("shell")},
-    {{'\''}, "mark=\"$(ls ~/.config/bb/marks | " PICK("Jump to: ", "") ")\" "
-        "&& bb +cd:\"$(readlink -f ~/.config/bb/marks/\"$mark\")\"",
-        B("Jump")" to a directory"},
-    {{'-', KEY_BACKSPACE, KEY_BACKSPACE2},
-        "test $BBPREVPATH && bb +cd:\"$BBPREVPATH\"", "Go to "B("previous")" directory"},
-    {{';'}, "bb +cd:'<selection>'", "Show "B("selected files")},
-    {{'0'}, "bb +cd:\"$BBINITIALPATH\"", "Go to "B("initial directory")},
-    {{'m'}, "ln -s \"$PWD\" ~/.config/bb/marks/\"$("ASKECHO("Mark: ", "")")\"", B("Mark")" this directory"},
     {{'r'},
         "bb +refresh; "
         "for f; do "
@@ -253,31 +279,18 @@ binding_t bindings[] = {
         "        bb \"+deselect:$f\" \"+select:$renamed\"; "
         "    fi;"
         "done", B("Regex rename")" files"},
-    {{'S'},
-        ASK("patt", "Select pattern: ", "")" && bb +sel: \"$patt\"",
-        B("Select")" file(s) by pattern"},
-    {{'J'}, "+spread:+1", B("Spread")" selection down"},
-    {{'K'}, "+spread:-1", B("Spread")" selection up"},
-    {{'b'}, "bb \"+$("ASKECHO("bb +", "")")\"", "Run a "B("bb command")},
+
+    SECTION("File Display"),
     {{'s'},
         "read -n1 -p \"" B("Sort (n)ame (s)ize (m)odification (c)reation (a)ccess (r)andom (p)ermissions: ") "\" sort"
         " && bb \"+sort:+$sort\" +refresh",
         B("Sort")" by..."},
-    {{'#'}, "bb \"+col:$("ASKECHO("Set columns: ", "")")\"", "Set "B("columns")},
-    {{'.'}, "+dotfiles", "Toggle "B("dotfiles")},
-    {{'g', KEY_HOME}, "+move:0", "Go to "B("first")" file"},
-    {{'G', KEY_END}, "+move:100%n", "Go to "B("last")" file"},
+    {{'#'}, "bb \"+col:$("ASKECHO("Set columns (*)selected (a)ccessed (c)reated (m)odified (n)ame (p)ermissions (r)andom (s)ize: ", "")")\"",
+        "Set "B("columns")},
+    {{'.'}, "+dotfiles", "Toggle "B("dotfile")" visibility"},
     {{KEY_F5, KEY_CTRL_R}, "+refresh", B("Refresh")},
-    {{KEY_CTRL_A}, "if test $BBDOTFILES; then find -mindepth 1 -maxdepth 1 -print0; else find -mindepth 1 -maxdepth 1 ! -path '*/.*' -print0; fi | bb +sel:",
-        B("Select all")" files in current directory"},
-    {{KEY_PGDN}, "+scroll:+100%", B("Page down")},
-    {{KEY_PGUP}, "+scroll:-100%", B("Page up")},
-    {{KEY_CTRL_D}, "+scroll:+50%", B("Half page down")},
-    {{KEY_CTRL_U}, "+scroll:-50%", B("Half page up")},
-    {{KEY_MOUSE_WHEEL_DOWN}, "+scroll:+3", B("Scroll down")},
-    {{KEY_MOUSE_WHEEL_UP}, "+scroll:-3", B("Scroll up")},
-    {{-1}}
-    // Array must be -1-terminated
+
+    {{-1}} // Array must be -1-terminated
 };
 
 // vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1

@@ -325,6 +325,7 @@ int run_script(bb_t *bb, const char *cmd)
         setenv("BBSELECTED", bb->firstselected ? "1" : "", 1);
         setenv("BBDOTFILES", bb->show_dotfiles ? "1" : "", 1);
         setenv("BBCURSOR", bb->nfiles ? bb->files[bb->cursor]->fullname : "", 1);
+        setenv("BBSHELLFUNC", bbcmdfn, 1);
 
         int ttyout, ttyin;
         ttyout = open("/dev/tty", O_RDWR);
@@ -1286,7 +1287,7 @@ void bb_browse(bb_t *bb, const char *path)
             // Search user-defined key bindings from config.h:
             binding_t *binding;
           user_bindings:
-            for (int i = 0; bindings[i].keys[0] > 0; i++) {
+            for (int i = 0; bindings[i].keys[0] >= 0; i++) {
                 for (int j = 0; bindings[i].keys[j]; j++) {
                     if (key == bindings[i].keys[j]) {
                         // Move to front optimization:
@@ -1337,13 +1338,16 @@ void bb_browse(bb_t *bb, const char *path)
 void print_bindings(int fd)
 {
     char buf[1000], buf2[1024];
-    char *kb = "Key Bindings";
-    sprintf(buf, "\n\033[33;1;4m\033[%dG%s\033[0m\n\n", (termwidth-(int)strlen(kb))/2, kb);
-    write(fd, buf, strlen(buf));
-    for (int i = 0; bindings[i].keys[0] > 0; i++) {
+    for (int i = 0; bindings[i].keys[0] >= 0; i++) {
+        if (bindings[i].keys[0] == 0) {
+            const char *label = bindings[i].description;
+            sprintf(buf, "\n\033[33;1;4m\033[%dG%s\033[0m\n", (termwidth-(int)strlen(label))/2, label);
+            write(fd, buf, strlen(buf));
+            continue;
+        }
         char *p = buf;
         for (int j = 0; bindings[i].keys[j]; j++) {
-            if (j > 0) *(p++) = ',';
+            if (j > 0) p = stpcpy(p, ", ");
             int key = bindings[i].keys[j];
             const char *name = bkeyname(key);
             if (name)
