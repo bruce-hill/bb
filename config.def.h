@@ -95,8 +95,12 @@ typedef struct {
 #define SH "sh"
 #endif
 
-// Some handy macros for common shell script behaviors:
+// Used for STRINGIFY(__COUNTER__) to embed the line number as a string
+// (as in "ask --history=bb."STRINGIFY(__COUNTER__)")
+#define STRINGIFY2(x) #x
+#define STRINGIFY(x) STRINGIFY2(x)
 
+// Some handy macros for common shell script behaviors:
 // Bold text:
 #define B(s) "\033[1m" s "\033[22m"
 
