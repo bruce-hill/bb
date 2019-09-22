@@ -290,10 +290,6 @@ binding_t bindings[] = {
         ASK1("sort", B("Sort (n)ame (s)ize (m)odification (c)reation (a)ccess (r)andom (p)ermissions: "))
         " && bb +sort:\"~$sort\" +refresh",
         B("Sort")" by..."},
-    {{'S'},
-        "sort=$(printf '%s\\n' name size modification creation access random permissions | " PICK("Sort by: ")" | dd bs=1 count=1)"
-        " && bb +sort:\"~$sort\" +refresh",
-        B("Sort")" by..."},
     {{'#'}, ASK("columns", "Set columns (*)selected (a)ccessed (c)reated (m)odified (n)ame (p)ermissions (r)andom (s)ize: ", "")
         " && bb +col:\"$columns\"",
         "Set "B("columns")},
