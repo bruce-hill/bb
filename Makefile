@@ -22,21 +22,21 @@ ifeq (, $(PICKER))
 	PICKER=$(shell sh -c "(which fzy >/dev/null 2>/dev/null && echo 'fzy') || (which fzf >/dev/null 2>/dev/null && echo 'fzf') || (which pick >/dev/null 2>/dev/null && echo 'pick') || (which ask >/dev/null 2>/dev/null && echo 'ask')")
 endif
 ifneq (, $(PICKER))
-	PICKER_FLAG=-D"PICK(prompt, initial)=\"$(PICKER)\""
+	PICKER_FLAG=-D"PICK(prompt)=\"$(PICKER)\""
 	ifeq ($(shell which $(PICKER)),$(shell which fzy 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK(prompt, initial)="{ printf \"\\033[3A\" >/dev/tty; fzy --lines=3 --prompt=\"" prompt "\" --query=\"" initial "\"; }"'
+		PICKER_FLAG=-D'PICK(prompt)="{ printf \"\\033[3A\" >/dev/tty; fzy --lines=3 --prompt=\"\033[1m" prompt "\033[0m\"; }"'
 	endif
 	ifeq ($(shell which $(PICKER)),$(shell which fzf 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK(prompt, initial)="{ printf \"\\033[3A\" >/dev/tty; fzf --height=4 --prompt=\"" prompt "\" --query=\"" initial "\"; }"'
+		PICKER_FLAG=-D'PICK(prompt)="{ printf \"\\033[3A\" >/dev/tty; fzf --height=4 --prompt=\"" prompt "\"; }"'
 	endif
 	ifeq ($(shell which $(PICKER)),$(shell which ask 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK(prompt, initial)="ask --prompt=\"" prompt "\" --query=\"" initial "\""'
+		PICKER_FLAG=-D'PICK(prompt)="ask --prompt=\"" prompt "\""'
 	endif
 	ifeq ($(shell which $(PICKER)),$(shell which pick 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK(prompt, initial)="pick -q \"" initial "\""'
+		PICKER_FLAG=-D'PICK(prompt)="pick"'
 	endif
 	ifeq ($(shell which $(PICKER)),$(shell which dmenu 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK(prompt, initial)="dmenu -i -l 10 -p \"" prompt "\""'
+		PICKER_FLAG=-D'PICK(prompt)="dmenu -i -l 10 -p \"" prompt "\""'
 	endif
 endif
 CFLAGS += $(PICKER_FLAG)

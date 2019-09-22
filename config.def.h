@@ -96,19 +96,24 @@ typedef struct {
 #endif
 
 // Some handy macros for common shell script behaviors:
-#define PAUSE " read -n1 -p '\033[2mPress any key to continue...\033[0m\033[?25l' >/dev/tty </dev/tty"
 
 // Bold text:
 #define B(s) "\033[1m" s "\033[22m"
 
 // Macro for getting user input:
 #ifndef ASK
-#define ASK(var, prompt, initial) "read -p \"" B(prompt) "\" " var " </dev/tty >/dev/tty"
+#define ASK(var, prompt, initial) " read -p \"" B(prompt) "\" " var " </dev/tty >/dev/tty "
 #endif
+
+#ifndef ASK1
+#define ASK1(var, prompt) " { printf \""prompt"\"; stty -icanon -echo; "var"=$(dd bs=1 count=1 2> /dev/null); stty icanon echo; } "
+#endif
+
+#define PAUSE ASK1("REPLY", "\033[2mPress any key to continue...\033[0m\033[?25l")
 
 // Macro for picking from a list of options:
 #ifndef PICK
-#define PICK(prompt, initial) " { "ASK("query", prompt, initial)" && awk '{print length, $1}' | sort -n | cut -d' ' -f2- | "\
+#define PICK(prompt) " { "ASK("query", prompt)" && awk '{print length, $1}' | sort -n | cut -d' ' -f2- | "\
     "grep -i -m1 \"$(echo \"$query\" | sed 's;.;[^/&]*[&];g')\"; } "
 #endif
 
@@ -187,12 +192,12 @@ binding_t bindings[] = {
     {{'h', KEY_ARROW_LEFT}, "+cd:..", B("Parent")" directory"},
     {{'l', KEY_ARROW_RIGHT}, "[ -d \"$BBCURSOR\" ] && bb \"+cd:$BBCURSOR\"", B("Enter")" a directory"},
     {{KEY_CTRL_F}, "bb \"+goto:$(if [ $BBDOTFILES ]; then find -mindepth 1; else find -mindepth 1 ! -path '*/.*'; fi "
-        "| "PICK("Find: ", "")")\"", B("Search")" for file"},
+        "| "PICK("Find: ")")\"", B("Search")" for file"},
     {{'/'}, "bb \"+goto:$(if [ $BBDOTFILES ]; then find -mindepth 1 -maxdepth 1; else find -mindepth 1 -maxdepth 1 ! -path '*/.*'; fi "
-        "| "PICK("Pick: ", "")")\"", B("Pick")" file"},
+        "| "PICK("Pick: ")")\"", B("Pick")" file"},
     {{KEY_CTRL_G}, ASK("goto", "Go to directory: ", "")" && bb +cd:\"$goto\"", B("Go to")" directory"},
     {{'m'}, ASK("mark", "Mark: ", "")" && ln -s \"$PWD\" ~/.config/bb/marks/\"$mark\"", B("Mark")" this directory"},
-    {{'\''}, "mark=\"$(ls ~/.config/bb/marks | " PICK("Jump to: ", "") ")\" "
+    {{'\''}, "mark=\"$(ls ~/.config/bb/marks | " PICK("Jump to: ") ")\" "
         "&& bb +cd:\"$(readlink -f ~/.config/bb/marks/\"$mark\")\"",
         "Go to a "B("marked")" directory"},
     {{'-', KEY_BACKSPACE, KEY_BACKSPACE2},
@@ -213,7 +218,7 @@ binding_t bindings[] = {
     {{KEY_ESC}, "bb +deselect: \"$@\"", B("Clear")" selection"},
     {{KEY_CTRL_S}, ASK("savename", "Save selection as: ", "") " && printf '%s\\0' \"$@\" > ~/.config/bb/\"$savename\"",
         B("Save")" the selection"},
-    {{KEY_CTRL_O}, "loadpath=\"$(find ~/.config/bb -maxdepth 1 -type f | " PICK("Load selection: ", "") ")\" "
+    {{KEY_CTRL_O}, "loadpath=\"$(find ~/.config/bb -maxdepth 1 -type f | " PICK("Load selection: ") ")\" "
         "&& [ -e \"$loadpath\" ] && bb +deselect:'*' "
         "&& while IFS= read -r -d $'\\0'; do bb +select:\"$REPLY\"; done < \"$loadpath\"",
         B("Open")" a saved selection"},
@@ -248,7 +253,7 @@ binding_t bindings[] = {
         SPIN("cp -ri \"$f\" \"$(basename \"$f\").copy\"")"; "
         "else "SPIN("cp -ri \"$f\" .")"; fi; done; bb +refresh",
         B("Copy")" the selected files here"},
-    {{KEY_CTRL_N}, "type=\"$(printf '%s\\n' File Directory | "PICK("Create new: ", "")")\" "
+    {{KEY_CTRL_N}, "type=\"$(printf '%s\\n' File Directory | "PICK("Create new: ")")\" "
         "&& "ASK("name", "New $type: ", "")" && "
         "{ if [ $type = File ]; then touch \"$name\"; else mkdir \"$name\"; fi "
         "&& bb \"+goto:$name\" +r || "PAUSE"; }", B("New")" file/directory"},
@@ -282,8 +287,12 @@ binding_t bindings[] = {
 
     SECTION("File Display"),
     {{'s'},
-        "read -n1 -p \"" B("Sort (n)ame (s)ize (m)odification (c)reation (a)ccess (r)andom (p)ermissions: ") "\" sort"
-        " && bb \"+sort:+$sort\" +refresh",
+        ASK1("sort", B("Sort (n)ame (s)ize (m)odification (c)reation (a)ccess (r)andom (p)ermissions: "))
+        " && bb +sort:\"~$sort\" +refresh",
+        B("Sort")" by..."},
+    {{'S'},
+        "sort=$(printf '%s\\n' name size modification creation access random permissions | " PICK("Sort by: ")" | dd bs=1 count=1)"
+        " && bb +sort:\"~$sort\" +refresh",
         B("Sort")" by..."},
     {{'#'}, ASK("columns", "Set columns (*)selected (a)ccessed (c)reated (m)odified (n)ame (p)ermissions (r)andom (s)ize: ", "")
         " && bb +col:\"$columns\"",
