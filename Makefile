@@ -13,6 +13,10 @@ ifeq ($(shell uname),Darwin)
 			  -Wno-missing-noreturn -Wno-cast-qual
 endif
 
+ifneq (, $(SH))
+	CFLAGS += -D'SH="$(SH)"'
+endif
+
 PICKER_FLAG=
 ifeq (, $(PICKER))
 	PICKER=$(shell sh -c "(which fzy >/dev/null 2>/dev/null && echo 'fzy') || (which fzf >/dev/null 2>/dev/null && echo 'fzf') || (which pick >/dev/null 2>/dev/null && echo 'pick') || (which ask >/dev/null 2>/dev/null && echo 'ask')")

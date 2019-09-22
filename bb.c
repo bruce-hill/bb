@@ -307,7 +307,7 @@ int run_script(bb_t *bb, const char *cmd)
         size_t space = 32;
         char **args = memcheck(calloc(space, sizeof(char*)));
         size_t i = 0;
-        args[i++] = "sh";
+        args[i++] = SH;
         args[i++] = "-c";
         char *fullcmd = calloc(strlen(cmd) + strlen(bbcmdfn) + 1, sizeof(char));
         strcpy(fullcmd, bbcmdfn);
@@ -332,7 +332,7 @@ int run_script(bb_t *bb, const char *cmd)
         ttyin = open("/dev/tty", O_RDONLY);
         dup2(ttyout, STDOUT_FILENO);
         dup2(ttyin, STDIN_FILENO);
-        execvp("sh", args);
+        execvp(SH, args);
         err("Failed to execute command: '%s'", cmd);
         return -1;
     }
@@ -1074,8 +1074,8 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
             } else {
                 close(fds[1]);
                 dup2(fds[0], STDIN_FILENO);
-                char *args[] = {"sh", "-c", "$PAGER -rX", NULL};
-                execvp("sh", args);
+                char *args[] = {SH, "-c", "$PAGER -rX", NULL};
+                execvp(SH, args);
             }
             init_term();
             signal(SIGINT, old_handler);

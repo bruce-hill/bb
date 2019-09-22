@@ -91,6 +91,10 @@ typedef struct {
 #define DIR_COLOR        "\033[34m"
 #define EXECUTABLE_COLOR "\033[31m"
 
+#ifndef SH
+#define SH "sh"
+#endif
+
 // Some handy macros for common shell script behaviors:
 #define PAUSE " read -n1 -p '\033[2mPress any key to continue...\033[0m\033[?25l' >/dev/tty </dev/tty"
 
@@ -249,9 +253,9 @@ binding_t bindings[] = {
         "{ if [ $type = File ]; then touch \"$name\"; else mkdir \"$name\"; fi "
         "&& bb \"+goto:$name\" +r || "PAUSE"; }", B("New")" file/directory"},
     {{'p'}, "$PAGER \"$@\"", B("Page")" through a file in $PAGER"},
-    {{'|'}, ASK("cmd", "|", "") " && printf '%s\\n' \"$@\" | sh -c \"$BBSHELLFUNC$cmd\"; " PAUSE "; bb +r",
+    {{'|'}, ASK("cmd", "|", "") " && printf '%s\\n' \"$@\" | "SH" -c \"$BBSHELLFUNC$cmd\"; " PAUSE "; bb +r",
         B("Pipe")" selected files to a command"},
-    {{':'}, ASK("cmd", ":", "")" && sh -c \"$BBSHELLFUNC$cmd\" -- \"$@\"; " PAUSE "; bb +refresh",
+    {{':'}, ASK("cmd", ":", "")" && "SH" -c \"$BBSHELLFUNC$cmd\" -- \"$@\"; " PAUSE "; bb +refresh",
         B("Run")" a command"},
     {{'>'}, "tput rmcup >/dev/tty; $SHELL; bb +r", "Open a "B("shell")},
     {{'r', KEY_F2},
