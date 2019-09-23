@@ -302,6 +302,7 @@ binding_t bindings[] = {
         " && bb +col:\"$columns\"",
         "Set "B("columns")},
     {{'.'}, "+dotfiles", "Toggle "B("dotfile")" visibility"},
+    {{'i'}, "+interleave", "Toggle "B("interleaving")" files and directories"},
     {{KEY_F5}, "+refresh", B("Refresh")},
 
     {{-1}} // Array must be -1-terminated
