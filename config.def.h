@@ -13,10 +13,8 @@
     For startup commands and key bindings, the following values are provided as
     environment variables:
 
-        $@ (the list of arguments): the full paths of the selected files, or if
-            no files are selected, the full path of the file under the cursor
+        $@ (the list of arguments): the full paths of the selected files
         $BBCURSOR: the full path of the file under the cursor
-        $BBSELECTED: "1" if any files are selected, otherwise ""
         $BBDOTFILES: "1" if files beginning with "." are visible in bb, otherwise ""
         $BB_DEPTH: the number of `bb` instances deep (in case you want to run a
             shell and have that shell print something special in the prompt)
@@ -136,8 +134,8 @@ typedef struct {
 #endif
 
 #ifndef CONFIRM
-#define CONFIRM(action, files) " { { echo \""B(action)"\"; printf '%s\\n' \""files"\"; } | more; " \
-    ASK("REPLY", "Is that okay? [y/N] ", "")"; [ \"$REPLY\" = 'y' ]; } "
+#define CONFIRM(action, files) " { printf '%s\\n' \""B(action)"\" \""files"\" | more; " \
+    ASK1("REPLY", B("Is that okay? [y/N] "))"; [ \"$REPLY\" = 'y' ]; } "
 #endif
 
 #define SECTION(name) {{0}, NULL, name}
@@ -220,7 +218,7 @@ binding_t bindings[] = {
     SECTION("File Selection"),
     {{' ','v','V'}, "+toggle", B("Toggle")" selection at cursor"},
     {{KEY_ESC}, "bb +deselect: \"$@\"", B("Clear")" selection"},
-    {{KEY_CTRL_S}, ASK("savename", "Save selection as: ", "") " && printf '%s\\0' \"$@\" > ~/.config/bb/\"$savename\"",
+    {{KEY_CTRL_S}, "[ $# -gt 0 ] && "ASK("savename", "Save selection as: ", "") " && printf '%s\\0' \"$@\" > ~/.config/bb/\"$savename\"",
         B("Save")" the selection"},
     {{KEY_CTRL_O}, "loadpath=\"$(find ~/.config/bb -maxdepth 1 -type f | " PICK("Load selection: ") ")\" "
         "&& [ -e \"$loadpath\" ] && bb +deselect:'*' "
@@ -244,15 +242,20 @@ binding_t bindings[] = {
         "else xdg-open \"$BBCURSOR\"; fi",
 #endif
         B("Open")" file/directory"},
-    {{'e'}, "$EDITOR \"$@\" || "PAUSE, B("Edit")" file in $EDITOR"},
-    {{'d', KEY_DELETE}, CONFIRM("The following will be deleted:", "$@") " && rm -rf \"$@\" && bb +refresh && bb +deselect: \"$@\"",
-        B("Delete")" files"},
-    {{KEY_CTRL_V}, "[ $BBSELECTED ] || exit; "
-        "if " CONFIRM("The following will be moved here:", "$@") "; then "
-        SPIN("mv -i \"$@\" . && bb +refresh && bb +deselect: \"$@\" && for f; do bb \"+sel:$(basename \"$f\")\"; done")" || "PAUSE
-        "; fi",
+    {{'e'}, "$EDITOR \"$BBCURSOR\" || "PAUSE, B("Edit")" file in $EDITOR"},
+    {{'E'}, "[ $# -gt 0 ] && $EDITOR \"$@\" || "PAUSE, B("Edit")" selected files in $EDITOR"},
+    {{'d'}, CONFIRM("The following will be deleted:", "$BBCURSOR") " && rm -rf \"$BBCURSOR\" && bb +refresh && bb +deselect: \"$BBCURSOR\"",
+        B("Delete")" a file"},
+    {{'D', KEY_DELETE},
+        "[ $# -gt 0 ] && "CONFIRM("The following will be deleted:", "$@") " && rm -rf \"$@\" && bb +refresh && bb +deselect: \"$@\"",
+        B("Delete")" selected files"},
+    {{KEY_CTRL_V}, "[ $# -gt 0 ] && "
+        CONFIRM("The following will be moved here:", "$@") " && { "
+        SPIN("mv -i \"$@\" . && bb +refresh && bb +deselect: \"$@\" && for f; do bb \"+sel:$(basename \"$f\")\"; done")" || "PAUSE"; }",
         B("Move")" files here"},
-    {{'c'}, CONFIRM("The following will be copied here:", "$@")
+    {{'c'}, CONFIRM("Copy file:", "$BBCURSOR")" && cp -ri \"$BBCURSOR\" \"$BBCURSOR.copy\" && bb +refresh",
+        B("Copy")" a file"},
+    {{'C'}, "[ $# -gt 0 ] && "CONFIRM("The following will be copied here:", "$@")
         " && for f; do if [ \"./$(basename \"$f\")\" -ef \"$f\" ]; then "
         SPIN("cp -ri \"$f\" \"$(basename \"$f\").copy\"")"; "
         "else "SPIN("cp -ri \"$f\" .")"; fi; done; bb +refresh",
@@ -261,33 +264,34 @@ binding_t bindings[] = {
         "&& "ASK("name", "New $type: ", "")" && "
         "{ if [ $type = File ]; then touch \"$name\"; else mkdir \"$name\"; fi "
         "&& bb \"+goto:$name\" +r || "PAUSE"; }", B("New")" file/directory"},
-    {{'p'}, "$PAGER \"$@\"", B("Page")" through a file in $PAGER"},
+    {{'p'}, "$PAGER \"$BBCURSOR\"", B("Page")" through a file in $PAGER"},
+    {{'P'}, "[ $# -gt 0 ] && $PAGER \"$@\"", B("Page")" through selected files in $PAGER"},
     {{'|'}, ASK("cmd", "|", "") " && printf '%s\\n' \"$@\" | "SH" -c \"$BBSHELLFUNC$cmd\"; " PAUSE "; bb +r",
         B("Pipe")" selected files to a command"},
     {{':'}, ASK("cmd", ":", "")" && "SH" -c \"$BBSHELLFUNC$cmd\" -- \"$@\"; " PAUSE "; bb +refresh",
         B("Run")" a command"},
     {{'>'}, "tput rmcup >/dev/tty; $SHELL; bb +r", "Open a "B("shell")},
     {{'r', KEY_F2},
-        "bb +refresh; "
-        "for f; do "
-        "    "ASK("newname", "Rename: ", "$(basename \"$f\")")" || break; "
-        "    if r=\"$(dirname \"$f\")/$newname\"; then "
-        "      if [ \"$r\" != \"$f\" ] && mv -i \"$f\" \"$r\"; then "
-        "          [ $BBSELECTED ] && bb \"+deselect:$f\" \"+select:$r\"; "
-        "      fi; "
-        "    else break; "
-        "    fi; "
-        "done", B("Rename")" files"},
+        ASK("newname", "Rename \033[33m$(basename \"$BBCURSOR\")\033[39m: ", "$(basename \"$BBCURSOR\")")" && "
+        "r=\"$(dirname \"$BBCURSOR\")/$newname\" && "
+        "[ \"$r\" != \"$BBCURSOR\" ] && mv -i \"$BBCURSOR\" \"$r\" && bb +refresh && "
+        "while [ $# -gt 0 ]; do [ \"$1\" = \"$BBCURSOR\" ] && bb \"+deselect:$BBCURSOR\" \"+select:$r\"; shift; done && "
+        "bb +goto:\"$r\"",
+        B("Rename")" a file"},
     {{'R'},
-        "if "ASK("patt", "Rename pattern: ", "s/")"; then true; else exit; fi; "
-        "if sed -E \"$patt\" </dev/null; then true; else " PAUSE "; exit; fi; "
         "bb +refresh; "
         "for f; do "
-        "    renamed=\"$(dirname \"$f\")/$(basename \"$f\" | sed -E \"$patt\")\"; "
-        "    if [ \"$f\" != \"$renamed\" ] && mv -i \"$f\" \"$renamed\" && [ $BBSELECTED ]; then "
-        "        bb \"+deselect:$f\" \"+select:$renamed\"; "
-        "    fi;"
-        "done", B("Regex rename")" files"},
+        "    "ASK("newname", "Rename \033[33m$(basename \"$f\")\033[39m: ", "$(basename \"$f\")")" || break; "
+        "    r=\"$(dirname \"$f\")/$newname\"; "
+        "    [ \"$r\" != \"$f\" ] && mv -i \"$f\" \"$r\" && bb \"+deselect:$f\" \"+select:$r\"; "
+        "    [ \"$f\" = \"$BBCURSOR\" ] && bb +goto:\"$r\"; "
+        "done", B("Rename")" selected files"},
+    {{KEY_CTRL_R},
+        "command -v rename >/dev/null || { echo 'The `rename` command is not installed. Please install it to use this key binding.'; "PAUSE"; exit; }; "
+        ASK("patt", "Replace pattern: ", "")" && "ASK("rep", "Replacement: ", "")" && "
+        CONFIRM("Renaming:", "$(if [ $# -gt 0 ]; then rename -nv \"$patt\" \"$rep\" \"$@\"; else rename -nv \"$patt\" \"$rep\" *; fi)")" && "
+        "if [ $# -gt 0 ]; then rename -i \"$patt\" \"$rep\" \"$@\"; else rename -i \"$patt\" \"$rep\" *; fi; bb +refresh",
+        B("Regex rename")" files"},
 
     SECTION("File Display"),
     {{'s'},
@@ -298,7 +302,7 @@ binding_t bindings[] = {
         " && bb +col:\"$columns\"",
         "Set "B("columns")},
     {{'.'}, "+dotfiles", "Toggle "B("dotfile")" visibility"},
-    {{KEY_F5, KEY_CTRL_R}, "+refresh", B("Refresh")},
+    {{KEY_F5}, "+refresh", B("Refresh")},
 
     {{-1}} // Array must be -1-terminated
 };

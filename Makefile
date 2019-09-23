@@ -42,8 +42,10 @@ endif
 CFLAGS += $(PICKER_FLAG)
 
 ifneq (, $(ASKER))
+	PERCENT := %
 	ifeq ($(shell which $(ASKER)),$(shell which ask 2>/dev/null || echo '<none>'))
 		CFLAGS += -D'ASK(var, prompt, initial)=var "=\"$$(ask --history=bb."STRINGIFY(__COUNTER__)".hist --prompt=\"" prompt "\" --query=\"" initial "\")\""'
+		CFLAGS += -D'CONFIRM(action, files)=" { printf \"$(PERCENT)s\\n\" \""B(action)"\" \""files"\" | more; ask -n \"Is that okay?\"; } "'
 	endif
 	ifeq ($(shell which $(ASKER)),$(shell which dmenu 2>/dev/null || echo '<none>'))
 		CFLAGS += -D'ASK(var, prompt, initial)=var "=\"$$(printf \"" initial "\" | dmenu -p \"" prompt "\")\""'

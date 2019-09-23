@@ -24,7 +24,7 @@
 #include "config.h"
 #include "bterm.h"
 
-#define BB_VERSION "0.15.1"
+#define BB_VERSION "0.15.2"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -314,15 +314,13 @@ int run_script(bb_t *bb, const char *cmd)
         strcat(fullcmd, cmd);
         args[i++] = fullcmd;
         args[i++] = "--"; // ensure files like "-i" are not interpreted as flags for sh
-        entry_t *first = bb->firstselected ? bb->firstselected : (bb->nfiles ? bb->files[bb->cursor] : NULL);
-        for (entry_t *e = first; e; e = e->selected.next) {
+        for (entry_t *e = bb->firstselected; e; e = e->selected.next) {
             if (i >= space)
                 args = memcheck(realloc(args, (space += 100)*sizeof(char*)));
             args[i++] = e->fullname;
         }
         args[i] = NULL;
 
-        setenv("BBSELECTED", bb->firstselected ? "1" : "", 1);
         setenv("BBDOTFILES", bb->show_dotfiles ? "1" : "", 1);
         setenv("BBCURSOR", bb->nfiles ? bb->files[bb->cursor]->fullname : "", 1);
         setenv("BBSHELLFUNC", bbcmdfn, 1);
