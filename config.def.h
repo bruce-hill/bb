@@ -155,7 +155,7 @@ const column_t columns[128] = {
     ['n'] = {40, "Name"},
     ['p'] = {5,  "Permissions"},
     ['r'] = {2,  "Random"},
-    ['s'] = {9,  "Size"},
+    ['s'] = {9,  "  Size"},
 };
 
 // This is a list of commands that runs when `bb` launches:
