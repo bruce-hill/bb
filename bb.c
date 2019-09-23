@@ -392,7 +392,7 @@ void set_sort(bb_t *bb, const char *sort)
         char *found;
         if ((found = strchr(bb->sort, s[1]))) {
             if (*s == '~')
-                *s = found[-1] == '+' ? '-' : '+';
+                *s = found[-1] == '+' && found == &bb->sort[1] ? '-' : '+';
             memmove(found-1, found+1, strlen(found+1)+1);
         } else if (*s == '~')
             *s = '+';
