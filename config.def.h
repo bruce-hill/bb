@@ -168,7 +168,7 @@ const char *startupcmds[] = {
     "ln -sT ~/.config ~/.config/bb/marks/config 2>/dev/null",
     "ln -sT ~/.local ~/.config/bb/marks/local 2>/dev/null",
     // Default column and sorting options:
-    "+sort:+n", "+col:*smpn", "+..",
+    "+sort:+n", "+col:*smpn",
     NULL, // NULL-terminated array
 };
 
