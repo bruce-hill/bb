@@ -103,8 +103,64 @@
 
 #define move_cursor(f, x, y) fprintf((f), CSI "%d;%dH", (int)(y)+1, (int)(x)+1)
 
+typedef struct {
+    int key;
+    const char *name;
+} keyname_t;
+
+static keyname_t key_names[] = {
+    {KEY_F1, "F1"}, {KEY_F2, "F2"}, {KEY_F3, "F3"}, {KEY_F4, "F4"}, {KEY_F5, "F5"},
+    {KEY_F6, "F6"}, {KEY_F7, "F7"}, {KEY_F8, "F8"}, {KEY_F9, "F9"}, {KEY_F10, "F10"},
+    {KEY_F11, "F11"}, {KEY_F12, "F12"},
+    {KEY_INSERT, "Insert"},
+    {KEY_DELETE, "Delete"},
+    {KEY_HOME, "Home"},
+    {KEY_END, "End"},
+    {KEY_PGUP, "PgUp"},
+    {KEY_PGUP, "Page Up"},
+    {KEY_PGDN, "PgDn"},
+    {KEY_PGDN, "Page Down"},
+    {KEY_ARROW_UP, "Up"},
+    {KEY_ARROW_DOWN, "Down"},
+    {KEY_ARROW_LEFT, "Left"},
+    {KEY_ARROW_RIGHT, "Right"},
+    {KEY_MOUSE_LEFT, "Left click"},
+    {KEY_MOUSE_RIGHT, "Right click"},
+    {KEY_MOUSE_MIDDLE, "Middle click"},
+    {KEY_MOUSE_RELEASE, "Mouse release"},
+    {KEY_MOUSE_WHEEL_UP, "Mouse wheel up"},
+    {KEY_MOUSE_WHEEL_DOWN, "Mouse wheel down"},
+    {KEY_MOUSE_DOUBLE_LEFT, "Double left click"},
+    {KEY_CTRL_A, "Ctrl-a"}, {KEY_CTRL_B, "Ctrl-b"}, {KEY_CTRL_C, "Ctrl-c"},
+    {KEY_CTRL_D, "Ctrl-d"}, {KEY_CTRL_E, "Ctrl-e"}, {KEY_CTRL_F, "Ctrl-f"},
+    {KEY_CTRL_G, "Ctrl-g"}, {KEY_CTRL_H, "Ctrl-h"},
+    {KEY_TAB, "Tab"},
+    {KEY_CTRL_J, "Ctrl-j"}, {KEY_CTRL_K, "Ctrl-k"}, {KEY_CTRL_L, "Ctrl-l"},
+    {KEY_ENTER, "Enter"},
+    {KEY_CTRL_N, "Ctrl-n"}, {KEY_CTRL_O, "Ctrl-o"}, {KEY_CTRL_P, "Ctrl-p"},
+    {KEY_CTRL_Q, "Ctrl-q"}, {KEY_CTRL_R, "Ctrl-r"}, {KEY_CTRL_S, "Ctrl-s"},
+    {KEY_CTRL_T, "Ctrl-t"}, {KEY_CTRL_U, "Ctrl-u"}, {KEY_CTRL_V, "Ctrl-v"},
+    {KEY_CTRL_W, "Ctrl-w"}, {KEY_CTRL_X, "Ctrl-x"}, {KEY_CTRL_Y, "Ctrl-y"},
+    {KEY_CTRL_Z, "Ctrl-z"},
+    {KEY_ESC, "Esc"},
+    {KEY_ESC, "Escape"},
+    {KEY_CTRL_TILDE, "Ctrl-~"},
+    {KEY_CTRL_TILDE, "Ctrl-2"},
+    {KEY_CTRL_BACKSLASH, "Ctrl-\\"},
+    {KEY_CTRL_BACKSLASH, "Ctrl-4"},
+    {KEY_CTRL_RSQ_BRACKET, "Ctrl-]"},
+    {KEY_CTRL_RSQ_BRACKET, "Ctrl-5"},
+    {KEY_CTRL_6, "Ctrl-6"},
+    {KEY_CTRL_SLASH, "Ctrl-_"},
+    {KEY_CTRL_SLASH, "Ctrl-/"},
+    {KEY_CTRL_SLASH, "Ctrl-7"},
+    {KEY_SPACE, "Space"},
+    {KEY_BACKSPACE2, "Backspace"},
+};
+
 int bgetkey(FILE *in, int *mouse_x, int *mouse_y);
 const char *bkeyname(int key);
+int bkeywithname(const char *name);
 
 static inline int nextchar(int fd)
 {
@@ -229,73 +285,24 @@ int bgetkey(FILE *in, int *mouse_x, int *mouse_y)
  */
 const char *bkeyname(int key)
 {
-    // TODO: currently only the keys I'm using are named
-    switch (key) {
-        case KEY_F1: return "F1";
-        case KEY_F2: return "F2";
-        case KEY_F3: return "F3";
-        case KEY_F4: return "F4";
-        case KEY_F5: return "F5";
-        case KEY_F6: return "F6";
-        case KEY_F7: return "F7";
-        case KEY_F8: return "F8";
-        case KEY_F9: return "F9";
-        case KEY_F10: return "F10";
-        case KEY_F11: return "F11";
-        case KEY_F12: return "F12";
-        case KEY_INSERT: return "Insert";
-        case KEY_DELETE: return "Delete";
-        case KEY_HOME: return "Home";
-        case KEY_END: return "End";
-        case KEY_PGUP: return "PgUp";
-        case KEY_PGDN: return "PgDn";
-        case KEY_ARROW_UP: return "Up";
-        case KEY_ARROW_DOWN: return "Down";
-        case KEY_ARROW_LEFT: return "Left";
-        case KEY_ARROW_RIGHT: return "Right";
-        case KEY_MOUSE_LEFT: return "Left click";
-        case KEY_MOUSE_RIGHT: return "Right click";
-        case KEY_MOUSE_MIDDLE: return "Middle click";
-        case KEY_MOUSE_RELEASE: return "Mouse release";
-        case KEY_MOUSE_WHEEL_UP: return "Mouse wheel up";
-        case KEY_MOUSE_WHEEL_DOWN: return "Mouse wheel down";
-        case KEY_MOUSE_DOUBLE_LEFT: return "Double left click";
-        case KEY_CTRL_TILDE: return "Ctrl-[2~]";
-        case KEY_CTRL_A: return "Ctrl-a";
-        case KEY_CTRL_B: return "Ctrl-b";
-        case KEY_CTRL_C: return "Ctrl-c";
-        case KEY_CTRL_D: return "Ctrl-d";
-        case KEY_CTRL_E: return "Ctrl-e";
-        case KEY_CTRL_F: return "Ctrl-f";
-        case KEY_CTRL_G: return "Ctrl-g";
-        case KEY_CTRL_H: return "Ctrl-h";
-        case KEY_TAB: return "Tab";
-        case KEY_CTRL_J: return "Ctrl-j";
-        case KEY_CTRL_K: return "Ctrl-k";
-        case KEY_CTRL_L: return "Ctrl-l";
-        case KEY_ENTER: return "Enter";
-        case KEY_CTRL_N: return "Ctrl-n";
-        case KEY_CTRL_O: return "Ctrl-o";
-        case KEY_CTRL_P: return "Ctrl-p";
-        case KEY_CTRL_Q: return "Ctrl-q";
-        case KEY_CTRL_R: return "Ctrl-r";
-        case KEY_CTRL_S: return "Ctrl-s";
-        case KEY_CTRL_T: return "Ctrl-t";
-        case KEY_CTRL_U: return "Ctrl-u";
-        case KEY_CTRL_V: return "Ctrl-v";
-        case KEY_CTRL_W: return "Ctrl-w";
-        case KEY_CTRL_X: return "Ctrl-x";
-        case KEY_CTRL_Y: return "Ctrl-y";
-        case KEY_CTRL_Z: return "Ctrl-z";
-        case KEY_ESC: return "Esc";
-        case KEY_CTRL_BACKSLASH: return "Ctrl-[4\\]";
-        case KEY_CTRL_RSQ_BRACKET: return "Ctrl-[5]]";
-        case KEY_CTRL_6: return "Ctrl-6";
-        case KEY_CTRL_SLASH: return "Ctrl-[7/_]";
-        case KEY_SPACE: return "Space";
-        case KEY_BACKSPACE2: return "Backspace";
+    for (int i = 0; i < sizeof(key_names)/sizeof(key_names[0]); i++) {
+        if (key_names[i].key == key)
+            return key_names[i].name;
     }
     return NULL;
+}
+
+/*
+ * Return the key with the given name, if one exists, otherwise -1.
+ * (i.e. bkeyname("Space") == ' ', bkeyname("x") == -1, bkeyname("???") == -1)
+ */
+int bkeywithname(const char *name)
+{
+    for (int i = 0; i < sizeof(key_names)/sizeof(key_names[0]); i++) {
+        if (strcmp(key_names[i].name, name) == 0)
+            return key_names[i].key;
+    }
+    return -1;
 }
 
 #endif
