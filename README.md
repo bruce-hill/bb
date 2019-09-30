@@ -16,6 +16,10 @@ No dependencies besides `make` and a C compiler, just:
     make
     sudo make install
 
+To run `bb`, it's expected that you have some basic unix tools:
+`basename`, `cat`, `cp`, `echo`, `find`, `grep`, `mkdir`, `more`, `mv`,
+`printf`, `read`, `rm`, `sed`, `sh`, `sleep`, `touch`, `tput`, `tr`, `wait`.
+
 ## Usage
 
 Run `bb` to launch the file browser. `bb` also has the flags:
@@ -25,6 +29,8 @@ Run `bb` to launch the file browser. `bb` also has the flags:
 - `-s`: when `bb` exits successfully, print the files that were selected.
 - `-0`: use NULL-terminated strings instead of newline-separated strings with
   the `-s` flag.
+- `-h`: print usage
+- `-v`: print version
 
 Within `bb`, press `?` for a full list of available key bindings. In short:
 `h`/`j`/`k`/`l` or arrow keys for navigation, `q` to quit, `<space>` to toggle

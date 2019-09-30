@@ -22,21 +22,21 @@ ifeq (, $(PICKER))
 	PICKER=$(shell sh -c "(which fzy >/dev/null 2>/dev/null && echo 'fzy') || (which fzf >/dev/null 2>/dev/null && echo 'fzf') || (which pick >/dev/null 2>/dev/null && echo 'pick') || (which ask >/dev/null 2>/dev/null && echo 'ask')")
 endif
 ifneq (, $(PICKER))
-	PICKER_FLAG=-D"PICK(prompt)=\"$(PICKER)\""
+	PICKER_FLAG=-D"PICK=\"$(PICKER) --prompt=\\\"$$1\\\"\""
 	ifeq ($(shell which $(PICKER)),$(shell which fzy 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK(prompt)="{ printf \"\\033[3A\" >/dev/tty; fzy --lines=3 --prompt=\"\033[1m" prompt "\033[0m\"; }"'
+		PICKER_FLAG=-D'PICK="printf \"\\033[3A\" >/dev/tty; fzy --lines=3 --prompt=\"\033[1m$$1\033[0m\""'
 	endif
 	ifeq ($(shell which $(PICKER)),$(shell which fzf 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK(prompt)="{ printf \"\\033[3A\" >/dev/tty; fzf --height=4 --prompt=\"" prompt "\"; }"'
+		PICKER_FLAG=-D'PICK="printf \"\\033[3A\" >/dev/tty; fzf --height=4 --prompt=\"$$1\""'
 	endif
 	ifeq ($(shell which $(PICKER)),$(shell which ask 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK(prompt)="ask --prompt=\"" prompt "\""'
+		PICKER_FLAG=-D'PICK="/usr/bin/env ask --prompt=\"$$1\""'
 	endif
 	ifeq ($(shell which $(PICKER)),$(shell which pick 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK(prompt)="pick"'
+		PICKER_FLAG=-D'PICK="pick"'
 	endif
 	ifeq ($(shell which $(PICKER)),$(shell which dmenu 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK(prompt)="dmenu -i -l 10 -p \"" prompt "\""'
+		PICKER_FLAG=-D'PICK="dmenu -i -l 10 -p \"$$1\""'
 	endif
 endif
 CFLAGS += $(PICKER_FLAG)
@@ -44,11 +44,11 @@ CFLAGS += $(PICKER_FLAG)
 ifneq (, $(ASKER))
 	PERCENT := %
 	ifeq ($(shell which $(ASKER)),$(shell which ask 2>/dev/null || echo '<none>'))
-		CFLAGS += -D'ASK(var, prompt, initial)=var "=\"$$(ask --history=bb."STRINGIFY(__COUNTER__)".hist --prompt=\"" prompt "\" --query=\"" initial "\")\""'
-		CFLAGS += -D'CONFIRM(action, files)=" { printf \"$(PERCENT)s\\n\" \""B(action)"\" \""files"\" | more; ask -n \"Is that okay?\"; } "'
+		CFLAGS += -D'ASK="eval \"$$1=\\$$(/usr/bin/env ask --history=bb.hist --prompt=\\\"$$2\\\" --query=\\\"$$3\\\")\""'
+		CFLAGS += -D'CONFIRM="/usr/bin/env ask -n \"Is that okay?\""'
 	endif
 	ifeq ($(shell which $(ASKER)),$(shell which dmenu 2>/dev/null || echo '<none>'))
-		CFLAGS += -D'ASK(var, prompt, initial)=var "=\"$$(printf \"" initial "\" | dmenu -p \"" prompt "\")\""'
+		CFLAGS += -D'ASK="eval \"$$1=\\$$(echo \"$$3\" | dmenu -p \"$$2\")\""'
 	endif
 endif
 
@@ -65,24 +65,27 @@ $(NAME): $(NAME).c bterm.h config.h
 	
 install: $(NAME)
 	@prefix="$(PREFIX)"; \
-	if test -z $$prefix; then \
-		read -p $$'\033[1mWhere do you want to install? (default: /usr/local) \033[0m' prefix; \
+	if [ ! "$$prefix" ]; then \
+		printf '\033[1mWhere do you want to install? (default: /usr/local) \033[0m'; \
+		read prefix; \
 	fi; \
-	if test -z $$prefix; then \
-		prefix="/usr/local"; \
-	fi; \
-	mkdir -pv $$prefix/bin $$prefix/share/man/man1 \
-	&& cp -v $(NAME) $$prefix/bin/ \
-	&& cp -v $(NAME).1 $$prefix/share/man/man1/
+	[ ! "$$prefix" ] && prefix="/usr/local"; \
+	[ ! "$$sysconfdir" ] && sysconfdir=/etc; \
+	mkdir -m 700 -pv "$$prefix/bin" "$$prefix/share/man/man1" "$$sysconfdir/bb" \
+	&& cp -v $(NAME) "$$prefix/bin/" \
+	&& cp -v $(NAME).1 "$$prefix/share/man/man1/" \
+	&& cp -v bbstartup.sh bindings.bb "$$sysconfdir/bb/"
 
 uninstall:
 	@prefix="$(PREFIX)"; \
-	if test -z $$prefix; then \
-		read -p $$'\033[1mWhere do you want to uninstall from? (default: /usr/local) \033[0m' prefix; \
+	if [ ! "$$prefix" ]; then \
+		printf '\033[1mWhere do you want to uninstall from? (default: /usr/local) \033[0m'; \
+		read prefix; \
 	fi; \
-	if test -z $$prefix; then \
-		prefix="/usr/local"; \
-	fi; \
+	[ ! "$$prefix" ] && prefix="/usr/local"; \
+	[ ! "$$sysconfdir" ] && sysconfdir=/etc; \
+	[ ! "$$XDG_CONFIG_HOME" ] && XDG_CONFIG_HOME=~/.config; \
 	echo "Deleting..."; \
-	rm -rvf $$prefix/bin/$(NAME) $$prefix/share/man/man1/$(NAME).1
+	rm -rvf "$$prefix/bin/$(NAME)" "$$prefix/share/man/man1/$(NAME).1" "$$sysconfdir/bb"; \
+	printf '\033[1mIf you created any config files in $$XDG_CONFIG_HOME/bb, you may want to delete them manually.\033[0m'
 

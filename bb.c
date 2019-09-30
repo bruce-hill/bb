@@ -24,7 +24,7 @@
 #include "config.h"
 #include "bterm.h"
 
-#define BB_VERSION "0.15.2"
+#define BB_VERSION "0.16.0"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -134,6 +134,8 @@ static void init_term(void);
 static entry_t* load_entry(bb_t *bb, const char *path, int clear_dots);
 static void* memcheck(void *p);
 static void normalize_path(const char *root, const char *path, char *pbuf, int clear_dots);
+static int is_simple_bbcmd(const char *s);
+static char *trim(char *s);
 static void populate_files(bb_t *bb, int samedir);
 static void print_bindings(int fd);
 static bb_result_t process_cmd(bb_t *bb, const char *cmd);
@@ -149,7 +151,6 @@ static void update_term_size(int sig);
 
 // Config options
 extern binding_t bindings[];
-extern const char *startupcmds[];
 extern const column_t columns[128];
 
 // Constants
@@ -162,13 +163,75 @@ static const char *bbcmdfn = "bb() {\n"
 "    for arg; do\n"
 "        shift;\n"
 "        if echo \"$arg\" | grep \"^+[^:]*:$\" >/dev/null 2>/dev/null; then\n"
-"            if test $# -gt 0; then printf \"$arg%s\\0\" \"$@\" >> $BBCMD\n"
+"            if test $# -gt 0; then printf \"%s\\0\" \"$arg\" \"$@\" >> $BBCMD\n"
 "            else sed \"s/\\([^\\x00]\\+\\)/$arg\\1/g\" >> $BBCMD; fi\n"
 "            return\n"
 "        fi\n"
-"        printf \"$arg\\0\" >> $BBCMD\n"
+"        printf \"%s\\0\" \"$arg\" >> $BBCMD\n"
 "    done\n"
-"}\n";
+"}\n"
+"ask() {\n"
+#ifdef ASK
+ASK ";\n"
+#else
+"    printf \"\033[1m%s\033[0m\" \"$2\" >/dev/tty;\n"
+"    read $1 </dev/tty >/dev/tty\n"
+#endif
+"}\n"
+"ask1() {\n"
+#ifdef ASK1
+ASK1 ";\n"
+#else
+"    printf \"\033[?25l\" >/dev/tty;\n"
+"    printf \"\033[1m%s\033[0m\" \"$2\" >/dev/tty;\n"
+"    stty -icanon -echo >/dev/tty;\n"
+"    eval \"$1=\\$(dd bs=1 count=1 2>/dev/null </dev/tty)\";\n"
+"    stty icanon echo >/dev/tty;\n"
+"    printf \"\033[?25h\" >/dev/tty;\n"
+#endif
+"}\n"
+"confirm() {\n"
+#ifdef CONFIRM
+CONFIRM ";\n"
+#else
+"    ask1 REPLY \"\033[1mIs that okay? [y/N] \" && [ \"$REPLY\" = 'y' ];\n"
+#endif
+"}\n"
+"pause() {\n"
+#ifdef PAUSE
+PAUSE ";\n"
+#else
+"    ask1 REPLY \"\033[2mPress any key to continue...\033[0m\";"
+#endif
+"}\n"
+"pick() {\n"
+#ifdef PICK
+PICK ";\n"
+#else
+"    ask query \"$1\" && awk '{print length, $1}' | sort -n | cut -d' ' -f2- |\n"
+"      grep -i -m1 \"$(echo \"$query\" | sed 's;.;[^/&]*[&];g')\";\n"
+#endif
+"}\n"
+"spin() {\n"
+#ifdef SPIN
+SPIN ";\n"
+#else
+"    eval \"$@\" &\n"
+"    pid=$!;\n"
+"    spinner='-\\|/';\n"
+"    sleep 0.01;\n"
+"    while kill -0 $pid 2>/dev/null; do\n"
+"        printf '%c\\033[D' \"$spinner\" >/dev/tty;\n"
+"        spinner=\"$(echo $spinner | sed 's/\\(.\\)\\(.*\\)/\\2\\1/')\";\n"
+"        sleep 0.1;\n"
+"    done;\n"
+"    wait $pid;\n"
+#endif
+"}\n"
+#ifdef SH
+"alias sh=" SH";\n"
+#endif
+;
 
 // Global variables
 static struct termios orig_termios, bb_termios;
@@ -299,6 +362,10 @@ void* memcheck(void *p)
  */
 int run_script(bb_t *bb, const char *cmd)
 {
+    char *fullcmd = calloc(strlen(cmd) + strlen(bbcmdfn) + 1, sizeof(char));
+    strcpy(fullcmd, bbcmdfn);
+    strcat(fullcmd, cmd);
+
     pid_t child;
     void (*old_handler)(int) = signal(SIGINT, SIG_IGN);
     if ((child = fork()) == 0) {
@@ -309,9 +376,6 @@ int run_script(bb_t *bb, const char *cmd)
         size_t i = 0;
         args[i++] = SH;
         args[i++] = "-c";
-        char *fullcmd = calloc(strlen(cmd) + strlen(bbcmdfn) + 1, sizeof(char));
-        strcpy(fullcmd, bbcmdfn);
-        strcat(fullcmd, cmd);
         args[i++] = fullcmd;
         args[i++] = "--"; // ensure files like "-i" are not interpreted as flags for sh
         for (entry_t *e = bb->firstselected; e; e = e->selected.next) {
@@ -874,6 +938,38 @@ void normalize_path(const char *root, const char *path, char *normalized, int cl
     }
 }
 
+/* 
+ * Return whether or not 's' is a simple bb command that doesn't need
+ * a full shell instance (e.g. "bb +cd:.." or "bb +move:+1").
+ */
+static int is_simple_bbcmd(const char *s)
+{
+    if (!s) return 0;
+    while (*s == ' ') ++s;
+    if (s[0] != '+' && strncmp(s, "bb +", 4) != 0)
+        return 0;
+    const char *special = ";$&<>|\n*?\\\"'";
+    for (const char *p = special; *p; ++p) {
+        if (strchr(s, *p))
+            return 0;
+    }
+    return 1;
+}
+
+/*
+ * Trim trailing whitespace by inserting '\0' and return a pointer to after the
+ * first non-whitespace char
+ */
+static char *trim(char *s)
+{
+    if (!s) return NULL;
+    while (*s == ' ' || *s == '\n') ++s;
+    char *end;
+    for (end = &s[strlen(s)-1]; end >= s && (*end == ' ' || *end == '\n'); end--)
+        *end = '\0';
+    return s;
+}
+
 int cd_to(bb_t *bb, const char *path)
 {
     char pbuf[PATH_MAX], prev[PATH_MAX] = {0};
@@ -986,10 +1082,11 @@ void populate_files(bb_t *bb, int samedir)
  */
 bb_result_t process_cmd(bb_t *bb, const char *cmd)
 {
-    char *value = strchr(cmd, ':');
+    if (cmd[0] == '+') ++cmd;
+    else if (strncmp(cmd, "bb +", 4) == 0) cmd = &cmd[4];
+    const char *value = strchr(cmd, ':');
     if (value) ++value;
 #define set_bool(target) do { if (!value) { target = !target; } else { target = value[0] == '1'; } } while (0)
-    if (cmd[0] == '+') ++cmd;
     switch (cmd[0]) {
         case '.': { // +..:, +.:
             if (cmd[1] == '.') // +..:
@@ -997,6 +1094,44 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
             else // +.:
                 set_bool(bb->show_dot);
             populate_files(bb, 1);
+            return BB_OK;
+        }
+        case 'b': { // +bind:<keys>:<script>
+            if (!value || !value[0])
+                return BB_INVALID;
+            char *value_copy = memcheck(strdup(value));
+            char *keys = trim(value_copy);
+            if (!keys[0]) { free(value_copy); return BB_OK; }
+            char *script = strchr(keys+1, ':');
+            if (!script) { free(value_copy); return BB_INVALID; }
+            *script = '\0';
+            script = trim(script + 1);
+            char *description;
+            if (script[0] == '#') {
+                description = trim(strsep(&script, "\n") + 1);
+                if (!script) script = "";
+                else script = trim(script);
+            } else description = script;
+            for (char *key; (key = strsep(&keys, ",")); ) {
+                int is_section = strcmp(key, "Section") == 0;
+                int keyval = strlen(key) == 1 ? key[0] : bkeywithname(key);
+                if (keyval == -1 && !is_section) continue;
+                for (int i = 0; i < sizeof(bindings)/sizeof(bindings[0]); i++) {
+                    if (bindings[i].key && (bindings[i].key != keyval || is_section))
+                        continue;
+                    binding_t binding = {keyval, memcheck(strdup(script)),
+                        memcheck(strdup(description))};
+                    if (bindings[i].key == keyval) {
+                        free(bindings[i].description);
+                        free(bindings[i].script);
+                        for (; i + 1 < sizeof(bindings)/sizeof(bindings[0]) && bindings[i+1].key; i++)
+                            bindings[i] = bindings[i+1];
+                    }
+                    bindings[i] = binding;
+                    break;
+                }
+            }
+            free(value_copy);
             return BB_OK;
         }
         case 'c': { // +cd:, +columns:
@@ -1097,7 +1232,7 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
             if (!bb->nfiles) return BB_INVALID;
             oldcur = bb->cursor;
             isdelta = value[0] == '-' || value[0] == '+';
-            n = (int)strtol(value, &value, 10);
+            n = (int)strtol(value, (char**)&value, 10);
             if (*value == '%')
                 n = (n * (value[1] == 'n' ? bb->nfiles : termheight)) / 100;
             if (isdelta) set_cursor(bb, bb->cursor + n);
@@ -1121,7 +1256,7 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
                     if (!value) return BB_INVALID;
                     // TODO: figure out the best version of this
                     int isdelta = value[0] == '+' || value[0] == '-';
-                    int n = (int)strtol(value, &value, 10);
+                    int n = (int)strtol(value, (char**)&value, 10);
                     if (*value == '%')
                         n = (n * (value[1] == 'n' ? bb->nfiles : termheight)) / 100;
                     if (isdelta)
@@ -1172,15 +1307,17 @@ void bb_browse(bb_t *bb, const char *path)
     bb->scroll = 0;
     bb->cursor = 0;
 
-    for (int i = 0; startupcmds[i]; i++) {
-        if (startupcmds[i][0] == '+')
-            process_cmd(bb, startupcmds[i] + 1);
-        else
-            run_script(bb, startupcmds[i]);
-        if (bb->should_quit)
-            goto quit;
-    }
-
+    const char *runstartup = 
+"[ ! \"$XDG_CONFIG_HOME\" ] && XDG_CONFIG_HOME=~/.config;\n"
+"[ ! \"$sysconfdir\" ] && sysconfdir=/etc;\n"
+"if [ -e \"$XDG_CONFIG_HOME/bb/bbstartup.sh\" ]; then\n"
+"    . \"$XDG_CONFIG_HOME/bb/bbstartup.sh\";\n"
+"elif [ -e \"$sysconfdir/xdg/bb/bbstartup.sh\" ]; then\n"
+"    . \"$sysconfdir/xdg/bb/bbstartup.sh\";\n"
+"elif [ -e \"./bbstartup.sh\" ]; then\n"
+"    . \"./bbstartup.sh\";\n"
+"fi\n";
+    run_script(bb, runstartup);
     init_term();
     goto force_check_cmds;
 
@@ -1290,20 +1427,10 @@ void bb_browse(bb_t *bb, const char *path)
             // Search user-defined key bindings from config.h:
             binding_t *binding;
           user_bindings:
-            for (int i = 0; bindings[i].keys[0] >= 0; i++) {
-                for (int j = 0; bindings[i].keys[j]; j++) {
-                    if (key == bindings[i].keys[j]) {
-                        // Move to front optimization:
-                        if (i > 2) {
-                            binding_t tmp;
-                            tmp = bindings[0];
-                            bindings[0] = bindings[i];
-                            bindings[i] = tmp;
-                            i = 0;
-                        }
-                        binding = &bindings[i];
-                        goto run_binding;
-                    }
+            for (int i = 0; bindings[i].key != 0 && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
+                if (key == bindings[i].key) {
+                    binding = &bindings[i];
+                    goto run_binding;
                 }
             }
             // Nothing matched
@@ -1312,8 +1439,8 @@ void bb_browse(bb_t *bb, const char *path)
           run_binding:
             if (cmdpos != 0)
                 err("Command file still open");
-            if (binding->script[0] == '+') {
-                process_cmd(bb, binding->script + 1);
+            if (is_simple_bbcmd(binding->script)) {
+                process_cmd(bb, binding->script);
             } else {
                 move_cursor(tty_out, 0, termheight-1);
                 fputs(T_ON(T_SHOW_CURSOR), tty_out);
@@ -1341,17 +1468,19 @@ void bb_browse(bb_t *bb, const char *path)
 void print_bindings(int fd)
 {
     char buf[1000], buf2[1024];
-    for (int i = 0; bindings[i].keys[0] >= 0; i++) {
-        if (bindings[i].keys[0] == 0) {
+    for (int i = 0; bindings[i].key != 0 && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
+        if (bindings[i].key == -1) {
             const char *label = bindings[i].description;
             sprintf(buf, "\n\033[33;1;4m\033[%dG%s\033[0m\n", (termwidth-(int)strlen(label))/2, label);
             write(fd, buf, strlen(buf));
             continue;
         }
+        int to_skip = -1;
         char *p = buf;
-        for (int j = 0; bindings[i].keys[j]; j++) {
-            if (j > 0) p = stpcpy(p, ", ");
-            int key = bindings[i].keys[j];
+        for (int j = i; bindings[j].key && strcmp(bindings[j].description, bindings[i].description) == 0; j++) {
+            if (j > i) p = stpcpy(p, ", ");
+            ++to_skip;
+            int key = bindings[j].key;
             const char *name = bkeyname(key);
             if (name)
                 p = stpcpy(p, name);
@@ -1363,10 +1492,11 @@ void print_bindings(int fd)
         *p = '\0';
         sprintf(buf2, "\033[1m\033[%dG%s\033[0m", termwidth/2 - 1 - (int)strlen(buf), buf);
         write(fd, buf2, strlen(buf2));
-        sprintf(buf2, "\033[0m\033[%dG\033[34m%s\033[0m", termwidth/2 + 1,
-                bindings[i].description ? bindings[i].description : bindings[i].script);
+        sprintf(buf2, "\033[1m\033[%dG\033[34m%s\033[0m", termwidth/2 + 1,
+                bindings[i].description);
         write(fd, buf2, strlen(buf2));
         write(fd, "\033[0m\n", strlen("\033[0m\n"));
+        i += to_skip;
     }
     write(fd, "\n", 1);
 }
