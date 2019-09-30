@@ -57,9 +57,6 @@ all: $(NAME)
 clean:
 	rm -f $(NAME)
 
-config.h:
-	cp config.def.h config.h
-
 $(NAME): $(NAME).c bterm.h config.h
 	$(CC) $(NAME).c $(CFLAGS) $(CWARN) $(G) $(O) -o $(NAME)
 	
