@@ -264,7 +264,7 @@ CONFIRM ";\n"
 #ifdef PAUSE
 PAUSE ";\n"
 #else
-"    ask1 REPLY \"\033[2mPress any key to continue...\033[0m\";"
+"    ask1 REPLY \"\033[0;2mPress any key to continue...\033[0m\";"
 #endif
 "}\n"
 "pick() {\n"
