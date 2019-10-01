@@ -29,16 +29,6 @@ void bb_browse(bb_t *bb, const char *path)
     bb->scroll = 0;
     bb->cursor = 0;
 
-    const char *runstartup = 
-"[ ! \"$XDG_CONFIG_HOME\" ] && XDG_CONFIG_HOME=~/.config;\n"
-"[ ! \"$sysconfdir\" ] && sysconfdir=/etc;\n"
-"if [ -e \"$XDG_CONFIG_HOME/bb/bbstartup.sh\" ]; then\n"
-"    . \"$XDG_CONFIG_HOME/bb/bbstartup.sh\";\n"
-"elif [ -e \"$sysconfdir/xdg/bb/bbstartup.sh\" ]; then\n"
-"    . \"$sysconfdir/xdg/bb/bbstartup.sh\";\n"
-"elif [ -e \"./bbstartup.sh\" ]; then\n"
-"    . \"./bbstartup.sh\";\n"
-"fi\n";
     run_script(bb, runstartup);
     init_term();
     goto force_check_cmds;

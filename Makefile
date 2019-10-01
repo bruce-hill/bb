@@ -68,10 +68,11 @@ install: $(NAME)
 	fi; \
 	[ ! "$$prefix" ] && prefix="/usr/local"; \
 	[ ! "$$sysconfdir" ] && sysconfdir=/etc; \
-	mkdir -m 700 -pv "$$prefix/bin" "$$prefix/share/man/man1" "$$sysconfdir/bb" \
+	mkdir -m 644 -pv "$$prefix/share/man/man1" \
+	mkdir -m 755 -pv "$$prefix/bin" "$$sysconfdir/xdg/bb" \
 	&& cp -v $(NAME) "$$prefix/bin/" \
 	&& cp -v $(NAME).1 "$$prefix/share/man/man1/" \
-	&& cp -v bbstartup.sh bindings.bb "$$sysconfdir/bb/"
+	&& cp -v bbstartup.sh bindings.bb "$$sysconfdir/xdg/bb/"
 
 uninstall:
 	@prefix="$(PREFIX)"; \
@@ -83,6 +84,6 @@ uninstall:
 	[ ! "$$sysconfdir" ] && sysconfdir=/etc; \
 	[ ! "$$XDG_CONFIG_HOME" ] && XDG_CONFIG_HOME=~/.config; \
 	echo "Deleting..."; \
-	rm -rvf "$$prefix/bin/$(NAME)" "$$prefix/share/man/man1/$(NAME).1" "$$sysconfdir/bb"; \
-	printf '\033[1mIf you created any config files in $$XDG_CONFIG_HOME/bb, you may want to delete them manually.\033[0m'
+	rm -rvf "$$prefix/bin/$(NAME)" "$$prefix/share/man/man1/$(NAME).1" "$$sysconfdir/xdg/bb"; \
+	printf "\033[1mIf you created any config files in ~/.config/bb, you may want to delete them manually.\033[0m"
 

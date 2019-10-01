@@ -298,4 +298,15 @@ SPIN ";\n"
 #endif
 ;
 
+const char *runstartup = 
+"[ ! \"$XDG_CONFIG_HOME\" ] && XDG_CONFIG_HOME=~/.config;\n"
+"[ ! \"$sysconfdir\" ] && sysconfdir=/etc;\n"
+"if [ -e \"$XDG_CONFIG_HOME/bb/bbstartup.sh\" ]; then\n"
+"    . \"$XDG_CONFIG_HOME/bb/bbstartup.sh\";\n"
+"elif [ -e \"$sysconfdir/xdg/bb/bbstartup.sh\" ]; then\n"
+"    . \"$sysconfdir/xdg/bb/bbstartup.sh\";\n"
+"elif [ -e \"./bbstartup.sh\" ]; then\n"
+"    . \"./bbstartup.sh\";\n"
+"fi\n";
+
 // vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1
