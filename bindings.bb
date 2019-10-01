@@ -78,7 +78,7 @@ Ctrl-a: # Select all files here
 
 Section: File Actions
 Enter: # Open file/directory
-    if [ -d "$BBCURSOR ]; then bb +cd:"$BBCURSOR";
+    if [ -d "$BBCURSOR" ]; then bb +cd:"$BBCURSOR";
     elif file -bi "$BBCURSOR" | grep -q '^\(text/\|inode/empty\)'; then $EDITOR "$BBCURSOR";
     else open "$BBCURSOR"; fi
 e: # Edit file in $EDITOR
@@ -91,7 +91,7 @@ D: # Delete all selected files
         confirm && rm -rf "$@" && bb +refresh && bb +deselect: "$@"
 Ctrl-v: # Move files here
     printf "\033[1mMoving the following to here:\n  \033[33m$(printf '  %s\n' "$@")\033[0m" | more &&
-        confirm && spin mv -i "$@" . && bb +refresh && bb +deselect "$@" &&
+        confirm && spin mv -i "$@" . && bb +refresh && bb +deselect:"$@" &&
         for f; do bb +sel:"$(basename "$f")"; done ||
         pause
 c: # Copy a file
