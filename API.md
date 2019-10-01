@@ -1,4 +1,5 @@
 # BB's API
+
 In `bb`, all interaction (more or less) occurs through binding keypresses
 (and mouse events) to shell scripts. These shell scripts can perform external
 actions (like moving files around) or internal actions (like changing the
@@ -7,6 +8,7 @@ temporary file, and scripts may write commands to this file to modify `bb`'s
 internal state.
 
 ## Helper Functions
+
 - `bb`: used for modifying `bb`'s internal state (see BB Commands).
 - `ask`: get user input in a standardized and customizable way. The first
   argument is a variable where the value is stored. The second argument is
@@ -21,6 +23,7 @@ internal state.
   (e.g. `spin sleep 5`).
 
 ## Environment Variables
+
 For startup commands and key bindings, the following values are provided as
 environment variables:
 
@@ -32,6 +35,7 @@ environment variables:
 - `$BBCMD`: a file to which `bb` commands can be written (used internally)
 
 ## BB Internal State Commands
+
 In order to modify bb's internal state, you can call `bb +cmd`, where "cmd"
 is one of the following commands (or a unique prefix of one):
 
@@ -63,7 +67,14 @@ absolute value or a relative value (starting with `+` or `-`), and/or a percent
 and `%n` means percent of number of files (e.g. `+50%` means half a screen
 height down, and `100%n` means the last file)
 
-Internally, `bb` will write the commands (NUL terminated) to a file whose path
-is in`$BBCMD` and read the file when `bb` resumes. These commands can also be
-passed to bb at startup, and will run immediately.  E.g. `bb '+col:n'
+## Final Notes
+
+Internally, `bb` writes the commands (NUL terminated) to a file whose path is
+in`$BBCMD` and reads from that file when `bb` resumes. These commands can also
+be passed to bb at startup, and will run immediately.  E.g. `bb '+col:n'
 '+sort:+r' .` will launch `bb` only showing the name column, randomly sorted.
+
+`bb` also optimizes any scripts that only contain just a `bb` command and no
+shell variables, other commands, etc. (e.g. `bb +move:+1`) These
+`bb`-command-only scripts directly modify `bb`'s internal state without
+spawning a shell, so they're much faster and avoid flickering the screen.

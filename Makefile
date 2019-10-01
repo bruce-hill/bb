@@ -57,7 +57,7 @@ all: $(NAME)
 clean:
 	rm -f $(NAME)
 
-$(NAME): $(NAME).c bterm.h config.h
+$(NAME): $(NAME).c bterm.h bb.h
 	$(CC) $(NAME).c $(CFLAGS) $(CWARN) $(G) $(O) -o $(NAME)
 	
 install: $(NAME)

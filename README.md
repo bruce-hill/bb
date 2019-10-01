@@ -11,6 +11,7 @@
 ![BB Preview Video](https://bitbucket.org/spilt/bb/downloads/bb.gif)
 
 ## Building
+
 No dependencies besides `make` and a C compiler, just:
 
     make
@@ -41,46 +42,39 @@ Pressing `Ctrl-c` will cause `bb` to exit with a failure status and without
 printing anything.
 
 ## bb's Philosophy
+
 The core idea behind `bb` is that `bb` is a file **browser**, not a file
 **manager**, which means `bb` uses shell scripts to perform all modifications
 to the filesystem (passing selected files as arguments), rather than
 reinventing the wheel by hard-coding operations like `rm`, `mv`, `cp`, `touch`,
-and so on.  Shell scripts can be bound to keypresses in config.h (the user's
-version of [the defaults in config.def.h](config.def.h)). For example, `p` is
-bound to `$PAGER "$@"`, which means selecting `file1` and `file2`, then
-pressing `p` will cause `bb` to run the shell command `$PAGER file1 file2`.
+and so on.  Shell scripts can be bound to keypresses in
+`~/.config/bb/bindings.bb`. For example, `p` is bound to `$PAGER "$@"`, which
+means selecting `file1` and `file2`, then pressing `p` will cause `bb` to run
+the shell command `$PAGER file1 file2`.
 
 ## Customizing bb
+
 `bb` comes with a bunch of pre-defined bindings for basic actions in
-[config.def.h](config.def.h) (within `bb`, press `?` to see descriptions of the
-bindings), but it's very easy to add new bindings for whatever custom scripts
-you want to run, just add a new entry in `bindings` in config.h with the form
-`{{keys...}, "<shell command>", "<description>"}` (The description is shown when
-pressing `?` within `bb`.)
-
-### User Input in Scripts
-If you need user input in a binding, you can use the `ASK(var, prompt,
-initial)` macro, which internally uses the `read` shell function (`initial` is
-discarded). Optionally, `bb` can use `ask` or `dmenu` by passing `ASKER=ask` or
-`ASKER=dmenu` to `make` during the build process. This is used in a few key
-bindings by default, including `Ctrl-n` and `:`.
-
-### Fuzzy Finding
-To select from a list of options with a fuzzy finder in a binding, you can use
-the `PICK` macro. During the `make` process, you can use `PICKER=fzy`,
-`PICKER=fzf`, `PICKER=dmenu`, or `PICKER=ask` to choose which fuzzy finder
-program `bb` will use. This is used in the `/` and `Ctrl-f` key bindings by
-default.
+[bindings.bb](bindings.bb) (installed to `/etc/xdg/bb/bindings.bb`) (within
+`bb`, press `?` to see descriptions of the bindings), but it's very easy to add
+new bindings for whatever custom scripts you want to run, just `mkdir -p
+~/.config/bb && cp -n /etc/xdg/bb/bindings.bb ~/.config/bb/` and edit
+`~/.config/bb/bindings.bb` to have your new bindings. You can also create
+bindings at runtime by hitting `Ctrl-b` (in case you want to set up an easy way
+to repeat some custom workflow).
 
 ### API
+
 `bb` also exposes an API that allows shell scripts to modify `bb`'s internal
 state. To do this, call `bb +<your command>` from within `bb`. For example, by
 default, `j` is bound to `bb +move:+1`, which has the effect of moving `bb`'s
-cursor down one item. More details about the API can be found in [the config
-file](config.def.h).
+cursor down one item. More details about the API can be found in [the API
+documentation](API.md).
 
 ## FAQ
+
 ### Using bb to Change Directory
+
 Applications cannot change the shell's working directory on their own, but you
 can define a shell function that uses the shell's builtin `cd` function on the
 output of `bb -d` (print directory on exit). For bash (sh, zsh, etc.), you can
@@ -98,6 +92,7 @@ In both versions, the directory will not change if `bb` exits with failure
 (e.g. by pressing `Ctrl-c`).
 
 ### Launching bb with a Keyboard Shortcut
+
 Using a keyboard shortcut to launch `bb` from the shell is something that is
 handled by your shell. Here are some examples for binding `Ctrl-b` to launch
 `bb` and change directory to `bb`'s directory (using the `bcd` function defined
@@ -110,4 +105,5 @@ For fish, put this in your `~/.config/fish/functions/fish_user_key_bindings.fish
     bind \cB 'bcd; commandline -f repaint'
 
 ## License
+
 `bb` is released under the MIT license. See the `LICENSE` file for full details.
