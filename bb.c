@@ -146,7 +146,7 @@ void bb_browse(bb_t *bb, const char *path)
             goto next_input;
 
         default: {
-            // Search user-defined key bindings from config.h:
+            // Search user-defined key bindings
             binding_t *binding;
           user_bindings:
             for (int i = 0; bindings[i].key != 0 && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
