@@ -150,7 +150,7 @@ Section: Viewing Options
 s: # Sort by...
     ask1 sort "Sort (n)ame (s)ize (m)odification (c)reation (a)ccess (r)andom (p)ermissions: " &&
         bb +sort:"~$sort" +refresh
-#: # Set columns
+---,#: # Set columns
     ask columns "Set columns (*)selected (a)ccessed (c)reated (m)odified (n)ame (p)ermissions (r)andom (s)ize: " &&
         bb +col:"$columns"
 .: # Toggle dotfile visibility
