@@ -12,9 +12,7 @@
 static struct termios orig_termios, bb_termios;
 static FILE *tty_out = NULL, *tty_in = NULL;
 static int termwidth, termheight;
-static int mouse_x, mouse_y;
 static char *cmdfilename = NULL;
-static struct timespec lastclick = {0, 0};
 
 /*
  * Use bb to browse a path.
@@ -76,7 +74,8 @@ void bb_browse(bb_t *bb, const char *path)
         goto redraw;
     }
 
-    int key;
+    int key, mouse_x, mouse_y;
+    static struct timespec lastclick = {0, 0};
   get_keyboard_input:
     key = bgetkey(tty_in, &mouse_x, &mouse_y);
     switch (key) {
