@@ -9,7 +9,7 @@
 # Create some default marks:
 mkdir -p "$XDG_CONFIG_HOME/bb/marks"
 mark() {
-    ln -sT "$XDG_CONFIG_HOME/bb/marks/$1" "$2" 2>/dev/null
+    ln -sT "$2" "$XDG_CONFIG_HOME/bb/marks/$1" 2>/dev/null
 }
 mark home ~
 mark root /
