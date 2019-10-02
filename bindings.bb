@@ -77,7 +77,7 @@ Ctrl-a: # Select all files here
     else find -mindepth 1 -maxdepth 1 ! -path '*/.*' -print0; fi | bb +sel:
 
 Section: File Actions
-Enter: # Open file/directory
+Enter,Double left click: # Open file/directory
     if [ "$(uname)" = "Darwin" ]; then
         if [ -d "$BBCURSOR" ]; then bb +cd:"$BBCURSOR";
         elif file -bI "$BBCURSOR" | grep -q '^\(text/\|inode/empty\)'; then $EDITOR "$BBCURSOR";
