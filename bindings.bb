@@ -78,9 +78,15 @@ Ctrl-a: # Select all files here
 
 Section: File Actions
 Enter: # Open file/directory
-    if [ -d "$BBCURSOR" ]; then bb +cd:"$BBCURSOR";
-    elif file -bi "$BBCURSOR" | grep -q '^\(text/\|inode/empty\)'; then $EDITOR "$BBCURSOR";
-    else open "$BBCURSOR"; fi
+    if [ "$(uname)" = "Darwin" ]; then
+        if [ -d "$BBCURSOR" ]; then bb +cd:"$BBCURSOR";
+        elif file -bI "$BBCURSOR" | grep -q '^\(text/\|inode/empty\)'; then $EDITOR "$BBCURSOR";
+        else open "$BBCURSOR"; fi
+    else
+        if [ -d "$BBCURSOR" ]; then bb +cd:"$BBCURSOR";
+        elif file -bi "$BBCURSOR" | grep -q '^\(text/\|inode/empty\)'; then $EDITOR "$BBCURSOR";
+        else xdg-open "$BBCURSOR"; fi
+    fi
 e: # Edit file in $EDITOR
     $EDITOR "$BBCURSOR" || pause
 d: # Delete a file
