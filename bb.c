@@ -815,7 +815,16 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
             if (e) set_selected(bb, e, !IS_SELECTED(e));
             return BB_OK;
         }
-        default: err("UNKNOWN COMMAND: '%s'", cmd); break;
+        default: {
+            fputs(T_LEAVE_BBMODE, tty_out);
+            restore_term(&orig_termios);
+            const char *msg = "Invalid bb command: ";
+            write(STDERR_FILENO, msg, strlen(msg));
+            write(STDERR_FILENO, cmd, strlen(cmd));
+            write(STDERR_FILENO, "\n", 1);
+            init_term();
+            return BB_INVALID;
+        }
     }
     return BB_INVALID;
 }
