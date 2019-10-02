@@ -772,7 +772,7 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
         }
         case 'q': // +quit
             bb->should_quit = 1;
-            return BB_QUIT;
+            return BB_OK;
         case 'r': // +refresh
             populate_files(bb, 1);
             return BB_OK;

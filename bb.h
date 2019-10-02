@@ -130,7 +130,7 @@ typedef struct bb_s {
     unsigned int should_quit : 1;
 } bb_t;
 
-typedef enum { BB_OK = 0, BB_INVALID, BB_QUIT } bb_result_t;
+typedef enum { BB_OK = 0, BB_INVALID } bb_result_t;
 
 // Configurable options:
 #define SCROLLOFF   MIN(5, (termheight-4)/2)
