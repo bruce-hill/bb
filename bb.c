@@ -27,7 +27,6 @@ void bb_browse(bb_t *bb, const char *path)
     bb->scroll = 0;
     bb->cursor = 0;
 
-    run_script(bb, runstartup);
     init_term();
     goto force_check_cmds;
 
@@ -1333,12 +1332,15 @@ int main(int argc, char *argv[])
         }
     }
 
+    // Check whether anything was piped in to begin with,
+    // and if so, treat it as commands
     struct pollfd pfd = {STDIN_FILENO, POLLIN, 0};
     if (poll(&pfd, 1, 0) == 1 && pfd.revents & POLLIN) {
         ssize_t len;
         char buf[1024];
         while ((len = read(STDIN_FILENO, buf, sizeof(buf))) > 0)
             write(cmdfd, buf, (size_t)len);
+        write(cmdfd, "\0", 1);
     }
 
     if (cmdfd != -1) {
@@ -1373,6 +1375,8 @@ int main(int argc, char *argv[])
     bb_t *bb = memcheck(calloc(1, sizeof(bb_t)));
     bb->columns[0] = COL_NAME;
     strcpy(bb->sort, "+n");
+    cd_to(bb, path);
+    run_script(bb, runstartup);
     bb_browse(bb, path);
 
     if (bb->firstselected && print_selection) {
