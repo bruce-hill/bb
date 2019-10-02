@@ -128,7 +128,7 @@ p: # Page through a file with $PAGER
 :: # Run a command
     ask cmd ':' && sh -c "$BBSHELLFUNC$cmd" -- "$@"; bb +r; pause
 >: # Open a shell
-    tput rmcup >/dev/tty; $SHELL; bb +r
+    tput rmcup; $SHELL; bb +r
 r,F2: # Rename a file
     ask newname "Rename \033[33m$(basename "$BBCURSOR")\033[39m: " "$(basename "$BBCURSOR")" || exit
     r="$(dirname "$BBCURSOR")/$newname" || exit
