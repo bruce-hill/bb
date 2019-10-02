@@ -61,7 +61,7 @@ Section: File Selection
 v,V,Space: # Toggle selection at cursor
     bb +toggle
 Escape: # Clear selection
-    bb +deselect: "$@"
+    [ $# -gt 0 ] && bb +deselect: "$@"
 Ctrl-s: # Save the selection
     [ $# -gt 0 ] && ask savename "Save selection as: " && printf '%s\0' "$@" > ~/.config/bb/"$savename"
 Ctrl-o: # Open a saved selection
