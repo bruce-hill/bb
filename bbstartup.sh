@@ -29,3 +29,4 @@ elif [ -e "$sysconfdir/xdg/bb/bindings.bb" ]; then
 elif [ -e bindings.bb ]; then
     cat bindings.bb
 fi | sed -e '/^#/d' -e "s/^[^ ]/$(printf '\034')+bind:\\0/" | tr '\034' '\0' >> "$BBCMD"
+printf '\0' >> "$BBCMD"
