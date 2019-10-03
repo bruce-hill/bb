@@ -84,7 +84,7 @@ Enter,Double left click: # Open file/directory
         else open "$BBCURSOR"; fi
     else
         if [ -d "$BBCURSOR" ]; then bb +cd:"$BBCURSOR";
-        elif file -bi "$BBCURSOR" | grep -q '^\(text/\|inode/empty\)'; then $EDITOR "$BBCURSOR";
+        elif file -bi "$BBCURSOR" | grep -q '^\(text/\|inode/x-empty\)'; then $EDITOR "$BBCURSOR";
         else xdg-open "$BBCURSOR"; fi
     fi
 e: # Edit file in $EDITOR
