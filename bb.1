@@ -8,7 +8,9 @@ bb \- A bitty browser for command line file management
 [\fI-d\fR]
 [\fI-s\fR]
 [\fI-0\fR]
-[\fI+command... \fR]
+[\fI-v\fR|\fI--version\fR]
+[\fI-h\fR|\fI--help\fR]
+[\fI+command\fR]*
 [\fIdirectory\fR]
 .SH DESCRIPTION
 \fBbb\fR is a tiny TUI console application for browsing and managing files.
@@ -26,12 +28,17 @@ newline-separated.
 .B \-d
 Print the current directory on exit.
 
-.B \+command
-From within \fBbb\fR, running \fBbb +command\fR will execute an internal bb
-command for modifying bb's state.
+.B \--version
+Print the version and exit.
+
+.B \--help
+Print the usage and exit.
+
+.B +command
+As soon as \fBbb\fR has launched, run the given command.
 
 .B directory
-Open to this directory.
+Open \fBbb\fR viewing this directory.
 
 .SH CONTROLS
 For full details on all key bindings, press \fB?\fR from inside \fBbb\fR to get
@@ -52,6 +59,7 @@ cleared by pressing \fBEscape\fR.
 .B Mouse:
 Clicking on a file will move the cursor to it. Double clicking will open it.
 Clicking on the '*' column of a file will toggle that file's selection.
+Clicking on a column's label will sort according to that column.
 
 .SH EXAMPLES
 .TP
@@ -61,7 +69,7 @@ Begin browsing in /usr/local/
 
 .TP
 .B
-alias bb="cd '`/usr/local/bin/bb -d || pwd`'"
+alias bcd="cd '`bb -d`'"
 Create an alias to launch \fBbb\fR and change directory to wherever it's located
 when you exit (unless you exit with Ctrl-c).
 
@@ -69,6 +77,11 @@ when you exit (unless you exit with Ctrl-c).
 .B
 bb -s -0 | xargs -0 zip archive.zip
 Select some files to add to a zip archive.
+
+.TP
+.B
+bb +select: *.txt
+Launch \fBbb\fR with all the .txt files in the current directory selected.
 
 .SH AUTHOR
 Bruce Hill (bruce@bruce-hill.com)
