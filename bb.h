@@ -220,6 +220,9 @@ static const struct termios default_termios = {
     .c_cc[VTIME] = 0,
 };
 
+static const char *description_str = "bb - an itty bitty console TUI file browser\n";
+static const char *usage_str = "Usage: bb (-h/--help | -v/--version | -s | -d | -0 | +command | path)*\n";
+
 // Shell functions
 static const char *bbcmdfn = "bb() {\n"
 "    if test $# -eq 0; then cat >> $BBCMD; return; fi\n"

@@ -26,6 +26,7 @@ void bb_browse(bb_t *bb, const char *path)
     cd_to(bb, path);
     bb->scroll = 0;
     bb->cursor = 0;
+    bb->dirty = 0;
 
     init_term();
     goto force_check_cmds;
@@ -59,6 +60,11 @@ void bb_browse(bb_t *bb, const char *path)
             cmdpos = ftell(cmdfile);
             if (!cmd[0]) continue;
             process_cmd(bb, cmd);
+            if (bb->dirty) {
+                free(cmd);
+                fclose(cmdfile);
+                goto redraw;
+            }
             if (bb->should_quit) {
                 free(cmd);
                 fclose(cmdfile);
@@ -1259,20 +1265,50 @@ int main(int argc, char *argv[])
     int print_dir = 0, print_selection = 0;
 
     for (int i = 1; i < argc; i++) {
+        // Commands are processed below, after flags have been parsed
         if (argv[i][0] == '+') {
             char *colon = strchr(argv[i], ':');
-            if (colon && !colon[1]) break;
-            continue;
-        }
-        if (strcmp(argv[i], "--") == 0) {
+            if (colon && !colon[1])
+                break;
+        } else if (strcmp(argv[i], "--") == 0) {
             if (i + 1 < argc) initial_path = argv[i+1];
+            if (i + 2 < argc) {
+                printf("Extra arguments after %s\n%s", argv[i+1], usage_str);
+                return 1;
+            }
             break;
-        }
-        if (argv[i][0] != '-' && !initial_path)
+        } else if (strcmp(argv[i], "--help") == 0) {
+          help:
+            printf("%s%s", description_str, usage_str);
+            return 0;
+        } else if (strcmp(argv[i], "--version") == 0) {
+          version:
+            printf("bb " BB_VERSION "\n");
+            return 0;
+        } else if (argv[i][0] == '-' && argv[i][1] == '-') {
+            if (argv[i][2] == '\0') break;
+            printf("Unknown command line argument: %s\n%s", argv[i], usage_str);
+            return 1;
+        } else if (argv[i][0] == '-') {
+            for (char *c = &argv[i][1]; *c; c++) {
+                switch (*c) {
+                    case 'h': goto help;
+                    case 'v': goto version;
+                    case 'd': print_dir = 1; break;
+                    case '0': sep = '\0'; break;
+                    case 's': print_selection = 1; break;
+                    default: printf("Unknown command line argument: -%c\n%s", *c, usage_str);
+                             return 1;
+                }
+            }
+        } else if (!initial_path) {
             initial_path = argv[i];
+        } else {
+            printf("Unknown command line argument: %s\n%s", argv[i], usage_str);
+            return 1;
+        }
     }
-    if (!initial_path)
-        initial_path = ".";
+    if (!initial_path) initial_path = ".";
 
     cmdfilename = memcheck(strdup(CMDFILE_FORMAT));
     int cmdfd;
@@ -1284,69 +1320,6 @@ int main(int argc, char *argv[])
     sprintf(depthstr, "%d", depth + 1);
     setenv("BB_DEPTH", depthstr, 1);
     setenv("BBCMD", cmdfilename, 1);
-
-    int i;
-    for (i = 1; i < argc; i++) {
-        if (argv[i][0] == '+') {
-            char *colon = strchr(argv[i], ':');
-            if (colon && !colon[1]) {
-                for (int j = i+1; j < argc; j++) {
-                    write(cmdfd, argv[i]+1, strlen(argv[i]+1));
-                    write(cmdfd, argv[j], strlen(argv[j])+1);
-                }
-            } else {
-                write(cmdfd, argv[i]+1, strlen(argv[i]+1)+1);
-            }
-            continue;
-        }
-        if (strcmp(argv[i], "--") == 0) break;
-        if (strcmp(argv[i], "--help") == 0) {
-          usage:
-            printf("bb - an itty bitty console TUI file browser\n");
-            printf("Usage: bb [-h/--help] [-s] [-d] [-0] (+command)* [path]\n");
-            return 0;
-        }
-        if (strcmp(argv[i], "--version") == 0) {
-          version:
-            printf("bb " BB_VERSION "\n");
-            return 0;
-        }
-        if (argv[i][0] == '-' && argv[i][1] == '-') {
-            if (argv[i][2] == '\0') break;
-            continue;
-        }
-        if (argv[i][0] == '-') {
-            for (char *c = &argv[i][1]; *c; c++) {
-                switch (*c) {
-                    case 'h':goto usage;
-                    case 'v': goto version;
-                    case 'd': print_dir = 1;
-                              break;
-                    case '0': sep = '\0';
-                              break;
-                    case 's': print_selection = 1;
-                              break;
-                }
-            }
-            continue;
-        }
-    }
-
-    // Check whether anything was piped in to begin with,
-    // and if so, treat it as commands
-    struct pollfd pfd = {STDIN_FILENO, POLLIN, 0};
-    if (poll(&pfd, 1, 0) == 1 && pfd.revents & POLLIN) {
-        ssize_t len;
-        char buf[1024];
-        while ((len = read(STDIN_FILENO, buf, sizeof(buf))) > 0)
-            write(cmdfd, buf, (size_t)len);
-        write(cmdfd, "\0", 1);
-    }
-
-    if (cmdfd != -1) {
-        close(cmdfd);
-        cmdfd = -1;
-    }
 
     if (!initial_path)
         return 0;
@@ -1377,6 +1350,38 @@ int main(int argc, char *argv[])
     strcpy(bb->sort, "+n");
     cd_to(bb, path);
     run_script(bb, runstartup);
+    write(cmdfd, "", 1);
+    for (int i = 0; i < argc; i++) {
+        if (argv[i][0] == '+') {
+            char *colon = strchr(argv[i], ':');
+            char *cmd = argv[i];
+            if (colon && !colon[1]) {
+                for (++i; i < argc; i++) {
+                    write(cmdfd, cmd, strlen(cmd));
+                    write(cmdfd, argv[i], strlen(argv[i])+1); // Include null byte
+                }
+            } else {
+                write(cmdfd, cmd, strlen(cmd)+1); // Include null byte
+            }
+        }
+    }
+
+    // Check whether anything was piped in to begin with,
+    // and if so, treat it as commands
+    struct pollfd pfd = {STDIN_FILENO, POLLIN, 0};
+    if (poll(&pfd, 1, 0) == 1 && pfd.revents & POLLIN) {
+        ssize_t len;
+        char buf[1024];
+        while ((len = read(STDIN_FILENO, buf, sizeof(buf))) > 0)
+            write(cmdfd, buf, (size_t)len);
+        write(cmdfd, "\0", 1);
+    }
+
+    if (cmdfd != -1) {
+        close(cmdfd);
+        cmdfd = -1;
+    }
+
     bb_browse(bb, path);
 
     if (bb->firstselected && print_selection) {
