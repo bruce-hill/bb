@@ -683,8 +683,11 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
         case 'd': { // +deselect:, +dotfiles:
             switch (cmd[1]) {
                 case 'e': { // +deselect:
-                    if (!value && !bb->nfiles) return BB_INVALID;
-                    if (!value) value = bb->files[bb->cursor]->fullname;
+                    if (!value) {
+                        while (bb->firstselected)
+                            set_selected(bb, bb->firstselected, 0);
+                        return BB_OK;
+                    }
                     char pbuf[PATH_MAX];
                     normalize_path(bb->path, value, pbuf, 1);
                     entry_t *e = load_entry(bb, pbuf, 0);

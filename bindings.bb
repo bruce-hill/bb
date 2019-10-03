@@ -61,13 +61,16 @@ Section: File Selection
 v,V,Space: # Toggle selection at cursor
     bb +toggle
 Escape: # Clear selection
-    [ $# -gt 0 ] && bb +deselect: "$@"
+    bb +deselect
+Ctrl-y: # Clear selection
+    true && bb +deselect
 Ctrl-s: # Save the selection
     [ $# -gt 0 ] && ask savename "Save selection as: " && printf '%s\0' "$@" > ~/.config/bb/"$savename"
 Ctrl-o: # Open a saved selection
     loadpath="$(find ~/.config/bb -maxdepth 1 -type f | pick "Load selection: ")" &&
-        [ -e "$loadpath" ] && bb +deselect: "$@" &&
-        while IFS= read -r -d $'\0'; do bb +select:"$REPLY"; done < "$loadpath"
+        [ -e "$loadpath" ] && bb +deselect &&
+        while IFS= read -r -d $'\0'; do bb +select:"$REPLY"; done < "$loadpath" &&
+        bb +refresh
 J: # Spread selection down
     bb +spread:+1
 K: # Spread selection up
@@ -91,13 +94,13 @@ e: # Edit file in $EDITOR
     $EDITOR "$BBCURSOR" || pause
 d: # Delete a file
     printf "\033[1mDeleting \033[33m$BBCURSOR\033[0;1m...\033[0m " && confirm &&
-        rm -rf "$BBCURSOR" && bb +deselect:"$BBCURSOR" && bb +refresh
+        rm -rf "$BBCURSOR" && bb +deselect:"$BBCURSOR" +refresh
 D: # Delete all selected files
     [ $# -gt 0 ] && printf "\033[1mDeleting the following:\n  \033[33m$(printf '  %s\n' "$@")\033[0m" | more &&
-        confirm && rm -rf "$@" && bb +deselect: "$@" && bb +refresh
+        confirm && rm -rf "$@" && bb +deselect +refresh
 Ctrl-v: # Move files here
     printf "\033[1mMoving the following to here:\n  \033[33m$(printf '  %s\n' "$@")\033[0m" | more &&
-        confirm && spin mv -i "$@" . && bb +refresh && bb +deselect:"$@" &&
+        confirm && spin mv -i "$@" . && bb +deselect +refresh &&
         for f; do bb +sel:"$(basename "$f")"; done ||
         pause
 c: # Copy a file
@@ -134,14 +137,14 @@ r,F2: # Rename a file
     r="$(dirname "$BBCURSOR")/$newname" || exit
     [ "$r" != "$BBCURSOR" ] && mv -i "$BBCURSOR" "$r" && bb +refresh &&
         while [ $# -gt 0 ]; do  "$1" = "$BBCURSOR"  && bb +deselect:"$BBCURSOR" +select:"$r"; shift; done &&
-        bb +goto:"$r"
+        bb +goto:"$r" +refresh
 R: # Rename all selected files
     bb +refresh;
     for f; do
         ask newname "Rename \033[33m$(basename "$f")\033[39m: " "$(basename "$f")" || break;
         r="$(dirname "$f")/$newname";
-        [ "$r" != "$f" ] && mv -i "$f" "$r" && bb "+deselect:$f" "+select:$r";
-        [ "$f" = "$BBCURSOR" ] && bb +goto:"$r";
+        [ "$r" != "$f" ] && mv -i "$f" "$r" && bb +deselect:"$f" +select:"$r";
+        [ "$f" = "$BBCURSOR" ] && bb +goto:"$r" +refresh;
     done
 Ctrl-r: # Regex rename files
     command -v rename >/dev/null || { echo 'The `rename` command is not installed. Please install it to use this key binding.'; pause; exit; };
@@ -149,8 +152,7 @@ Ctrl-r: # Regex rename files
         printf "\033[1mRenaming:\n\033[33m$(if [ $# -gt 0 ]; then rename -nv "$patt" "$rep" "$@"; else rename -nv "$patt" "$rep" *; fi)\033[0m" | more &&
         confirm &&
         if [ $# -gt 0 ]; then rename -i "$patt" "$rep" "$@"; else rename -i "$patt" "$rep" *; fi;
-    bb +deselect: "$@";
-    bb +refresh
+    bb +deselect +refresh
 
 Section: Viewing Options
 s: # Sort by...
