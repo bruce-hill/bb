@@ -91,10 +91,10 @@ e: # Edit file in $EDITOR
     $EDITOR "$BBCURSOR" || pause
 d: # Delete a file
     printf "\033[1mDeleting \033[33m$BBCURSOR\033[0;1m...\033[0m " && confirm &&
-        rm -rf "$BBCURSOR" && bb +refresh && bb +deselect:"$BBCURSOR"
+        rm -rf "$BBCURSOR" && bb +deselect:"$BBCURSOR" && bb +refresh
 D: # Delete all selected files
     [ $# -gt 0 ] && printf "\033[1mDeleting the following:\n  \033[33m$(printf '  %s\n' "$@")\033[0m" | more &&
-        confirm && rm -rf "$@" && bb +refresh && bb +deselect: "$@"
+        confirm && rm -rf "$@" && bb +deselect: "$@" && bb +refresh
 Ctrl-v: # Move files here
     printf "\033[1mMoving the following to here:\n  \033[33m$(printf '  %s\n' "$@")\033[0m" | more &&
         confirm && spin mv -i "$@" . && bb +refresh && bb +deselect:"$@" &&
