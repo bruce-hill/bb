@@ -69,8 +69,7 @@ Ctrl-s: # Save the selection
 Ctrl-o: # Open a saved selection
     loadpath="$(find ~/.config/bb -maxdepth 1 -type f | pick "Load selection: ")" &&
         [ -e "$loadpath" ] && bb +deselect &&
-        while IFS= read -r -d $'\0'; do bb +select:"$REPLY"; done < "$loadpath" &&
-        bb +refresh
+        while IFS= read -r -d $'\0'; do bb +select:"$REPLY"; done < "$loadpath"
 J: # Spread selection down
     bb +spread:+1
 K: # Spread selection up
@@ -133,21 +132,29 @@ p: # Page through a file with $PAGER
 >: # Open a shell
     tput rmcup; $SHELL; bb +r
 r,F2: # Rename a file
-    ask newname "Rename \033[33m$(basename "$BBCURSOR")\033[39m: " "$(basename "$BBCURSOR")" || exit
+    ask newname "Rename $(printf "\033[33m%s\033[39m" "$(basename "$BBCURSOR")"): " "$(basename "$BBCURSOR")" || exit
     r="$(dirname "$BBCURSOR")/$newname" || exit
-    [ "$r" != "$BBCURSOR" ] && mv -i "$BBCURSOR" "$r" && bb +refresh &&
+    [ "$r" = "$BBCURSOR" ] && exit
+    [ -e "$r" ] && printf "\033[31;1m$r already exists! It will be overwritten.\033[0m " &&
+        confirm && { rm -rf "$r" || { pause; exit; }; }
+    mv "$BBCURSOR" "$r" && bb +refresh &&
         while [ $# -gt 0 ]; do  "$1" = "$BBCURSOR"  && bb +deselect:"$BBCURSOR" +select:"$r"; shift; done &&
-        bb +goto:"$r" +refresh
+        bb +goto:"$r" || { pause; exit; }
 R: # Rename all selected files
-    bb +refresh;
     for f; do
-        ask newname "Rename \033[33m$(basename "$f")\033[39m: " "$(basename "$f")" || break;
+        ask newname "Rename $(printf "\033[33m%s\033[39m" "$(basename "$f")"): " "$(basename "$f")" || break;
         r="$(dirname "$f")/$newname";
-        [ "$r" != "$f" ] && mv -i "$f" "$r" && bb +deselect:"$f" +select:"$r";
-        [ "$f" = "$BBCURSOR" ] && bb +goto:"$r" +refresh;
-    done
+        [ "$r" = "$f" ] && continue;
+        [ -e "$r" ] && printf "\033[31;1m$r already exists! It will be overwritten.\033[0m "
+            && confirm && { rm -rf "$r" || { pause; exit; }; }
+        mv "$f" "$r" || { pause; exit; }
+        bb +deselect:"$f" +select:"$r";
+        [ "$f" = "$BBCURSOR" ] && bb +goto:"$r";
+    done;
+    bb +refresh
 Ctrl-r: # Regex rename files
-    command -v rename >/dev/null || { echo 'The `rename` command is not installed. Please install it to use this key binding.'; pause; exit; };
+    command -v rename >/dev/null ||
+        { printf '\033[31;1mThe `rename` command is not installed. Please install it to use this key binding.\033[0m\n'; pause; exit; };
     ask patt "Replace pattern: " && ask rep "Replacement: " &&
         printf "\033[1mRenaming:\n\033[33m$(if [ $# -gt 0 ]; then rename -nv "$patt" "$rep" "$@"; else rename -nv "$patt" "$rep" *; fi)\033[0m" | more &&
         confirm &&
@@ -157,7 +164,7 @@ Ctrl-r: # Regex rename files
 Section: Viewing Options
 s: # Sort by...
     ask1 sort "Sort (n)ame (s)ize (m)odification (c)reation (a)ccess (r)andom (p)ermissions: " &&
-        bb +sort:"~$sort" +refresh
+        bb +sort:"~$sort"
 ---,#: # Set columns
     ask columns "Set columns (*)selected (a)ccessed (c)reated (m)odified (n)ame (p)ermissions (r)andom (s)ize: " &&
         bb +col:"$columns"
@@ -168,6 +175,7 @@ i: # Toggle interleaving files and directories
 F5: # Refresh view
     bb +refresh
 Ctrl-b: # Bind a key to a script
-    ask1 key "Press key to bind..." && echo && ask script "Bind script: " && bb +bind:"$(printf "$key:$script")"
+    ask1 key "Press key to bind..." && echo && ask script "Bind script: " &&
+        bb +bind:"$key":"{ $script; } || pause" || pause
 
 Section: User Bindings

@@ -24,16 +24,16 @@ endif
 ifneq (, $(PICKER))
 	PICKER_FLAG=-D"PICK=\"$(PICKER) --prompt=\\\"$$1\\\"\""
 	ifeq ($(shell which $(PICKER)),$(shell which fzy 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK="printf \"\\033[3A\" >/dev/tty; fzy --lines=3 --prompt=\"\033[1m$$1\033[0m\""'
+		PICKER_FLAG=-D'PICK="printf \"\\033[3A\\033[?25h\" >/dev/tty; fzy --lines=3 --prompt=\"\033[1m$$1\033[0m\""'
 	endif
 	ifeq ($(shell which $(PICKER)),$(shell which fzf 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK="printf \"\\033[3A\" >/dev/tty; fzf --height=4 --prompt=\"$$1\""'
+		PICKER_FLAG=-D'PICK="printf \"\\033[3A\\033[?25h\" >/dev/tty; fzf --height=4 --prompt=\"$$1\""'
 	endif
 	ifeq ($(shell which $(PICKER)),$(shell which ask 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK="/usr/bin/env ask --prompt=\"$$1\""'
+		PICKER_FLAG=-D'PICK="/usr/bin/env ask --prompt=\"$$1\033[?25h\""'
 	endif
 	ifeq ($(shell which $(PICKER)),$(shell which pick 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK="pick"'
+		PICKER_FLAG=-D'PICK="printf \"\\033[?25h\" >/dev/tty; pick"'
 	endif
 	ifeq ($(shell which $(PICKER)),$(shell which dmenu 2>/dev/null || echo '<none>'))
 		PICKER_FLAG=-D'PICK="dmenu -i -l 10 -p \"$$1\""'
@@ -44,8 +44,8 @@ CFLAGS += $(PICKER_FLAG)
 ifneq (, $(ASKER))
 	PERCENT := %
 	ifeq ($(shell which $(ASKER)),$(shell which ask 2>/dev/null || echo '<none>'))
-		CFLAGS += -D'ASK="eval \"$$1=\\$$(/usr/bin/env ask --history=bb.hist --prompt=\\\"$$2\\\" --query=\\\"$$3\\\")\""'
-		CFLAGS += -D'CONFIRM="/usr/bin/env ask -n \"Is that okay?\""'
+		CFLAGS += -D'ASK="eval \"$$1=\\$$(/usr/bin/env ask --history=bb.hist --prompt=\\\"$$2\033[?25h\\\" --query=\\\"$$3\\\")\""'
+		CFLAGS += -D'CONFIRM="/usr/bin/env ask -n \"Is that okay?\033[?25h\""'
 	endif
 	ifeq ($(shell which $(ASKER)),$(shell which dmenu 2>/dev/null || echo '<none>'))
 		CFLAGS += -D'ASK="eval \"$$1=\\$$(echo \"$$3\" | dmenu -p \"$$2\")\""'

@@ -159,7 +159,6 @@ void bb_browse(bb_t *bb, const char *path)
                 process_cmd(bb, binding->script);
             } else {
                 move_cursor(tty_out, 0, termheight-1);
-                fputs(T_ON(T_SHOW_CURSOR), tty_out);
                 restore_term(&default_termios);
                 run_script(bb, binding->script);
                 init_term();

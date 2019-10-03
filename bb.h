@@ -240,7 +240,8 @@ static const char *bbcmdfn = "bb() {\n"
 #ifdef ASK
 ASK ";\n"
 #else
-"    printf \"\033[1m%s\033[0m\" \"$2\" >/dev/tty;\n"
+"    [ $# -lt 2 ] && printf '\033[31;1mNot enough args to ask!\033[0m\n' && return 1;\n"
+"    printf \"\033[1m%s\033[0m\033[?25h\" \"$2\" >/dev/tty;\n"
 "    read $1 </dev/tty >/dev/tty\n"
 #endif
 "}\n"
