@@ -708,6 +708,15 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
                 }
             }
         }
+        case 'e': { // +execute:
+            if (!value || !value[0]) return BB_INVALID;
+            move_cursor(tty_out, 0, termheight-1);
+            fputs(T_ON(T_SHOW_CURSOR), tty_out);
+            restore_term(&default_termios);
+            run_script(bb, value);
+            init_term();
+            return BB_OK;
+        }
         case 'g': { // +goto:
             if (!value) return BB_INVALID;
             entry_t *e = load_entry(bb, value, 1);
