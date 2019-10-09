@@ -1357,7 +1357,7 @@ int main(int argc, char *argv[])
     setenv("BBINITIALPATH", path, 1);
 
     bb_t *bb = memcheck(calloc(1, sizeof(bb_t)));
-    bb->columns[0] = COL_NAME;
+    strcpy(bb->columns, "*smpn");
     strcpy(bb->sort, "+n");
     cd_to(bb, path);
     run_script(bb, runstartup);

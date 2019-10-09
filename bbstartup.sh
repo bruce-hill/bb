@@ -16,10 +16,6 @@ mark root /
 mark config "$XDG_CONFIG_HOME"
 mark marks "$XDG_CONFIG_HOME/bb/marks"
 
-# Set viewing options
-bb +sort:+n
-bb +col:'*smpn'
-
 # Load key bindings
 # first check ~/.config/bb/bindings.bb, then /etc/xdg/bb/bindings.bb, then ./bindings.bb
 if [ -e "$XDG_CONFIG_HOME/bb/bindings.bb" ]; then
