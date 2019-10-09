@@ -305,12 +305,11 @@ SPIN ";\n"
 const char *runstartup = 
 "[ ! \"$XDG_CONFIG_HOME\" ] && XDG_CONFIG_HOME=~/.config;\n"
 "[ ! \"$sysconfdir\" ] && sysconfdir=/etc;\n"
-"if [ -e \"$XDG_CONFIG_HOME/bb/bbstartup.sh\" ]; then\n"
-"    . \"$XDG_CONFIG_HOME/bb/bbstartup.sh\";\n"
-"elif [ -e \"$sysconfdir/xdg/bb/bbstartup.sh\" ]; then\n"
-"    . \"$sysconfdir/xdg/bb/bbstartup.sh\";\n"
-"elif [ -e \"./bbstartup.sh\" ]; then\n"
-"    . \"./bbstartup.sh\";\n"
-"fi\n";
+"for path in \"$XDG_CONFIG_HOME/bb\" \"$sysconfdir/xdg/bb\" .; do\n"
+"    if [ -e \"$path/bbstartup.sh\" ]; then\n"
+"        . \"$path/bbstartup.sh\";\n"
+"        break;\n"
+"    fi;\n"
+"done\n";
 
 // vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1
