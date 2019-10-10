@@ -18,11 +18,7 @@ mark marks "$XDG_CONFIG_HOME/bb/marks"
 
 # Load key bindings
 # first check ~/.config/bb/bindings.bb, then /etc/xdg/bb/bindings.bb, then ./bindings.bb
-if [ -e "$XDG_CONFIG_HOME/bb/bindings.bb" ]; then
-    cat "$XDG_CONFIG_HOME/bb/bindings.bb"
-elif [ -e "$sysconfdir/xdg/bb/bindings.bb" ]; then
-    cat "$sysconfdir/xdg/bb/bindings.bb"
-elif [ -e bindings.bb ]; then
-    cat bindings.bb
-fi | sed -e '/^#/d' -e "s/^[^ ]/$(printf '\034')+bind:\\0/" | tr '\034' '\0' >> "$BBCMD"
+for path in "$XDG_CONFIG_HOME/bb" "$sysconfdir/xdg/bb" "."; do
+    cat "$path/bindings.bb" 2>/dev/null && break
+done | sed -e '/^#/d' -e "s/^[^ ]/$(printf '\034')+bind:\\0/" | tr '\034' '\0' >> "$BBCMD"
 printf '\0' >> "$BBCMD"
