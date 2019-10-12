@@ -130,7 +130,7 @@ p: # Page through a file with $PAGER
 :: # Run a command
     ask cmd ':' && sh -c "$BBSHELLFUNC$cmd" -- "$@"; bb +r; pause
 >: # Open a shell
-    tput rmcup; $SHELL; bb +r
+    tput rmcup; tput cvvis; $SHELL; bb +r
 r,F2: # Rename a file
     ask newname "Rename $(printf "\033[33m%s\033[39m" "$(basename "$BBCURSOR")"): " "$(basename "$BBCURSOR")" || exit
     r="$(dirname "$BBCURSOR")/$newname" || exit

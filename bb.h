@@ -241,20 +241,21 @@ static const char *bbcmdfn = "bb() {\n"
 ASK ";\n"
 #else
 "    [ $# -lt 2 ] && printf '\033[31;1mNot enough args to ask!\033[0m\n' && return 1;\n"
-"    printf \"\033[1m%s\033[0m\033[?25h\" \"$2\" >/dev/tty;\n"
-"    read $1 </dev/tty >/dev/tty\n"
+"    printf \"\033[1m%s\033[0m\" \"$2\" >/dev/tty;\n"
+"    tput cvvis >/dev/tty;\n"
+"    read $1 </dev/tty >/dev/tty;\n"
 #endif
 "}\n"
 "ask1() {\n"
 #ifdef ASK1
 ASK1 ";\n"
 #else
-"    printf \"\033[?25l\" >/dev/tty;\n"
+"    tput civis >/dev/tty;\n"
 "    printf \"\033[1m%s\033[0m\" \"$2\" >/dev/tty;\n"
 "    stty -icanon -echo >/dev/tty;\n"
 "    eval \"$1=\\$(dd bs=1 count=1 2>/dev/null </dev/tty)\";\n"
 "    stty icanon echo >/dev/tty;\n"
-"    printf \"\033[?25h\" >/dev/tty;\n"
+"    tput cvvis >/dev/tty;\n"
 #endif
 "}\n"
 "confirm() {\n"
