@@ -47,6 +47,7 @@ is one of the following commands (or a unique prefix of one):
 - `dotfiles:[01]`            Whether dotfiles are visible
 - `goto:<filename>`          Move the cursor to <filename> (changing directory if needed)
 - `interleave:[01]`          Whether or not directories should be interleaved with files in the display
+- `kill`                     Exit with failure
 - `move:<num*>`              Move the cursor a numeric amount
 - `quit`                     Quit bb
 - `refresh`                  Refresh the file listing
@@ -54,6 +55,7 @@ is one of the following commands (or a unique prefix of one):
 - `select:<filename>`        Select <filename>
 - `sort:([+-]method)+`       Set sorting method (+: normal, -: reverse), additional methods act as tiebreaker
 - `spread:<num*>`            Spread the selection state at the cursor
+- `suspend`                  Suspend `bb` (SIGSTP signal)
 - `toggle:<filename>`        Toggle the selection status of <filename>
 
 For any of these commands (e.g. `+select`), an empty parameter followed by

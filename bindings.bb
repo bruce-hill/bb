@@ -5,6 +5,10 @@ Section: BB Commands
     bb +help
 q,Q: # Quit
     bb +quit
+Ctrl-c: # Exit with failure
+    bb +kill
+Ctrl-z: # Suspend
+    bb +suspend
 
 Section: File Navigation
 j,Down: # Next file
@@ -79,6 +83,14 @@ Ctrl-a: # Select all files here
     else find -mindepth 1 -maxdepth 1 ! -path '*/.*' -print0; fi | bb +sel:
 
 Section: File Actions
+Left click: # Move cursor to file
+    if [ "$BBCLICKED" = "<column label>" ]; then
+        bb +sort:"~$BBMOUSECOL"
+    elif [ "$BBCLICKED" -a "$BBMOUSECOL" = "*" ]; then
+        bb +toggle:"$BBCLICKED"
+    elif [ "$BBCLICKED" ]; then
+        bb +goto:"$BBCLICKED"
+    fi
 Enter,Double left click: # Open file/directory
     if [ "$(uname)" = "Darwin" ]; then
         if [ -d "$BBCURSOR" ]; then bb +cd:"$BBCURSOR";
@@ -91,7 +103,7 @@ Enter,Double left click: # Open file/directory
     fi
 e: # Edit file in $EDITOR
     $EDITOR "$BBCURSOR" || pause
-d: # Delete a file
+d,Delete: # Delete a file
     printf "\033[1mDeleting \033[33m$BBCURSOR\033[0;1m...\033[0m " && confirm &&
         rm -rf "$BBCURSOR" && bb +deselect:"$BBCURSOR" +refresh
 D: # Delete all selected files

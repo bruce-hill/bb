@@ -80,95 +80,57 @@ void bb_browse(bb_t *bb, const char *path)
     }
 
     int key, mouse_x, mouse_y;
-    static struct timespec lastclick = {0, 0};
   get_keyboard_input:
     key = bgetkey(tty_in, &mouse_x, &mouse_y);
-    switch (key) {
-        case KEY_MOUSE_LEFT: {
-            struct timespec clicktime;
-            clock_gettime(CLOCK_MONOTONIC, &clicktime);
-            double dt_ms = 1e3*(double)(clicktime.tv_sec - lastclick.tv_sec);
-            dt_ms += 1e-6*(double)(clicktime.tv_nsec - lastclick.tv_nsec);
-            lastclick = clicktime;
-            // Get column:
-            char column[3] = "+?";
-            for (int col = 0, x = 0; bb->columns[col]; col++) {
-                if (col > 0) x += 1;
-                x += columns[(int)bb->columns[col]].width;
-                if (x >= mouse_x) {
-                    column[1] = bb->columns[col];
-                    break;
-                }
+    if (key == -1) goto next_input;
+    static char bbmousecol[2] = {0, 0};
+    static char bbclicked[PATH_MAX];
+    if (mouse_x != -1 && mouse_y != -1) {
+        bbmousecol[0] = '\0';
+        // Get bb column:
+        for (int col = 0, x = 0; bb->columns[col]; col++, x++) {
+            x += columns[(int)bb->columns[col]].width;
+            if (x >= mouse_x) {
+                bbmousecol[0] = bb->columns[col];
+                break;
             }
-            if (mouse_y == 1) {
-                char *pos;
-                if ((pos = strstr(bb->sort, column)) && pos == bb->sort)
-                    column[0] = '-';
-                set_sort(bb, column);
-                sort_files(bb);
-                goto redraw;
-            } else if (2 <= mouse_y && mouse_y <= termheight - 2) {
-                int clicked = bb->scroll + (mouse_y - 2);
-                if (clicked > bb->nfiles - 1) goto next_input;
-                if (column[1] == COL_SELECTED) {
-                    set_selected(bb, bb->files[clicked], !IS_SELECTED(bb->files[clicked]));
-                    bb->dirty = 1;
-                    goto redraw;
-                }
-                set_cursor(bb, clicked);
-                if (dt_ms <= 200) {
-                    key = KEY_MOUSE_DOUBLE_LEFT;
-                    goto user_bindings;
-                }
-                goto redraw;
-            }
-            break;
         }
-
-        case KEY_CTRL_C:
-            cleanup_and_exit(SIGINT);
-
-        case KEY_CTRL_Z:
-            fputs(T_LEAVE_BBMODE, tty_out);
-            restore_term(&orig_termios);
-            raise(SIGTSTP);
-            init_term();
-            bb->dirty = 1;
-            goto redraw;
-
-        case -1:
-            goto next_input;
-
-        default: {
-            // Search user-defined key bindings
-            binding_t *binding;
-          user_bindings:
-            for (int i = 0; bindings[i].key != 0 && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
-                if (key == bindings[i].key) {
-                    binding = &bindings[i];
-                    goto run_binding;
-                }
-            }
-            // Nothing matched
-            goto next_input;
-
-          run_binding:
-            if (cmdpos != 0)
-                err("Command file still open");
-            if (is_simple_bbcmd(binding->script)) {
-                process_cmd(bb, binding->script);
-            } else {
-                move_cursor(tty_out, 0, termheight-1);
-                restore_term(&default_termios);
-                run_script(bb, binding->script);
-                init_term();
-                check_cmds = 1;
-            }
-            if (bb->should_quit) goto quit;
-            goto redraw;
+        if (mouse_y == 1) {
+            strcpy(bbclicked, "<column label>");
+        } else if (2 <= mouse_y && mouse_y <= termheight - 2
+                   && bb->scroll + (mouse_y - 2) <= bb->nfiles - 1) {
+            strcpy(bbclicked, bb->files[bb->scroll + (mouse_y - 2)]->fullname);
+        } else {
+            bbclicked[0] = '\0';
+        }
+        setenv("BBMOUSECOL", bbmousecol, 1);
+        setenv("BBCLICKED", bbclicked, 1);
+    }
+    // Search user-defined key bindings
+    binding_t *binding;
+    for (int i = 0; bindings[i].script && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
+        if (key == bindings[i].key) {
+            binding = &bindings[i];
+            goto run_binding;
         }
     }
+    // Nothing matched
     goto next_input;
+
+  run_binding:
+    if (cmdpos != 0)
+        err("Command file still open");
+    if (is_simple_bbcmd(binding->script)) {
+        process_cmd(bb, binding->script);
+    } else {
+        move_cursor(tty_out, 0, termheight-1);
+        restore_term(&default_termios);
+        run_script(bb, binding->script);
+        init_term();
+        check_cmds = 1;
+    }
+    if (!bb->should_quit)
+        goto redraw;
 
   quit:
     if (tty_out) {
@@ -572,7 +534,7 @@ void populate_files(bb_t *bb, int samedir)
 void print_bindings(int fd)
 {
     char buf[1000], buf2[1024];
-    for (int i = 0; bindings[i].key != 0 && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
+    for (int i = 0; bindings[i].script && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
         if (bindings[i].key == -1) {
             const char *label = bindings[i].description;
             sprintf(buf, "\n\033[33;1;4m\033[%dG%s\033[0m\n", (termwidth-(int)strlen(label))/2, label);
@@ -581,17 +543,11 @@ void print_bindings(int fd)
         }
         int to_skip = -1;
         char *p = buf;
-        for (int j = i; bindings[j].key && strcmp(bindings[j].description, bindings[i].description) == 0; j++) {
+        for (int j = i; bindings[j].script && strcmp(bindings[j].description, bindings[i].description) == 0; j++) {
             if (j > i) p = stpcpy(p, ", ");
             ++to_skip;
             int key = bindings[j].key;
-            const char *name = bkeyname(key);
-            if (name)
-                p = stpcpy(p, name);
-            else if (' ' <= key && key <= '~')
-                p += sprintf(p, "%c", (char)key);
-            else
-                p += sprintf(p, "\033[31m\\x%02X", key);
+            p = bkeyname(key, p);
         }
         *p = '\0';
         sprintf(buf2, "\033[1m\033[%dG%s\033[0m", termwidth/2 - 1 - (int)strlen(buf), buf);
@@ -643,10 +599,10 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
             } else description = script;
             for (char *key; (key = strsep(&keys, ",")); ) {
                 int is_section = strcmp(key, "Section") == 0;
-                int keyval = strlen(key) == 1 ? key[0] : bkeywithname(key);
+                int keyval = bkeywithname(key);
                 if (keyval == -1 && !is_section) continue;
                 for (int i = 0; i < sizeof(bindings)/sizeof(bindings[0]); i++) {
-                    if (bindings[i].key && (bindings[i].key != keyval || is_section))
+                    if (bindings[i].script && (bindings[i].key != keyval || is_section))
                         continue;
                     binding_t binding = {keyval, memcheck(strdup(script)),
                         memcheck(strdup(description))};
@@ -766,6 +722,8 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
             sort_files(bb);
             return BB_OK;
         }
+        case 'k': // +kill
+            cleanup_and_exit(SIGINT);
         case 'm': { // +move:
             int oldcur, isdelta, n;
           move:
@@ -822,6 +780,14 @@ bb_result_t process_cmd(bb_t *bb, const char *cmd)
 
                 case 'p': // +spread:
                     goto move;
+                
+                case 'u': // +suspend
+                    fputs(T_LEAVE_BBMODE, tty_out);
+                    restore_term(&orig_termios);
+                    raise(SIGTSTP);
+                    init_term();
+                    bb->dirty = 1;
+                    break;
             }
         case 't': { // +toggle:
             if (!value && !bb->nfiles) return BB_INVALID;
