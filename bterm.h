@@ -41,10 +41,11 @@ typedef enum {
     MOUSE_WHEEL_RELEASE, MOUSE_WHEEL_PRESS,
 } bkey_t;
 
-#define MOD_SUPER  (1 << 9)
-#define MOD_CTRL   (1 << 10)
-#define MOD_ALT    (1 << 11)
-#define MOD_SHIFT  (1 << 12)
+#define MOD_BITSHIFT  9
+#define MOD_META   (1 << (MOD_BITSHIFT + 0))
+#define MOD_CTRL   (1 << (MOD_BITSHIFT + 1))
+#define MOD_ALT    (1 << (MOD_BITSHIFT + 2))
+#define MOD_SHIFT  (1 << (MOD_BITSHIFT + 3))
 
 // Overlapping key codes:
 #define KEY_CTRL_BACKTICK    0x00 /* clash with ^@ */
@@ -221,7 +222,7 @@ int bgetkey(FILE *in, int *mouse_x, int *mouse_y)
             if (mouse_y) *mouse_y = y - 1;
 
             if (buttons & 4) modifiers |= MOD_SHIFT;
-            if (buttons & 8) modifiers |= MOD_SUPER;
+            if (buttons & 8) modifiers |= MOD_META;
             if (buttons & 16) modifiers |= MOD_CTRL;
             int key = -1;
             switch (buttons & ~(4|8|16)) {
@@ -262,7 +263,7 @@ int bgetkey(FILE *in, int *mouse_x, int *mouse_y)
                 c = nextnum(fd, c, &numcode);
                 if (c == ';') {
                     c = nextnum(fd, nextchar(fd), &modifiers);
-                    modifiers = (modifiers >> 1) << 9;
+                    modifiers = (modifiers >> 1) << MOD_BITSHIFT;
                 }
                 goto CSI_start;
             }
@@ -288,11 +289,11 @@ int bgetkey(FILE *in, int *mouse_x, int *mouse_y)
  */
 char *bkeyname(int key, char *buf)
 {
-    if (key & MOD_SUPER) buf = stpcpy(buf, "Super-");
+    if (key & MOD_META) buf = stpcpy(buf, "Super-");
     if (key & MOD_CTRL) buf = stpcpy(buf, "Ctrl-");
     if (key & MOD_ALT) buf = stpcpy(buf, "Alt-");
     if (key & MOD_SHIFT) buf = stpcpy(buf, "Shift-");
-    key &= ~(MOD_SUPER | MOD_CTRL | MOD_ALT | MOD_SHIFT);
+    key &= ~(MOD_META | MOD_CTRL | MOD_ALT | MOD_SHIFT);
     for (int i = 0; i < sizeof(key_names)/sizeof(key_names[0]); i++) {
         if (key_names[i].key == key) {
             return stpcpy(buf, key_names[i].name);
@@ -312,7 +313,7 @@ int bkeywithname(const char *name)
 {
     int modifiers = 0;
     static const struct { const char *prefix; int modifier; } modnames[] = {
-        {"Super-", MOD_SUPER}, {"Ctrl-", MOD_CTRL}, {"Alt-", MOD_ALT}, {"Shift-", MOD_SHIFT}
+        {"Super-", MOD_META}, {"Ctrl-", MOD_CTRL}, {"Alt-", MOD_ALT}, {"Shift-", MOD_SHIFT}
     };
   check_names:
     for (int i = 0; i < sizeof(key_names)/sizeof(key_names[0]); i++) {
