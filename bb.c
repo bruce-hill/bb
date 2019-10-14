@@ -15,19 +15,14 @@ static int termwidth, termheight;
 static char *cmdfilename = NULL;
 
 /*
- * Use bb to browse a path.
+ * Use bb to browse the filesystem.
  */
-void bb_browse(bb_t *bb, const char *path)
+void bb_browse(bb_t *bb)
 {
     static long cmdpos = 0;
     int lastwidth = termwidth, lastheight = termheight;
     int check_cmds = 1;
-
-    cd_to(bb, path);
-    bb->scroll = 0;
-    bb->cursor = 0;
     bb->dirty = 0;
-    bb->should_quit = 0;
 
     goto force_check_cmds;
 
@@ -130,40 +125,6 @@ void bb_browse(bb_t *bb, const char *path)
             check_cmds = 1;
         }
     }
-}
-
-int cd_to(bb_t *bb, const char *path)
-{
-    char pbuf[PATH_MAX], prev[PATH_MAX] = {0};
-    strcpy(prev, bb->path);
-    if (strcmp(path, "<selection>") == 0) {
-        strcpy(pbuf, path);
-    } else if (strcmp(path, "..") == 0 && strcmp(bb->path, "<selection>") == 0) {
-        if (!bb->prev_path[0]) return -1;
-        strcpy(pbuf, bb->prev_path);
-        if (chdir(pbuf)) return -1;
-    } else {
-        normalize_path(bb->path, path, pbuf, 1);
-        if (pbuf[strlen(pbuf)-1] != '/')
-            strcat(pbuf, "/");
-        if (chdir(pbuf)) return -1;
-    }
-
-    if (strcmp(bb->path, "<selection>") != 0) {
-        strcpy(bb->prev_path, prev);
-        setenv("BBPREVPATH", bb->prev_path, 1);
-    }
-
-    strcpy(bb->path, pbuf);
-    populate_files(bb, 0);
-    if (prev[0]) {
-        entry_t *p = load_entry(bb, prev, 0);
-        if (p) {
-            if (IS_VIEWED(p)) set_cursor(bb, p->index);
-            else try_free_entry(p);
-        }
-    }
-    return 0;
 }
 
 /*
@@ -436,7 +397,7 @@ void normalize_path(const char *root, const char *path, char *normalized, int cl
         normalized[0] = '\0';
     } else {
         strcpy(normalized, root);
-        if (root[strlen(root)-1] != '/') err("No trailing slash on root");
+        if (root[strlen(root)-1] != '/') strcat(normalized, "/");
     }
     strcat(normalized, path);
 
@@ -465,9 +426,37 @@ void normalize_path(const char *root, const char *path, char *normalized, int cl
  * Remove all the files currently stored in bb->files and if `bb->path` is
  * non-NULL, update `bb` with a listing of the files in `path`
  */
-void populate_files(bb_t *bb, int samedir)
+int populate_files(bb_t *bb, const char *path)
 {
+    int samedir = path && strcmp(bb->path, path) == 0;
+    int old_scroll = bb->scroll;
+    char old_selected[PATH_MAX] = "";
+    if (samedir && bb->nfiles > 0) strcpy(old_selected, bb->files[bb->cursor]->fullname);
+
+    char pbuf[PATH_MAX], prev[PATH_MAX] = {0};
+    strcpy(prev, bb->path);
+    if (path == NULL) {
+        pbuf[0] = '\0';
+    } else if (strcmp(path, "<selection>") == 0) {
+        strcpy(pbuf, path);
+    } else if (strcmp(path, "..") == 0 && strcmp(bb->path, "<selection>") == 0) {
+        if (!bb->prev_path[0]) return -1;
+        strcpy(pbuf, bb->prev_path);
+        if (chdir(pbuf)) return -1;
+    } else {
+        normalize_path(bb->path, path, pbuf, 1);
+        if (pbuf[strlen(pbuf)-1] != '/')
+            strcat(pbuf, "/");
+        if (chdir(pbuf)) return -1;
+    }
+
+    if (strcmp(bb->path, "<selection>") != 0) {
+        strcpy(bb->prev_path, prev);
+        setenv("BBPREVPATH", bb->prev_path, 1);
+    }
+
     bb->dirty = 1;
+    strcpy(bb->path, pbuf);
 
     // Clear old files (if any)
     if (bb->files) {
@@ -479,14 +468,12 @@ void populate_files(bb_t *bb, int samedir)
         free(bb->files);
         bb->files = NULL;
     }
-
-    int old_scroll = bb->scroll, old_cursor = bb->cursor;
     bb->nfiles = 0;
     bb->cursor = 0;
     bb->scroll = 0;
 
     if (!bb->path[0])
-        return;
+        return 0;
 
     size_t space = 0;
     if (strcmp(bb->path, "<selection>") == 0) {
@@ -528,9 +515,19 @@ void populate_files(bb_t *bb, int samedir)
 
     sort_files(bb);
     if (samedir) {
-        set_cursor(bb, old_cursor);
         set_scroll(bb, old_scroll);
+        if (old_selected[0]) {
+            entry_t *e = load_entry(bb, old_selected, 0);
+            if (e) set_cursor(bb, e->index);
+        }
+    } else {
+        entry_t *p = load_entry(bb, prev, 0);
+        if (p) {
+            if (IS_VIEWED(p)) set_cursor(bb, p->index);
+            else try_free_entry(p);
+        }
     }
+    return 0;
 }
 
 /*
@@ -579,10 +576,10 @@ void run_bbcmd(bb_t *bb, const char *cmd)
 #define set_bool(target) do { if (!value) { target = !target; } else { target = value[0] == '1'; } } while (0)
     if (matches_cmd(cmd, "..")) { // +..
         set_bool(bb->show_dotdot);
-        populate_files(bb, 1);
+        populate_files(bb, bb->path);
     } else if (matches_cmd(cmd, ".")) { // +.
         set_bool(bb->show_dot);
-        populate_files(bb, 1);
+        populate_files(bb, bb->path);
     } else if (matches_cmd(cmd, "bind:")) { // +bind:<keys>:<script>
         char *value_copy = memcheck(strdup(value));
         char *keys = trim(value_copy);
@@ -621,7 +618,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         }
         free(value_copy);
     } else if (matches_cmd(cmd, "cd:")) { // +cd:
-        if (cd_to(bb, value)) goto invalid_cmd;
+        if (populate_files(bb, value)) goto invalid_cmd;
     } else if (matches_cmd(cmd, "columns:")) { // +columns:
         strncpy(bb->columns, value, MAX_COLS);
         bb->dirty = 1;
@@ -646,7 +643,8 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         return;
     } else if (matches_cmd(cmd, "dotfiles:") || matches_cmd(cmd, "dotfiles")) { // +dotfiles:
         set_bool(bb->show_dotfiles);
-        populate_files(bb, 1);
+        setenv("BBDOTFILES", bb->show_dotfiles ? "1" : "", 1);
+        populate_files(bb, bb->path);
     } else if (matches_cmd(cmd, "execute:")) { // +execute:
         move_cursor(tty_out, 0, termheight-1);
         fputs(T_ON(T_SHOW_CURSOR), tty_out);
@@ -665,7 +663,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         char *lastslash = strrchr(pbuf, '/');
         if (!lastslash) err("No slash found in filename: %s", pbuf);
         *lastslash = '\0'; // Split in two
-        cd_to(bb, pbuf);
+        populate_files(bb, pbuf);
         if (IS_VIEWED(e))
             set_cursor(bb, e->index);
         else try_free_entry(e);
@@ -713,7 +711,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
     } else if (matches_cmd(cmd, "quit")) { // +quit
         bb->should_quit = 1;
     } else if (matches_cmd(cmd, "refresh")) { // +refresh
-        populate_files(bb, 1);
+        populate_files(bb, bb->path);
     } else if (matches_cmd(cmd, "scroll:")) { // +scroll:
         // TODO: figure out the best version of this
         int isdelta = value[0] == '+' || value[0] == '-';
@@ -1000,10 +998,7 @@ int run_script(bb_t *bb, const char *cmd)
             args[i++] = e->fullname;
         }
         args[i] = NULL;
-
-        setenv("BBDOTFILES", bb->show_dotfiles ? "1" : "", 1);
         setenv("BBCURSOR", bb->nfiles ? bb->files[bb->cursor]->fullname : "", 1);
-        setenv("BBSHELLFUNC", bbcmdfn, 1);
 
         int ttyout, ttyin;
         ttyout = open("/dev/tty", O_RDWR);
@@ -1237,39 +1232,40 @@ int main(int argc, char *argv[])
     int cmdfd;
     if ((cmdfd = mkostemp(cmdfilename, O_APPEND)) == -1)
         err("Couldn't create tmpfile: '%s'", CMDFILE_FORMAT);
+
     // Set up environment variables
+    // Default values
+    setenv("SHELL", "bash", 0);
+    setenv("EDITOR", "nano", 0);
+    setenv("PAGER", "less", 0);
     char *curdepth = getenv("BB_DEPTH");
     int depth = curdepth ? atoi(curdepth) : 0;
     sprintf(depthstr, "%d", depth + 1);
     setenv("BB_DEPTH", depthstr, 1);
     setenv("BBCMD", cmdfilename, 1);
+    setenv("BBSHELLFUNC", bbcmdfn, 1);
+    char full_initial_path[PATH_MAX];
+    getcwd(full_initial_path, PATH_MAX);
+    normalize_path(full_initial_path, initial_path, full_initial_path, 1);
+    if (strcmp(full_initial_path, "/") != 0) strcat(full_initial_path, "/");
+    setenv("BBINITIALPATH", full_initial_path, 1);
 
-    if (!initial_path)
-        return 0;
-
-    // Default values
-    setenv("SHELL", "bash", 0);
-    setenv("EDITOR", "nano", 0);
-    setenv("PAGER", "less", 0);
-
+    // Terminal must be initialized before working with bb to ensure the
+    // cursor/scroll can be set properly within the screen's bounds
+    init_term();
     atexit(cleanup);
     int signals[] = {SIGTERM, SIGINT, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF, SIGSEGV};
     for (int i = 0; i < sizeof(signals)/sizeof(signals[0]); i++)
         signal(signals[i], cleanup_and_exit);
 
-    char path[PATH_MAX], curdir[PATH_MAX];
-    getcwd(curdir, PATH_MAX);
-    strcat(curdir, "/");
-    normalize_path(curdir, initial_path, path, 1);
-    if (chdir(path)) err("Not a valid path: %s\n", path);
-    setenv("BBINITIALPATH", path, 1);
-
     bb_t *bb = memcheck(calloc(1, sizeof(bb_t)));
     strcpy(bb->columns, "*smpn");
     strcpy(bb->sort, "+n");
-    cd_to(bb, path);
+    if (populate_files(bb, full_initial_path))
+        err("Not a valid path: %s", initial_path);
+
     run_script(bb, runstartup);
-    write(cmdfd, "", 1);
+    write(cmdfd, "\0", 1);
     for (int i = 0; i < argc; i++) {
         if (argv[i][0] == '+') {
             char *colon = strchr(argv[i], ':');
@@ -1290,8 +1286,8 @@ int main(int argc, char *argv[])
         cmdfd = -1;
     }
 
-    init_term();
-    bb_browse(bb, path);
+    bb_browse(bb);
+
     if (tty_out) {
         fputs(T_LEAVE_BBMODE, tty_out);
         cleanup();
@@ -1316,8 +1312,7 @@ int main(int argc, char *argv[])
         printf("%s\n", bb->path);
 
     // Cleanup:
-    bb->path[0] = '\0';
-    populate_files(bb, 0);
+    populate_files(bb, NULL);
     for (entry_t *next, *e = bb->firstselected; e; e = next) {
         next = e->selected.next;
         e->selected.atme = NULL;
