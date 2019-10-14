@@ -59,7 +59,7 @@ void bb_browse(bb_t *bb, const char *path)
         while (cmdfile && getdelim(&cmd, &space, '\0', cmdfile) >= 0) {
             cmdpos = ftell(cmdfile);
             if (!cmd[0]) continue;
-            process_cmd(bb, cmd);
+            run_bbcmd(bb, cmd);
             if (bb->dirty) {
                 free(cmd);
                 fclose(cmdfile);
@@ -121,7 +121,7 @@ void bb_browse(bb_t *bb, const char *path)
     if (cmdpos != 0)
         err("Command file still open");
     if (is_simple_bbcmd(binding->script)) {
-        process_cmd(bb, binding->script);
+        run_bbcmd(bb, binding->script);
     } else {
         move_cursor(tty_out, 0, termheight-1);
         restore_term(&default_termios);
@@ -406,6 +406,16 @@ entry_t* load_entry(bb_t *bb, const char *path, int clear_dots)
 }
 
 /*
+ * Return whether a string matches a command
+ * e.g. matches_cmd("cd:..", "cd") == 1, matches_cmd("q", "quit") == 1
+ */
+static inline int matches_cmd(const char *str, const char *cmd)
+{
+    while (*str == *cmd && *cmd) ++str, ++cmd;
+    return *str == '\0' || *str == ':';
+}
+
+/*
  * Memory allocation failures are unrecoverable in bb, so this wrapper just
  * prints an error message and exits if that happens.
  */
@@ -565,249 +575,199 @@ void print_bindings(int fd)
  * Run a bb internal command (e.g. "+refresh") and return an indicator of what
  * needs to happen next.
  */
-bb_result_t process_cmd(bb_t *bb, const char *cmd)
+bb_result_t run_bbcmd(bb_t *bb, const char *cmd)
 {
     if (cmd[0] == '+') ++cmd;
     else if (strncmp(cmd, "bb +", 4) == 0) cmd = &cmd[4];
     const char *value = strchr(cmd, ':');
     if (value) ++value;
 #define set_bool(target) do { if (!value) { target = !target; } else { target = value[0] == '1'; } } while (0)
-    switch (cmd[0]) {
-        case '.': { // +..:, +.:
-            if (cmd[1] == '.') // +..:
-                set_bool(bb->show_dotdot);
-            else // +.:
-                set_bool(bb->show_dot);
-            populate_files(bb, 1);
-            return BB_OK;
-        }
-        case 'b': { // +bind:<keys>:<script>
-            if (!value || !value[0])
-                return BB_INVALID;
-            char *value_copy = memcheck(strdup(value));
-            char *keys = trim(value_copy);
-            if (!keys[0]) { free(value_copy); return BB_OK; }
-            char *script = strchr(keys+1, ':');
-            if (!script) { free(value_copy); return BB_INVALID; }
-            *script = '\0';
-            script = trim(script + 1);
-            char *description;
-            if (script[0] == '#') {
-                description = trim(strsep(&script, "\n") + 1);
-                if (!script) script = "";
-                else script = trim(script);
-            } else description = script;
-            for (char *key; (key = strsep(&keys, ",")); ) {
-                int is_section = strcmp(key, "Section") == 0;
-                int keyval = bkeywithname(key);
-                if (keyval == -1 && !is_section) continue;
-                for (int i = 0; i < sizeof(bindings)/sizeof(bindings[0]); i++) {
-                    if (bindings[i].script && (bindings[i].key != keyval || is_section))
-                        continue;
-                    binding_t binding = {keyval, memcheck(strdup(script)),
-                        memcheck(strdup(description))};
-                    if (bindings[i].key == keyval) {
-                        free(bindings[i].description);
-                        free(bindings[i].script);
-                        for (; i + 1 < sizeof(bindings)/sizeof(bindings[0]) && bindings[i+1].key; i++)
-                            bindings[i] = bindings[i+1];
-                    }
-                    bindings[i] = binding;
-                    break;
-                }
-            }
-            free(value_copy);
-            return BB_OK;
-        }
-        case 'c': { // +cd:, +columns:
-            switch (cmd[1]) {
-                case 'd': { // +cd:
-                    if (!value) return BB_INVALID;
-                    if (cd_to(bb, value)) return BB_INVALID;
-                    return BB_OK;
-                }
-                case 'o': { // +columns:
-                    if (!value) return BB_INVALID;
-                    strncpy(bb->columns, value, MAX_COLS);
-                    bb->dirty = 1;
-                    return BB_OK;
-                }
-            }
+    if (matches_cmd(cmd, "..")) { // +..
+        set_bool(bb->show_dotdot);
+        populate_files(bb, 1);
+    } else if (matches_cmd(cmd, ".")) { // +.
+        set_bool(bb->show_dot);
+        populate_files(bb, 1);
+    } else if (matches_cmd(cmd, "bind")) { // +bind:<keys>:<script>
+        if (!value || !value[0])
             return BB_INVALID;
-        }
-        case 'd': { // +deselect:, +dotfiles:
-            switch (cmd[1]) {
-                case 'e': { // +deselect:
-                    if (!value) {
-                        while (bb->firstselected)
-                            set_selected(bb, bb->firstselected, 0);
-                        return BB_OK;
-                    }
-                    char pbuf[PATH_MAX];
-                    normalize_path(bb->path, value, pbuf, 1);
-                    entry_t *e = load_entry(bb, pbuf, 0);
-                    if (e) {
-                        set_selected(bb, e, 0);
-                        return BB_OK;
-                    }
-                    // Filename may no longer exist:
-                    for (e = bb->firstselected; e; e = e->selected.next) {
-                        if (strcmp(e->fullname, pbuf) == 0) {
-                            set_selected(bb, e, 0);
-                            break;
-                        }
-                    }
-                    return BB_OK;
+        char *value_copy = memcheck(strdup(value));
+        char *keys = trim(value_copy);
+        if (!keys[0]) { free(value_copy); return BB_OK; }
+        char *script = strchr(keys+1, ':');
+        if (!script) { free(value_copy); return BB_INVALID; }
+        *script = '\0';
+        script = trim(script + 1);
+        char *description;
+        if (script[0] == '#') {
+            description = trim(strsep(&script, "\n") + 1);
+            if (!script) script = "";
+            else script = trim(script);
+        } else description = script;
+        for (char *key; (key = strsep(&keys, ",")); ) {
+            int is_section = strcmp(key, "Section") == 0;
+            int keyval = bkeywithname(key);
+            if (keyval == -1 && !is_section) continue;
+            for (int i = 0; i < sizeof(bindings)/sizeof(bindings[0]); i++) {
+                if (bindings[i].script && (bindings[i].key != keyval || is_section))
+                    continue;
+                binding_t binding = {keyval, memcheck(strdup(script)),
+                    memcheck(strdup(description))};
+                if (bindings[i].key == keyval) {
+                    free(bindings[i].description);
+                    free(bindings[i].script);
+                    for (; i + 1 < sizeof(bindings)/sizeof(bindings[0]) && bindings[i+1].key; i++)
+                        bindings[i] = bindings[i+1];
                 }
-                case 'o': { // +dotfiles:
-                    set_bool(bb->show_dotfiles);
-                    populate_files(bb, 1);
-                    return BB_OK;
-                }
+                bindings[i] = binding;
+                break;
             }
         }
-        case 'e': { // +execute:
-            if (!value || !value[0]) return BB_INVALID;
-            move_cursor(tty_out, 0, termheight-1);
-            fputs(T_ON(T_SHOW_CURSOR), tty_out);
-            restore_term(&default_termios);
-            run_script(bb, value);
-            init_term();
+        free(value_copy);
+    } else if (matches_cmd(cmd, "cd")) { // +cd:
+        if (!value) return BB_INVALID;
+        if (cd_to(bb, value)) return BB_INVALID;
+    } else if (matches_cmd(cmd, "columns")) { // +columns:
+        if (!value) return BB_INVALID;
+        strncpy(bb->columns, value, MAX_COLS);
+        bb->dirty = 1;
+    } else if (matches_cmd(cmd, "deselect")) { // +deselect
+        if (!value) {
+            while (bb->firstselected)
+                set_selected(bb, bb->firstselected, 0);
             return BB_OK;
         }
-        case 'g': { // +goto:
-            if (!value) return BB_INVALID;
-            entry_t *e = load_entry(bb, value, 1);
-            if (!e) return BB_INVALID;
-            if (IS_VIEWED(e)) {
-                set_cursor(bb, e->index);
-                return BB_OK;
+        char pbuf[PATH_MAX];
+        normalize_path(bb->path, value, pbuf, 1);
+        entry_t *e = load_entry(bb, pbuf, 0);
+        if (e) {
+            set_selected(bb, e, 0);
+            return BB_OK;
+        }
+        // Filename may no longer exist:
+        for (e = bb->firstselected; e; e = e->selected.next) {
+            if (strcmp(e->fullname, pbuf) == 0) {
+                set_selected(bb, e, 0);
+                break;
             }
-            char pbuf[PATH_MAX];
-            strcpy(pbuf, e->fullname);
-            char *lastslash = strrchr(pbuf, '/');
-            if (!lastslash) return BB_INVALID;
-            *lastslash = '\0'; // Split in two
-            cd_to(bb, pbuf);
-            if (IS_VIEWED(e)) {
-                set_cursor(bb, e->index);
-                return BB_OK;
-            } else try_free_entry(e);
+        }
+    } else if (matches_cmd(cmd, "dotfiles")) { // +dotfiles:
+        set_bool(bb->show_dotfiles);
+        populate_files(bb, 1);
+    } else if (matches_cmd(cmd, "execute")) { // +execute:
+        if (!value || !value[0]) return BB_INVALID;
+        move_cursor(tty_out, 0, termheight-1);
+        fputs(T_ON(T_SHOW_CURSOR), tty_out);
+        restore_term(&default_termios);
+        run_script(bb, value);
+        init_term();
+    } else if (matches_cmd(cmd, "goto")) { // +goto:
+        if (!value) return BB_INVALID;
+        entry_t *e = load_entry(bb, value, 1);
+        if (!e) return BB_INVALID;
+        if (IS_VIEWED(e)) {
+            set_cursor(bb, e->index);
             return BB_OK;
         }
-        case 'h': { // +help
-            restore_term(&default_termios);
-            int fds[2];
-            pipe(fds);
-            pid_t child = fork();
-            void (*old_handler)(int) = signal(SIGINT, SIG_IGN);
-            if (child != 0) {
-                close(fds[0]);
-                print_bindings(fds[1]);
-                close(fds[1]);
-                waitpid(child, NULL, 0);
-            } else {
-                close(fds[1]);
-                dup2(fds[0], STDIN_FILENO);
-                char *args[] = {SH, "-c", "$PAGER -rX", NULL};
-                execvp(SH, args);
-            }
-            init_term();
-            signal(SIGINT, old_handler);
-            bb->dirty = 1;
-            return BB_OK;
+        char pbuf[PATH_MAX];
+        strcpy(pbuf, e->fullname);
+        char *lastslash = strrchr(pbuf, '/');
+        if (!lastslash) return BB_INVALID;
+        *lastslash = '\0'; // Split in two
+        cd_to(bb, pbuf);
+        if (IS_VIEWED(e))
+            set_cursor(bb, e->index);
+        else try_free_entry(e);
+    } else if (matches_cmd(cmd, "help")) { // +help
+        restore_term(&default_termios);
+        int fds[2];
+        pipe(fds);
+        pid_t child = fork();
+        void (*old_handler)(int) = signal(SIGINT, SIG_IGN);
+        if (child != 0) {
+            close(fds[0]);
+            print_bindings(fds[1]);
+            close(fds[1]);
+            waitpid(child, NULL, 0);
+        } else {
+            close(fds[1]);
+            dup2(fds[0], STDIN_FILENO);
+            char *args[] = {SH, "-c", "$PAGER -rX", NULL};
+            execvp(SH, args);
         }
-        case 'i': { // +interleave
-            set_bool(bb->interleave_dirs);
-            sort_files(bb);
-            return BB_OK;
+        init_term();
+        signal(SIGINT, old_handler);
+        bb->dirty = 1;
+    } else if (matches_cmd(cmd, "interleave")) { // +interleave
+        set_bool(bb->interleave_dirs);
+        sort_files(bb);
+    } else if (matches_cmd(cmd, "kill")) { // +kill
+        cleanup_and_exit(SIGINT);
+    } else if (matches_cmd(cmd, "move")) { // +move:
+        int oldcur, isdelta, n;
+      move:
+        if (!value) return BB_INVALID;
+        if (!bb->nfiles) return BB_INVALID;
+        oldcur = bb->cursor;
+        isdelta = value[0] == '-' || value[0] == '+';
+        n = (int)strtol(value, (char**)&value, 10);
+        if (*value == '%')
+            n = (n * (value[1] == 'n' ? bb->nfiles : termheight)) / 100;
+        if (isdelta) set_cursor(bb, bb->cursor + n);
+        else set_cursor(bb, n);
+        if (matches_cmd(cmd, "spread")) { // +spread:
+            int sel = IS_SELECTED(bb->files[oldcur]);
+            for (int i = bb->cursor; i != oldcur; i += (oldcur > i ? 1 : -1))
+                set_selected(bb, bb->files[i], sel);
         }
-        case 'k': // +kill
-            cleanup_and_exit(SIGINT);
-        case 'm': { // +move:
-            int oldcur, isdelta, n;
-          move:
-            if (!value) return BB_INVALID;
-            if (!bb->nfiles) return BB_INVALID;
-            oldcur = bb->cursor;
-            isdelta = value[0] == '-' || value[0] == '+';
-            n = (int)strtol(value, (char**)&value, 10);
-            if (*value == '%')
-                n = (n * (value[1] == 'n' ? bb->nfiles : termheight)) / 100;
-            if (isdelta) set_cursor(bb, bb->cursor + n);
-            else set_cursor(bb, n);
-            if (cmd[0] == 's') { // +spread:
-                int sel = IS_SELECTED(bb->files[oldcur]);
-                for (int i = bb->cursor; i != oldcur; i += (oldcur > i ? 1 : -1))
-                    set_selected(bb, bb->files[i], sel);
-            }
-            return BB_OK;
-        }
-        case 'q': // +quit
-            bb->should_quit = 1;
-            return BB_OK;
-        case 'r': // +refresh
-            populate_files(bb, 1);
-            return BB_OK;
-        case 's': // +scroll:, +select:, +sort:, +spread:
-            switch (cmd[1]) {
-                case 'c': { // scroll:
-                    if (!value) return BB_INVALID;
-                    // TODO: figure out the best version of this
-                    int isdelta = value[0] == '+' || value[0] == '-';
-                    int n = (int)strtol(value, (char**)&value, 10);
-                    if (*value == '%')
-                        n = (n * (value[1] == 'n' ? bb->nfiles : termheight)) / 100;
-                    if (isdelta)
-                        set_scroll(bb, bb->scroll + n);
-                    else
-                        set_scroll(bb, n);
-                    return BB_OK;
-                }
-
-                case '\0': case 'e': { // +select:
-                    if (!value && !bb->nfiles) return BB_INVALID;
-                    if (!value) value = bb->files[bb->cursor]->fullname;
-                    entry_t *e = load_entry(bb, value, 1);
-                    if (e) set_selected(bb, e, 1);
-                    return BB_OK;
-                }
-                case 'o': // +sort:
-                    if (!value) return BB_INVALID;
-                    set_sort(bb, value);
-                    sort_files(bb);
-                    return BB_OK;
-
-                case 'p': // +spread:
-                    goto move;
-                
-                case 'u': // +suspend
-                    fputs(T_LEAVE_BBMODE, tty_out);
-                    restore_term(&orig_termios);
-                    raise(SIGTSTP);
-                    init_term();
-                    bb->dirty = 1;
-                    break;
-            }
-        case 't': { // +toggle:
-            if (!value && !bb->nfiles) return BB_INVALID;
-            if (!value) value = bb->files[bb->cursor]->fullname;
-            entry_t *e = load_entry(bb, value, 1);
-            if (e) set_selected(bb, e, !IS_SELECTED(e));
-            return BB_OK;
-        }
-        default: {
-            fputs(T_LEAVE_BBMODE, tty_out);
-            restore_term(&orig_termios);
-            const char *msg = "Invalid bb command: ";
-            write(STDERR_FILENO, msg, strlen(msg));
-            write(STDERR_FILENO, cmd, strlen(cmd));
-            write(STDERR_FILENO, "\n", 1);
-            init_term();
-            return BB_INVALID;
-        }
+    } else if (matches_cmd(cmd, "quit")) { // +quit
+        bb->should_quit = 1;
+    } else if (matches_cmd(cmd, "refresh")) { // +refresh
+        populate_files(bb, 1);
+    } else if (matches_cmd(cmd, "scroll")) { // +scroll:
+        if (!value) return BB_INVALID;
+        // TODO: figure out the best version of this
+        int isdelta = value[0] == '+' || value[0] == '-';
+        int n = (int)strtol(value, (char**)&value, 10);
+        if (*value == '%')
+            n = (n * (value[1] == 'n' ? bb->nfiles : termheight)) / 100;
+        if (isdelta)
+            set_scroll(bb, bb->scroll + n);
+        else
+            set_scroll(bb, n);
+    } else if (matches_cmd(cmd, "select")) { // +select:
+        if (!value && !bb->nfiles) return BB_INVALID;
+        if (!value) value = bb->files[bb->cursor]->fullname;
+        entry_t *e = load_entry(bb, value, 1);
+        if (e) set_selected(bb, e, 1);
+    } else if (matches_cmd(cmd, "sort")) { // +sort:
+        if (!value) return BB_INVALID;
+        set_sort(bb, value);
+        sort_files(bb);
+    } else if (matches_cmd(cmd, "spread")) { // +spread:
+        goto move;
+    } else if (matches_cmd(cmd, "suspend")) { // +suspend
+        fputs(T_LEAVE_BBMODE, tty_out);
+        restore_term(&orig_termios);
+        raise(SIGTSTP);
+        init_term();
+        bb->dirty = 1;
+    } else if (matches_cmd(cmd, "toggle")) { // +toggle
+        if (!value && !bb->nfiles) return BB_INVALID;
+        if (!value) value = bb->files[bb->cursor]->fullname;
+        entry_t *e = load_entry(bb, value, 1);
+        if (e) set_selected(bb, e, !IS_SELECTED(e));
+    } else {
+        fputs(T_LEAVE_BBMODE, tty_out);
+        restore_term(&orig_termios);
+        const char *msg = "Invalid bb command: ";
+        write(STDERR_FILENO, msg, strlen(msg));
+        write(STDERR_FILENO, cmd, strlen(cmd));
+        write(STDERR_FILENO, "\n", 1);
+        init_term();
+        return BB_INVALID;
     }
-    return BB_INVALID;
+    return BB_OK;
 }
 
 /*
