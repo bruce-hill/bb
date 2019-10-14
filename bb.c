@@ -1296,15 +1296,7 @@ int main(int argc, char *argv[])
 
     if (bb->firstselected && print_selection) {
         for (entry_t *e = bb->firstselected; e; e = e->selected.next) {
-            const char *p = e->fullname;
-            while (*p) {
-                const char *p2 = strchr(p, '\n');
-                if (!p2) p2 = p + strlen(p);
-                write(STDOUT_FILENO, p, (size_t)(p2 - p));
-                if (*p2 == '\n' && sep == '\n')
-                    write(STDOUT_FILENO, "\\", 1);
-                p = p2;
-            }
+            write(STDOUT_FILENO, e->fullname, strlen(e->fullname));
             write(STDOUT_FILENO, &sep, 1);
         }
         fflush(stdout);
