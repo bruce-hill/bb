@@ -265,8 +265,8 @@ int fputs_escaped(FILE *f, const char *str, const char *color)
 void init_term(void)
 {
     static int first_time = 1;
-    tty_in = fopen("/dev/tty", "r");
-    tty_out = fopen("/dev/tty", "w");
+    if (!tty_in) tty_in = fopen("/dev/tty", "r");
+    if (!tty_out) tty_out = fopen("/dev/tty", "w");
     if (first_time) {
         tcgetattr(fileno(tty_out), &orig_termios);
         first_time = 0;
@@ -746,11 +746,12 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         set_selected(bb, e, !IS_SELECTED(e));
     } else {
       invalid_cmd:
-        fputs(T_LEAVE_BBMODE, tty_out);
+        if (tty_out) fputs(T_LEAVE_BBMODE, tty_out);
         restore_term(&orig_termios);
         fprintf(stderr, "Invalid bb command: +%s", cmd);
         fprintf(stderr, "\n");
         init_term();
+        bb->dirty = 1;
     }
 }
 
@@ -1268,8 +1269,8 @@ int main(int argc, char *argv[])
     write(cmdfd, "\0", 1);
     for (int i = 0; i < argc; i++) {
         if (argv[i][0] == '+') {
-            char *colon = strchr(argv[i], ':');
             char *cmd = argv[i];
+            char *colon = strchr(cmd, ':');
             if (colon && !colon[1]) {
                 for (++i; i < argc; i++) {
                     write(cmdfd, cmd, strlen(cmd));
