@@ -1303,17 +1303,6 @@ int main(int argc, char *argv[])
         }
     }
 
-    // Check whether anything was piped in to begin with,
-    // and if so, treat it as commands
-    struct pollfd pfd = {STDIN_FILENO, POLLIN, 0};
-    if (poll(&pfd, 1, 0) == 1 && pfd.revents & POLLIN) {
-        ssize_t len;
-        char buf[1024];
-        while ((len = read(STDIN_FILENO, buf, sizeof(buf))) > 0)
-            write(cmdfd, buf, (size_t)len);
-        write(cmdfd, "\0", 1);
-    }
-
     if (cmdfd != -1) {
         close(cmdfd);
         cmdfd = -1;

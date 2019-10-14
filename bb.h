@@ -8,7 +8,6 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <limits.h>
-#include <poll.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,7 +25,7 @@
 #include "bterm.h"
 
 // Macros:
-#define BB_VERSION "0.17.0"
+#define BB_VERSION "0.17.1"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
