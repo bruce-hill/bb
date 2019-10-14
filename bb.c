@@ -1197,7 +1197,7 @@ void update_term_size(int sig)
 
 int main(int argc, char *argv[])
 {
-    char *initial_path = NULL, depthstr[64] = {0};
+    char *initial_path = NULL, depthstr[16] = {0};
     char sep = '\n';
     int print_dir = 0, print_selection = 0;
 
