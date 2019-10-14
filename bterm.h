@@ -179,6 +179,8 @@ int bgetkey(FILE *in, int *mouse_x, int *mouse_y)
         case 'D': return modifiers | KEY_ARROW_LEFT;
         case 'F': return modifiers | KEY_END;
         case 'H': return modifiers | KEY_HOME;
+        case 'J': return numcode == 2 ? (MOD_SHIFT | KEY_HOME) : -1;
+        case 'K': return MOD_SHIFT | KEY_END;
         case 'M': return MOD_CTRL | KEY_DELETE;
         case 'P': return modifiers | (numcode == 1 ? KEY_F1 : KEY_DELETE);
         case 'Q': return numcode == 1 ? (modifiers | KEY_F2) : -1;

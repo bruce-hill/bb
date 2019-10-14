@@ -78,6 +78,10 @@ J: # Spread selection down
     bb +spread:+1
 K: # Spread selection up
     bb +spread:-1
+Shift-Home: # Spread the selection to the top
+    bb +spread:0
+Shift-End: # Spread the selection to the bottom
+    bb +spread:100%n
 Ctrl-a: # Select all files here
     if [ $BBDOTFILES ]; then find -mindepth 1 -maxdepth 1 -print0;
     else find -mindepth 1 -maxdepth 1 ! -path '*/.*' -print0; fi | bb +sel:
