@@ -31,111 +31,104 @@ void bb_browse(bb_t *bb, const char *path)
     init_term();
     goto force_check_cmds;
 
-  redraw:
-    render(bb);
-    bb->dirty = 0;
+    while (!bb->should_quit) {
+      redraw:
+        render(bb);
+        bb->dirty = 0;
 
-  next_input:
-    if (termwidth != lastwidth || termheight != lastheight) {
-        lastwidth = termwidth; lastheight = termheight;
-        bb->dirty = 1;
-        goto redraw;
-    }
-
-    if (check_cmds) {
-        FILE *cmdfile;
-      force_check_cmds:
-        cmdfile = fopen(cmdfilename, "r");
-        if (!cmdfile) {
-            if (bb->dirty) goto redraw;
-            goto get_keyboard_input;
+      next_input:
+        if (termwidth != lastwidth || termheight != lastheight) {
+            lastwidth = termwidth; lastheight = termheight;
+            bb->dirty = 1;
+            goto redraw;
         }
 
-        if (cmdpos) 
-            fseek(cmdfile, cmdpos, SEEK_SET);
+        if (check_cmds) {
+            FILE *cmdfile;
+          force_check_cmds:
+            cmdfile = fopen(cmdfilename, "r");
+            if (!cmdfile) {
+                if (bb->dirty) goto redraw;
+                goto get_keyboard_input;
+            }
 
-        char *cmd = NULL;
-        size_t space = 0;
-        while (cmdfile && getdelim(&cmd, &space, '\0', cmdfile) >= 0) {
-            cmdpos = ftell(cmdfile);
-            if (!cmd[0]) continue;
-            run_bbcmd(bb, cmd);
-            if (bb->dirty) {
-                free(cmd);
-                fclose(cmdfile);
-                goto redraw;
+            if (cmdpos) 
+                fseek(cmdfile, cmdpos, SEEK_SET);
+
+            char *cmd = NULL;
+            size_t space = 0;
+            while (getdelim(&cmd, &space, '\0', cmdfile) >= 0) {
+                cmdpos = ftell(cmdfile);
+                if (!cmd[0]) continue;
+                run_bbcmd(bb, cmd);
+                if (bb->dirty) {
+                    free(cmd);
+                    fclose(cmdfile);
+                    goto redraw;
+                }
+                if (bb->should_quit) {
+                    free(cmd);
+                    fclose(cmdfile);
+                    return;
+                }
             }
-            if (bb->should_quit) {
-                free(cmd);
-                fclose(cmdfile);
-                goto quit;
-            }
+            free(cmd);
+            fclose(cmdfile);
+            unlink(cmdfilename);
+            cmdpos = 0;
+            check_cmds = 0;
+            goto redraw;
         }
-        free(cmd);
-        fclose(cmdfile);
-        unlink(cmdfilename);
-        cmdpos = 0;
-        check_cmds = 0;
-        goto redraw;
-    }
 
-    int key, mouse_x, mouse_y;
-  get_keyboard_input:
-    key = bgetkey(tty_in, &mouse_x, &mouse_y);
-    if (key == -1) goto next_input;
-    static char bbmousecol[2] = {0, 0};
-    static char bbclicked[PATH_MAX];
-    if (mouse_x != -1 && mouse_y != -1) {
-        bbmousecol[0] = '\0';
-        // Get bb column:
-        for (int col = 0, x = 0; bb->columns[col]; col++, x++) {
-            x += columns[(int)bb->columns[col]].width;
-            if (x >= mouse_x) {
-                bbmousecol[0] = bb->columns[col];
+        int key, mouse_x, mouse_y;
+      get_keyboard_input:
+        key = bgetkey(tty_in, &mouse_x, &mouse_y);
+        if (key == -1) goto next_input;
+        static char bbmousecol[2] = {0, 0};
+        static char bbclicked[PATH_MAX];
+        if (mouse_x != -1 && mouse_y != -1) {
+            bbmousecol[0] = '\0';
+            // Get bb column:
+            for (int col = 0, x = 0; bb->columns[col]; col++, x++) {
+                x += columns[(int)bb->columns[col]].width;
+                if (x >= mouse_x) {
+                    bbmousecol[0] = bb->columns[col];
+                    break;
+                }
+            }
+            if (mouse_y == 1) {
+                strcpy(bbclicked, "<column label>");
+            } else if (2 <= mouse_y && mouse_y <= termheight - 2
+                       && bb->scroll + (mouse_y - 2) <= bb->nfiles - 1) {
+                strcpy(bbclicked, bb->files[bb->scroll + (mouse_y - 2)]->fullname);
+            } else {
+                bbclicked[0] = '\0';
+            }
+            setenv("BBMOUSECOL", bbmousecol, 1);
+            setenv("BBCLICKED", bbclicked, 1);
+        }
+        // Search user-defined key bindings
+        binding_t *binding = NULL;
+        for (int i = 0; bindings[i].script && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
+            if (key == bindings[i].key) {
+                binding = &bindings[i];
                 break;
             }
         }
-        if (mouse_y == 1) {
-            strcpy(bbclicked, "<column label>");
-        } else if (2 <= mouse_y && mouse_y <= termheight - 2
-                   && bb->scroll + (mouse_y - 2) <= bb->nfiles - 1) {
-            strcpy(bbclicked, bb->files[bb->scroll + (mouse_y - 2)]->fullname);
+        if (!binding)
+            goto next_input;
+
+        if (cmdpos != 0)
+            err("Command file still open");
+        if (is_simple_bbcmd(binding->script)) {
+            run_bbcmd(bb, binding->script);
         } else {
-            bbclicked[0] = '\0';
+            move_cursor(tty_out, 0, termheight-1);
+            restore_term(&default_termios);
+            run_script(bb, binding->script);
+            init_term();
+            check_cmds = 1;
         }
-        setenv("BBMOUSECOL", bbmousecol, 1);
-        setenv("BBCLICKED", bbclicked, 1);
-    }
-    // Search user-defined key bindings
-    binding_t *binding;
-    for (int i = 0; bindings[i].script && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
-        if (key == bindings[i].key) {
-            binding = &bindings[i];
-            goto run_binding;
-        }
-    }
-    // Nothing matched
-    goto next_input;
-
-  run_binding:
-    if (cmdpos != 0)
-        err("Command file still open");
-    if (is_simple_bbcmd(binding->script)) {
-        run_bbcmd(bb, binding->script);
-    } else {
-        move_cursor(tty_out, 0, termheight-1);
-        restore_term(&default_termios);
-        run_script(bb, binding->script);
-        init_term();
-        check_cmds = 1;
-    }
-    if (!bb->should_quit)
-        goto redraw;
-
-  quit:
-    if (tty_out) {
-        fputs(T_LEAVE_BBMODE, tty_out);
-        cleanup();
     }
 }
 
@@ -702,7 +695,7 @@ bb_result_t run_bbcmd(bb_t *bb, const char *cmd)
         set_bool(bb->interleave_dirs);
         sort_files(bb);
     } else if (matches_cmd(cmd, "kill")) { // +kill
-        cleanup_and_exit(SIGINT);
+        exit(1);
     } else if (matches_cmd(cmd, "move")) { // +move:
         int oldcur, isdelta, n;
       move:
@@ -1267,13 +1260,9 @@ int main(int argc, char *argv[])
     setenv("PAGER", "less", 0);
 
     atexit(cleanup);
-    signal(SIGTERM, cleanup_and_exit);
-    signal(SIGINT, cleanup_and_exit);
-    signal(SIGXCPU, cleanup_and_exit);
-    signal(SIGXFSZ, cleanup_and_exit);
-    signal(SIGVTALRM, cleanup_and_exit);
-    signal(SIGPROF, cleanup_and_exit);
-    signal(SIGSEGV, cleanup_and_exit);
+    int signals[] = {SIGTERM, SIGINT, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF, SIGSEGV};
+    for (int i = 0; i < sizeof(signals)/sizeof(signals[0]); i++)
+        signal(signals[i], cleanup_and_exit);
 
     char path[PATH_MAX], curdir[PATH_MAX];
     getcwd(curdir, PATH_MAX);
@@ -1309,6 +1298,11 @@ int main(int argc, char *argv[])
     }
 
     bb_browse(bb, path);
+
+    if (tty_out) {
+        fputs(T_LEAVE_BBMODE, tty_out);
+        cleanup();
+    }
 
     if (bb->firstselected && print_selection) {
         for (entry_t *e = bb->firstselected; e; e = e->selected.next) {
