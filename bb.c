@@ -750,7 +750,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
       invalid_cmd:
         fputs(T_LEAVE_BBMODE, tty_out);
         restore_term(&orig_termios);
-        fprintf(stderr, "Invalid bb command: %s", cmd);
+        fprintf(stderr, "Invalid bb command: +%s", cmd);
         fprintf(stderr, "\n");
         init_term();
     }
