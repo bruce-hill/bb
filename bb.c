@@ -27,8 +27,8 @@ void bb_browse(bb_t *bb, const char *path)
     bb->scroll = 0;
     bb->cursor = 0;
     bb->dirty = 0;
+    bb->should_quit = 0;
 
-    init_term();
     goto force_check_cmds;
 
     while (!bb->should_quit) {
@@ -400,11 +400,13 @@ entry_t* load_entry(bb_t *bb, const char *path, int clear_dots)
 
 /*
  * Return whether a string matches a command
- * e.g. matches_cmd("cd:..", "cd") == 1, matches_cmd("q", "quit") == 1
+ * e.g. matches_cmd("sel:x", "select:") == 1, matches_cmd("q", "quit") == 1
  */
 static inline int matches_cmd(const char *str, const char *cmd)
 {
-    while (*str == *cmd && *cmd) ++str, ++cmd;
+    if ((strchr(cmd, ':') == NULL) != (strchr(str, ':') == NULL))
+        return 0;
+    while (*str == *cmd && *cmd && *cmd != ':') ++str, ++cmd;
     return *str == '\0' || *str == ':';
 }
 
@@ -568,7 +570,7 @@ void print_bindings(int fd)
  * Run a bb internal command (e.g. "+refresh") and return an indicator of what
  * needs to happen next.
  */
-bb_result_t run_bbcmd(bb_t *bb, const char *cmd)
+void run_bbcmd(bb_t *bb, const char *cmd)
 {
     if (cmd[0] == '+') ++cmd;
     else if (strncmp(cmd, "bb +", 4) == 0) cmd = &cmd[4];
@@ -581,14 +583,15 @@ bb_result_t run_bbcmd(bb_t *bb, const char *cmd)
     } else if (matches_cmd(cmd, ".")) { // +.
         set_bool(bb->show_dot);
         populate_files(bb, 1);
-    } else if (matches_cmd(cmd, "bind")) { // +bind:<keys>:<script>
-        if (!value || !value[0])
-            return BB_INVALID;
+    } else if (matches_cmd(cmd, "bind:")) { // +bind:<keys>:<script>
         char *value_copy = memcheck(strdup(value));
         char *keys = trim(value_copy);
-        if (!keys[0]) { free(value_copy); return BB_OK; }
+        if (!keys[0]) { free(value_copy); return; }
         char *script = strchr(keys+1, ':');
-        if (!script) { free(value_copy); return BB_INVALID; }
+        if (!script) {
+            free(value_copy);
+            goto invalid_cmd;
+        }
         *script = '\0';
         script = trim(script + 1);
         char *description;
@@ -617,25 +620,18 @@ bb_result_t run_bbcmd(bb_t *bb, const char *cmd)
             }
         }
         free(value_copy);
-    } else if (matches_cmd(cmd, "cd")) { // +cd:
-        if (!value) return BB_INVALID;
-        if (cd_to(bb, value)) return BB_INVALID;
-    } else if (matches_cmd(cmd, "columns")) { // +columns:
-        if (!value) return BB_INVALID;
+    } else if (matches_cmd(cmd, "cd:")) { // +cd:
+        if (cd_to(bb, value)) goto invalid_cmd;
+    } else if (matches_cmd(cmd, "columns:")) { // +columns:
         strncpy(bb->columns, value, MAX_COLS);
         bb->dirty = 1;
-    } else if (matches_cmd(cmd, "deselect")) { // +deselect
-        if (!value) {
-            while (bb->firstselected)
-                set_selected(bb, bb->firstselected, 0);
-            return BB_OK;
-        }
+    } else if (matches_cmd(cmd, "deselect:")) { // +deselect
         char pbuf[PATH_MAX];
         normalize_path(bb->path, value, pbuf, 1);
         entry_t *e = load_entry(bb, pbuf, 0);
         if (e) {
             set_selected(bb, e, 0);
-            return BB_OK;
+            return;
         }
         // Filename may no longer exist:
         for (e = bb->firstselected; e; e = e->selected.next) {
@@ -644,28 +640,30 @@ bb_result_t run_bbcmd(bb_t *bb, const char *cmd)
                 break;
             }
         }
-    } else if (matches_cmd(cmd, "dotfiles")) { // +dotfiles:
+    } else if (matches_cmd(cmd, "deselect")) { // +deselect
+        while (bb->firstselected)
+            set_selected(bb, bb->firstselected, 0);
+        return;
+    } else if (matches_cmd(cmd, "dotfiles:") || matches_cmd(cmd, "dotfiles")) { // +dotfiles:
         set_bool(bb->show_dotfiles);
         populate_files(bb, 1);
-    } else if (matches_cmd(cmd, "execute")) { // +execute:
-        if (!value || !value[0]) return BB_INVALID;
+    } else if (matches_cmd(cmd, "execute:")) { // +execute:
         move_cursor(tty_out, 0, termheight-1);
         fputs(T_ON(T_SHOW_CURSOR), tty_out);
         restore_term(&default_termios);
         run_script(bb, value);
         init_term();
-    } else if (matches_cmd(cmd, "goto")) { // +goto:
-        if (!value) return BB_INVALID;
+    } else if (matches_cmd(cmd, "goto:")) { // +goto:
         entry_t *e = load_entry(bb, value, 1);
-        if (!e) return BB_INVALID;
+        if (!e) goto invalid_cmd;
         if (IS_VIEWED(e)) {
             set_cursor(bb, e->index);
-            return BB_OK;
+            return;
         }
         char pbuf[PATH_MAX];
         strcpy(pbuf, e->fullname);
         char *lastslash = strrchr(pbuf, '/');
-        if (!lastslash) return BB_INVALID;
+        if (!lastslash) err("No slash found in filename: %s", pbuf);
         *lastslash = '\0'; // Split in two
         cd_to(bb, pbuf);
         if (IS_VIEWED(e))
@@ -691,16 +689,15 @@ bb_result_t run_bbcmd(bb_t *bb, const char *cmd)
         init_term();
         signal(SIGINT, old_handler);
         bb->dirty = 1;
-    } else if (matches_cmd(cmd, "interleave")) { // +interleave
+    } else if (matches_cmd(cmd, "interleave:") || matches_cmd(cmd, "interleave")) { // +interleave
         set_bool(bb->interleave_dirs);
         sort_files(bb);
     } else if (matches_cmd(cmd, "kill")) { // +kill
-        exit(1);
-    } else if (matches_cmd(cmd, "move")) { // +move:
+        exit(EXIT_FAILURE);
+    } else if (matches_cmd(cmd, "move:")) { // +move:
         int oldcur, isdelta, n;
       move:
-        if (!value) return BB_INVALID;
-        if (!bb->nfiles) return BB_INVALID;
+        if (bb->nfiles == 0) return;
         oldcur = bb->cursor;
         isdelta = value[0] == '-' || value[0] == '+';
         n = (int)strtol(value, (char**)&value, 10);
@@ -708,7 +705,7 @@ bb_result_t run_bbcmd(bb_t *bb, const char *cmd)
             n = (n * (value[1] == 'n' ? bb->nfiles : termheight)) / 100;
         if (isdelta) set_cursor(bb, bb->cursor + n);
         else set_cursor(bb, n);
-        if (matches_cmd(cmd, "spread")) { // +spread:
+        if (matches_cmd(cmd, "spread:")) { // +spread:
             int sel = IS_SELECTED(bb->files[oldcur]);
             for (int i = bb->cursor; i != oldcur; i += (oldcur > i ? 1 : -1))
                 set_selected(bb, bb->files[i], sel);
@@ -717,8 +714,7 @@ bb_result_t run_bbcmd(bb_t *bb, const char *cmd)
         bb->should_quit = 1;
     } else if (matches_cmd(cmd, "refresh")) { // +refresh
         populate_files(bb, 1);
-    } else if (matches_cmd(cmd, "scroll")) { // +scroll:
-        if (!value) return BB_INVALID;
+    } else if (matches_cmd(cmd, "scroll:")) { // +scroll:
         // TODO: figure out the best version of this
         int isdelta = value[0] == '+' || value[0] == '-';
         int n = (int)strtol(value, (char**)&value, 10);
@@ -728,16 +724,15 @@ bb_result_t run_bbcmd(bb_t *bb, const char *cmd)
             set_scroll(bb, bb->scroll + n);
         else
             set_scroll(bb, n);
-    } else if (matches_cmd(cmd, "select")) { // +select:
-        if (!value && !bb->nfiles) return BB_INVALID;
+    } else if (matches_cmd(cmd, "select:") || matches_cmd(cmd, "select")) { // +select:
+        if (!value && !bb->nfiles) return;
         if (!value) value = bb->files[bb->cursor]->fullname;
         entry_t *e = load_entry(bb, value, 1);
         if (e) set_selected(bb, e, 1);
-    } else if (matches_cmd(cmd, "sort")) { // +sort:
-        if (!value) return BB_INVALID;
+    } else if (matches_cmd(cmd, "sort:")) { // +sort:
         set_sort(bb, value);
         sort_files(bb);
-    } else if (matches_cmd(cmd, "spread")) { // +spread:
+    } else if (matches_cmd(cmd, "spread:")) { // +spread:
         goto move;
     } else if (matches_cmd(cmd, "suspend")) { // +suspend
         fputs(T_LEAVE_BBMODE, tty_out);
@@ -745,22 +740,20 @@ bb_result_t run_bbcmd(bb_t *bb, const char *cmd)
         raise(SIGTSTP);
         init_term();
         bb->dirty = 1;
-    } else if (matches_cmd(cmd, "toggle")) { // +toggle
-        if (!value && !bb->nfiles) return BB_INVALID;
+    } else if (matches_cmd(cmd, "toggle:") || matches_cmd(cmd, "toggle")) { // +toggle
+        if (!value && !bb->nfiles) return;
         if (!value) value = bb->files[bb->cursor]->fullname;
         entry_t *e = load_entry(bb, value, 1);
-        if (e) set_selected(bb, e, !IS_SELECTED(e));
+        if (!e) goto invalid_cmd;
+        set_selected(bb, e, !IS_SELECTED(e));
     } else {
+      invalid_cmd:
         fputs(T_LEAVE_BBMODE, tty_out);
         restore_term(&orig_termios);
-        const char *msg = "Invalid bb command: ";
-        write(STDERR_FILENO, msg, strlen(msg));
-        write(STDERR_FILENO, cmd, strlen(cmd));
-        write(STDERR_FILENO, "\n", 1);
+        fprintf(stderr, "Invalid bb command: %s", cmd);
+        fprintf(stderr, "\n");
         init_term();
-        return BB_INVALID;
     }
-    return BB_OK;
 }
 
 /*
@@ -1297,8 +1290,8 @@ int main(int argc, char *argv[])
         cmdfd = -1;
     }
 
+    init_term();
     bb_browse(bb, path);
-
     if (tty_out) {
         fputs(T_LEAVE_BBMODE, tty_out);
         cleanup();

@@ -61,6 +61,14 @@
     exit(EXIT_FAILURE); \
 } while (0)
 
+#define warn(...) do { \
+    fputs(T_LEAVE_BBMODE, tty_out); \
+    restore_term(&orig_termios); \
+    fprintf(stderr, __VA_ARGS__); \
+    fprintf(stderr, "\n"); \
+    init_term(); \
+} while (0)
+
 // Types:
 typedef struct {
     int key;
@@ -129,8 +137,6 @@ typedef struct bb_s {
     unsigned int should_quit : 1;
 } bb_t;
 
-typedef enum { BB_OK = 0, BB_INVALID } bb_result_t;
-
 // Configurable options:
 #define SCROLLOFF   MIN(5, (termheight-4)/2)
 #define CMDFILE_FORMAT "/tmp/bb.XXXXXX"
@@ -182,7 +188,7 @@ static void* memcheck(void *p);
 static void normalize_path(const char *root, const char *path, char *pbuf, int clear_dots);
 static void populate_files(bb_t *bb, int samedir);
 static void print_bindings(int fd);
-static bb_result_t run_bbcmd(bb_t *bb, const char *cmd);
+static void run_bbcmd(bb_t *bb, const char *cmd);
 static void render(bb_t *bb);
 static void restore_term(const struct termios *term);
 static int run_script(bb_t *bb, const char *cmd);
