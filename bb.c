@@ -13,6 +13,8 @@ static struct termios orig_termios, bb_termios;
 static FILE *tty_out = NULL, *tty_in = NULL;
 static int termwidth, termheight;
 static char *cmdfilename = NULL;
+proc_t *running_procs = NULL;
+static int nprocs = 0;
 
 /*
  * Use bb to browse the filesystem.
@@ -43,6 +45,7 @@ void bb_browse(bb_t *bb)
           force_check_cmds:
             cmdfile = fopen(cmdfilename, "r");
             if (!cmdfile) {
+                cmdpos = 0;
                 if (bb->dirty) goto redraw;
                 goto get_keyboard_input;
             }
@@ -119,6 +122,7 @@ void bb_browse(bb_t *bb)
             run_bbcmd(bb, binding->script);
         } else {
             move_cursor(tty_out, 0, termheight-1);
+            fputs("\033[K" T_ON(T_SHOW_CURSOR), tty_out);
             restore_term(&default_termios);
             run_script(bb, binding->script);
             init_term();
@@ -128,21 +132,23 @@ void bb_browse(bb_t *bb)
 }
 
 /*
- * Close safely in a way that doesn't gunk up the terminal.
+ * Clean up the terminal before going to the default signal handling behavior.
  */
-void cleanup_and_exit(int sig)
+void cleanup_and_raise(int sig)
 {
-    static volatile sig_atomic_t error_in_progress = 0;
-    if (error_in_progress)
-        raise(sig);
-    error_in_progress = 1;
     cleanup();
-    signal(sig, SIG_DFL);
+    int childsig = (sig == SIGTSTP || sig == SIGSTOP) ? sig : SIGHUP;
+    for (proc_t *p = running_procs; p; p = p->running.next)
+        kill(p->pid, childsig);
     raise(sig);
+    // This code will only ever be run if sig is SIGTSTP/SIGSTOP, otherwise, raise() won't return:
+    init_term();
+    struct sigaction sa = {.sa_handler = &cleanup_and_raise, .sa_flags = SA_NODEFER | SA_RESETHAND};
+    sigaction(sig, &sa, NULL);
 }
 
 /*
- * Close the terminal, reset the screen, and delete the cmdfile
+ * Reset the screen and delete the cmdfile
  */
 void cleanup(void)
 {
@@ -151,9 +157,9 @@ void cleanup(void)
         free(cmdfilename);
         cmdfilename = NULL;
     }
-    if (tty_out)
-        fputs(T_OFF(T_ALT_SCREEN) T_ON(T_SHOW_CURSOR), tty_out);
-    restore_term(&orig_termios);
+    fputs(T_OFF(T_ALT_SCREEN) T_ON(T_SHOW_CURSOR), tty_out);
+    fflush(tty_out);
+    tcsetattr(fileno(tty_out), TCSANOW, &orig_termios);
 }
 
 /*
@@ -264,23 +270,12 @@ int fputs_escaped(FILE *f, const char *str, const char *color)
  */
 void init_term(void)
 {
-    static int first_time = 1;
-    if (!tty_in) tty_in = fopen("/dev/tty", "r");
-    if (!tty_out) tty_out = fopen("/dev/tty", "w");
-    if (first_time) {
-        tcgetattr(fileno(tty_out), &orig_termios);
-        first_time = 0;
-    }
-    memcpy(&bb_termios, &orig_termios, sizeof(bb_termios));
-    cfmakeraw(&bb_termios);
-    bb_termios.c_cc[VMIN] = 0;
-    bb_termios.c_cc[VTIME] = 1;
-    if (tcsetattr(fileno(tty_out), TCSAFLUSH, &bb_termios) == -1)
+    if (tcsetattr(fileno(tty_out), TCSANOW, &bb_termios) == -1)
         err("Couldn't tcsetattr");
     update_term_size(0);
-    signal(SIGWINCH, update_term_size);
     // Initiate mouse tracking and disable text wrapping:
     fputs(T_ENTER_BBMODE, tty_out);
+    fflush(tty_out);
 }
 
 /* 
@@ -350,10 +345,7 @@ entry_t* load_entry(bb_t *bb, const char *path, int clear_dots)
     if (S_ISLNK(filestat.st_mode))
         entry->linkedmode = linkedstat.st_mode;
     entry->info = filestat;
-    if (bb->hash[(int)filestat.st_ino & HASH_MASK])
-        bb->hash[(int)filestat.st_ino & HASH_MASK]->hash.atme = &entry->hash.next;
-    entry->hash.next = bb->hash[(int)filestat.st_ino & HASH_MASK];
-    entry->hash.atme = &bb->hash[(int)filestat.st_ino & HASH_MASK];
+    LL_PREPEND(bb->hash[(int)filestat.st_ino & HASH_MASK], entry, hash);
     entry->index = -1;
     bb->hash[(int)filestat.st_ino & HASH_MASK] = entry;
     return entry;
@@ -647,10 +639,24 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         populate_files(bb, bb->path);
     } else if (matches_cmd(cmd, "execute:")) { // +execute:
         move_cursor(tty_out, 0, termheight-1);
-        fputs(T_ON(T_SHOW_CURSOR), tty_out);
+        fputs("\033[K" T_ON(T_SHOW_CURSOR), tty_out);
         restore_term(&default_termios);
         run_script(bb, value);
         init_term();
+    } else if (matches_cmd(cmd, "fg:") || matches_cmd(cmd, "fg")) { // +fg:
+        int fg = value ? nprocs - (int)strtol(value, NULL, 10) : 0;
+        proc_t *child = NULL;
+        for (proc_t *p = running_procs; p && !child; p = p->running.next) {
+            if (fg-- == 0) child = p;
+        }
+        if (!child) return;
+        move_cursor(tty_out, 0, termheight-1);
+        fputs("\033[K", tty_out);
+        restore_term(&default_termios);
+        kill(-(child->pid), SIGCONT);
+        wait_for_process(&child);
+        init_term();
+        bb->dirty = 1;
     } else if (matches_cmd(cmd, "goto:")) { // +goto:
         entry_t *e = load_entry(bb, value, 1);
         if (!e) goto invalid_cmd;
@@ -671,27 +677,29 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         restore_term(&default_termios);
         int fds[2];
         pipe(fds);
-        pid_t child = fork();
-        void (*old_handler)(int) = signal(SIGINT, SIG_IGN);
-        if (child != 0) {
-            close(fds[0]);
-            print_bindings(fds[1]);
-            close(fds[1]);
-            waitpid(child, NULL, 0);
-        } else {
+        proc_t *proc = memcheck(calloc(1, sizeof(proc_t)));
+        if ((proc->pid = fork()) == 0) {
+            fclose(tty_out); tty_out = NULL;
+            fclose(tty_in); tty_in = NULL;
+            setpgid(0, 0);
             close(fds[1]);
             dup2(fds[0], STDIN_FILENO);
-            char *args[] = {SH, "-c", "$PAGER -rX", NULL};
+            char *args[] = {SH, "-c", "less -rKX", NULL};
             execvp(SH, args);
         }
+        LL_PREPEND(running_procs, proc, running);
+        ++nprocs;
+        signal(SIGTTOU, SIG_IGN);
+        tcsetpgrp(fileno(tty_out), proc->pid);
+        close(fds[0]);
+        print_bindings(fds[1]);
+        close(fds[1]);
+        wait_for_process(&proc);
         init_term();
-        signal(SIGINT, old_handler);
         bb->dirty = 1;
     } else if (matches_cmd(cmd, "interleave:") || matches_cmd(cmd, "interleave")) { // +interleave
         set_bool(bb->interleave_dirs);
         sort_files(bb);
-    } else if (matches_cmd(cmd, "kill")) { // +kill
-        exit(EXIT_FAILURE);
     } else if (matches_cmd(cmd, "move:")) { // +move:
         int oldcur, isdelta, n;
       move:
@@ -732,12 +740,6 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         sort_files(bb);
     } else if (matches_cmd(cmd, "spread:")) { // +spread:
         goto move;
-    } else if (matches_cmd(cmd, "suspend")) { // +suspend
-        fputs(T_LEAVE_BBMODE, tty_out);
-        restore_term(&orig_termios);
-        raise(SIGTSTP);
-        init_term();
-        bb->dirty = 1;
     } else if (matches_cmd(cmd, "toggle:") || matches_cmd(cmd, "toggle")) { // +toggle
         if (!value && !bb->nfiles) return;
         if (!value) value = bb->files[bb->cursor]->fullname;
@@ -746,11 +748,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         set_selected(bb, e, !IS_SELECTED(e));
     } else {
       invalid_cmd:
-        if (tty_out) fputs(T_LEAVE_BBMODE, tty_out);
-        restore_term(&orig_termios);
-        fprintf(stderr, "Invalid bb command: +%s", cmd);
-        fprintf(stderr, "\n");
-        init_term();
+        warn("Invalid bb command: +%s.", cmd);
         bb->dirty = 1;
     }
 }
@@ -936,17 +934,24 @@ void render(bb_t *bb)
         fputs(" \033[K\033[0m", tty_out); // Reset color and attributes
     }
 
-    if (bb->firstselected) {
+    move_cursor(tty_out, termwidth/2, termheight - 1);
+    fputs("\033[0m\033[K", tty_out);
+    int x = termwidth;
+    if (bb->firstselected) { // Number of selected files
         int n = 0;
         for (entry_t *s = bb->firstselected; s; s = s->selected.next) ++n;
-        int x = termwidth - 14;
+        x -= 14;
         for (int k = n; k; k /= 10) x--;
         move_cursor(tty_out, MAX(0, x), termheight - 1);
         fprintf(tty_out, "\033[41;30m %d Selected \033[0m", n);
-    } else {
-        move_cursor(tty_out, termwidth/2, termheight - 1);
-        fputs("\033[0m\033[K", tty_out);
     }
+    if (nprocs > 0) { // Number of suspended processes
+        x -= 13;
+        for (int k = nprocs; k; k /= 10) x--;
+        move_cursor(tty_out, MAX(0, x), termheight - 1);
+        fprintf(tty_out, "\033[44;30m %d Suspended \033[0m", nprocs);
+    }
+    move_cursor(tty_out, termwidth/2, termheight - 1);
 
     lastcursor = bb->cursor;
     lastscroll = bb->scroll;
@@ -958,16 +963,9 @@ void render(bb_t *bb)
  */
 void restore_term(const struct termios *term)
 {
-    if (tty_out) {
-        tcsetattr(fileno(tty_out), TCSAFLUSH, term);
-        fputs(T_LEAVE_BBMODE_PARTIAL, tty_out);
-        fflush(tty_out);
-        fclose(tty_out);
-        tty_out = NULL;
-        fclose(tty_in);
-        tty_in = NULL;
-    }
-    signal(SIGWINCH, SIG_DFL);
+    tcsetattr(fileno(tty_out), TCSANOW, term);
+    fputs(T_LEAVE_BBMODE_PARTIAL, tty_out);
+    fflush(tty_out);
 }
 
 /*
@@ -981,10 +979,11 @@ int run_script(bb_t *bb, const char *cmd)
     strcpy(fullcmd, bbcmdfn);
     strcat(fullcmd, cmd);
 
-    pid_t child;
-    void (*old_handler)(int) = signal(SIGINT, SIG_IGN);
-    if ((child = fork()) == 0) {
-        signal(SIGINT, SIG_DFL);
+    proc_t *proc = memcheck(calloc(1, sizeof(proc_t)));
+    if ((proc->pid = fork()) == 0) {
+        fclose(tty_out); tty_out = NULL;
+        fclose(tty_in); tty_in = NULL;
+        setpgid(0, 0);
         // TODO: is there a max number of args? Should this be batched?
         size_t space = 32;
         char **args = memcheck(calloc(space, sizeof(char*)));
@@ -1011,13 +1010,12 @@ int run_script(bb_t *bb, const char *cmd)
         return -1;
     }
 
-    if (child == -1)
+    if (proc->pid == -1)
         err("Failed to fork");
 
-    int status;
-    waitpid(child, &status, 0);
-    signal(SIGINT, old_handler);
-
+    LL_PREPEND(running_procs, proc, running);
+    ++nprocs;
+    int status = wait_for_process(&proc);
     bb->dirty = 1;
     return status;
 }
@@ -1082,19 +1080,11 @@ void set_selected(bb_t *bb, entry_t *e, int selected)
         bb->dirty = 1;
 
     if (selected) {
-        if (bb->firstselected)
-            bb->firstselected->selected.atme = &e->selected.next;
-        e->selected.next = bb->firstselected;
-        e->selected.atme = &bb->firstselected;
-        bb->firstselected = e;
+        LL_PREPEND(bb->firstselected, e, selected);
     } else {
         if (bb->nfiles > 0 && e != bb->files[bb->cursor])
             bb->dirty = 1;
-        if (e->selected.next)
-            e->selected.next->selected.atme = e->selected.atme;
-        *(e->selected.atme) = e->selected.next;
-        e->selected.next = NULL;
-        e->selected.atme = NULL;
+        LL_REMOVE(e, selected);
         try_free_entry(e);
     }
 }
@@ -1127,11 +1117,7 @@ void set_sort(bb_t *bb, const char *sort)
 int try_free_entry(entry_t *e)
 {
     if (IS_SELECTED(e) || IS_VIEWED(e)) return 0;
-    if (e->hash.next)
-        e->hash.next->hash.atme = e->hash.atme;
-    *(e->hash.atme) = e->hash.next;
-    e->hash.atme = NULL;
-    e->hash.next = NULL;
+    LL_REMOVE(e, hash);
     free(e);
     return 1;
 }
@@ -1171,10 +1157,33 @@ static char *trim(char *s)
 void update_term_size(int sig)
 {
     (void)sig;
-    struct winsize sz = {0};
-    ioctl(fileno(tty_in), TIOCGWINSZ, &sz);
-    termwidth = sz.ws_col;
-    termheight = sz.ws_row;
+    if (tty_in) {
+        struct winsize sz = {0};
+        ioctl(fileno(tty_in), TIOCGWINSZ, &sz);
+        termwidth = sz.ws_col;
+        termheight = sz.ws_row;
+    }
+}
+
+/*
+ * Wait for a process to either suspend or exit and return the status.
+ */
+int wait_for_process(proc_t **proc)
+{
+    signal(SIGTTOU, SIG_IGN);
+    tcsetpgrp(fileno(tty_out), (*proc)->pid);
+    int status;
+    while (waitpid((*proc)->pid, &status, WUNTRACED) < 0 && errno == EINTR) // Can happen, e.g. if process sends SIGTSTP
+        continue;
+    tcsetpgrp(fileno(tty_out), getpgid(0));
+    signal(SIGTTOU, SIG_DFL);
+    if (!WIFSTOPPED(status)) {
+        LL_REMOVE((*proc), running);
+        free(*proc);
+        *proc = NULL;
+        --nprocs;
+    }
+    return status;
 }
 
 int main(int argc, char *argv[])
@@ -1238,7 +1247,6 @@ int main(int argc, char *argv[])
     // Default values
     setenv("SHELL", "bash", 0);
     setenv("EDITOR", "nano", 0);
-    setenv("PAGER", "less", 0);
     char *curdepth = getenv("BB_DEPTH");
     int depth = curdepth ? atoi(curdepth) : 0;
     sprintf(depthstr, "%d", depth + 1);
@@ -1251,13 +1259,21 @@ int main(int argc, char *argv[])
     if (strcmp(full_initial_path, "/") != 0) strcat(full_initial_path, "/");
     setenv("BBINITIALPATH", full_initial_path, 1);
 
-    // Terminal must be initialized before working with bb to ensure the
-    // cursor/scroll can be set properly within the screen's bounds
-    init_term();
+
+    tty_in = fopen("/dev/tty", "r");
+    tty_out = fopen("/dev/tty", "w");
+    tcgetattr(fileno(tty_out), &orig_termios);
+    memcpy(&bb_termios, &orig_termios, sizeof(bb_termios));
+    cfmakeraw(&bb_termios);
+    bb_termios.c_cc[VMIN] = 0;
+    bb_termios.c_cc[VTIME] = 1;
     atexit(cleanup);
-    int signals[] = {SIGTERM, SIGINT, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF, SIGSEGV};
+    struct sigaction sa_winch = {.sa_handler = &update_term_size};
+    sigaction(SIGWINCH, &sa_winch, NULL);
+    int signals[] = {SIGTERM, SIGINT, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF, SIGSEGV, SIGTSTP};
+    struct sigaction sa = {.sa_handler = &cleanup_and_raise, .sa_flags = SA_NODEFER | SA_RESETHAND};
     for (int i = 0; i < sizeof(signals)/sizeof(signals[0]); i++)
-        signal(signals[i], cleanup_and_exit);
+        sigaction(signals[i], &sa, NULL);
 
     bb_t *bb = memcheck(calloc(1, sizeof(bb_t)));
     strcpy(bb->columns, "*smpn");
@@ -1281,18 +1297,12 @@ int main(int argc, char *argv[])
             }
         }
     }
+    close(cmdfd); cmdfd = -1;
 
-    if (cmdfd != -1) {
-        close(cmdfd);
-        cmdfd = -1;
-    }
-
+    init_term();
     bb_browse(bb);
-
-    if (tty_out) {
-        fputs(T_LEAVE_BBMODE, tty_out);
-        cleanup();
-    }
+    fputs(T_LEAVE_BBMODE, tty_out);
+    cleanup();
 
     if (bb->firstselected && print_selection) {
         for (entry_t *e = bb->firstselected; e; e = e->selected.next) {

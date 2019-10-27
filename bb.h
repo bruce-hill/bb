@@ -62,11 +62,27 @@
 } while (0)
 
 #define warn(...) do { \
-    fputs(T_LEAVE_BBMODE, tty_out); \
-    restore_term(&orig_termios); \
-    fprintf(stderr, __VA_ARGS__); \
-    fprintf(stderr, "\n"); \
-    init_term(); \
+    move_cursor(tty_out, 0, termheight-1); \
+    fputs("\033[41;33;1m", tty_out); \
+    fprintf(tty_out, __VA_ARGS__); \
+    fputs(" Press any key to continue...\033[0m  ", tty_out); \
+    fflush(tty_out); \
+    while (bgetkey(tty_in, NULL, NULL) == -1) usleep(100); \
+} while (0)
+
+#define LL_PREPEND(head, node, name) do { \
+    ((node)->name).atme = &(head); \
+    ((node)->name).next = head; \
+    if (head) ((head)->name).atme = &(((node)->name).next); \
+    head = node; \
+} while (0)
+
+#define LL_REMOVE(node, name) do { \
+    if (((node)->name).next) \
+        ((__typeof__(node))(node)->name.next)->name.atme = ((node)->name).atme; \
+    *(((node)->name).atme) = ((node)->name).next; \
+    ((node)->name).atme = NULL; \
+    ((node)->name).next = NULL; \
 } while (0)
 
 // Types:
@@ -99,12 +115,10 @@ typedef enum {
  * the variable that points to the first list member. In other words,
  * item->next->atme == &item->next and firstitem->atme == &firstitem.
  */
-typedef struct {
-    struct entry_s *next, **atme;
-} llnode_t;
-
 typedef struct entry_s {
-    llnode_t selected, hash;
+    struct {
+        struct entry_s *next, **atme;
+    } selected, hash;
     char *name, *linkname;
     struct stat info;
     mode_t linkedmode;
@@ -136,6 +150,14 @@ typedef struct bb_s {
     unsigned int interleave_dirs : 1;
     unsigned int should_quit : 1;
 } bb_t;
+
+// For keeping track of child processes
+typedef struct proc_s {
+    pid_t pid;
+    struct {
+        struct proc_s *next, **atme;
+    } running;
+} proc_t;
 
 // Configurable options:
 #define SCROLLOFF   MIN(5, (termheight-4)/2)
@@ -171,7 +193,7 @@ const column_t columns[] = {
 // Functions
 void bb_browse(bb_t *bb);
 static void cleanup(void);
-static void cleanup_and_exit(int sig);
+static void cleanup_and_raise(int sig);
 static const char* color_of(mode_t mode);
 #ifdef __APPLE__
 static int compare_files(void *v, const void *v1, const void *v2);
@@ -199,6 +221,7 @@ static void sort_files(bb_t *bb);
 static char *trim(char *s);
 static int try_free_entry(entry_t *e);
 static void update_term_size(int sig);
+static int wait_for_process(proc_t **proc);
 
 // Constants
 static const char *T_ENTER_BBMODE = T_OFF(T_SHOW_CURSOR ";" T_WRAP) T_ON(T_ALT_SCREEN ";" T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);

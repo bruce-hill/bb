@@ -5,10 +5,12 @@ Section: BB Commands
     bb +help
 q,Q: # Quit
     bb +quit
-Ctrl-c: # Exit with failure
-    bb +kill
+Ctrl-c: # Send interrupt signal
+    kill -INT $PPID
 Ctrl-z: # Suspend
-    bb +suspend
+    kill -TSTP $PPID
+Ctrl-\: # Quit and generate core dump
+    kill -QUIT $PPID
 
 Section: File Navigation
 j,Down: # Next file
@@ -139,14 +141,8 @@ Ctrl-n: # New file/directory
         *) exit
             ;;
     esac && bb +goto:"$name" +refresh || pause
-p: # Page through a file with $PAGER
-    $PAGER "$BBCURSOR"
-|: # Pipe selected files to a command
-    ask cmd '|' && printf '%s\n' "$@" | sh -c "$BBSHELLFUNC$cmd"; bb +r; pause
-:: # Run a command
-    ask cmd ':' && sh -c "$BBSHELLFUNC$cmd" -- "$@"; bb +r; pause
->: # Open a shell
-    tput rmcup; tput cvvis; $SHELL; bb +r
+p: # Page through a file with `less`
+    less -XK "$BBCURSOR"
 r,F2: # Rename a file
     ask newname "Rename $(printf "\033[33m%s\033[39m" "$(basename "$BBCURSOR")"): " "$(basename "$BBCURSOR")" || exit
     r="$(dirname "$BBCURSOR")/$newname" || exit
@@ -176,6 +172,16 @@ Ctrl-r: # Regex rename files
         confirm &&
         if [ $# -gt 0 ]; then rename -i "$patt" "$rep" "$@"; else rename -i "$patt" "$rep" *; fi;
     bb +deselect +refresh
+
+Section: Shell Commands
+:: # Run a command
+    ask cmd ':' && sh -c "$BBSHELLFUNC$cmd" -- "$@"; bb +r; pause
+|: # Pipe selected files to a command
+    ask cmd '|' && printf '%s\n' "$@" | sh -c "$BBSHELLFUNC$cmd"; bb +r; pause
+>: # Open a shell
+    tput rmcup; tput cvvis; $SHELL; bb +r
+f: # Resume suspended process
+    bb +fg
 
 Section: Viewing Options
 s: # Sort by...
