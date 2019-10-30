@@ -579,7 +579,9 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         char *script = strchr(keys+1, ':');
         if (!script) {
             free(value_copy);
-            goto invalid_cmd;
+            warn("No script provided.");
+            bb->dirty = 1;
+            return;
         }
         *script = '\0';
         script = trim(script + 1);
@@ -610,7 +612,10 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         }
         free(value_copy);
     } else if (matches_cmd(cmd, "cd:")) { // +cd:
-        if (populate_files(bb, value)) goto invalid_cmd;
+        if (populate_files(bb, value)) {
+            warn("Could not open directory: \"%s\"", value);
+            bb->dirty = 1;
+        }
     } else if (matches_cmd(cmd, "columns:")) { // +columns:
         strncpy(bb->columns, value, MAX_COLS);
         bb->dirty = 1;
@@ -659,7 +664,11 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         bb->dirty = 1;
     } else if (matches_cmd(cmd, "goto:")) { // +goto:
         entry_t *e = load_entry(bb, value, 1);
-        if (!e) goto invalid_cmd;
+        if (!e) {
+            warn("Could not find file: \"%s\".", value);
+            bb->dirty = 1;
+            return;
+        }
         if (IS_VIEWED(e)) {
             set_cursor(bb, e->index);
             return;
@@ -744,10 +753,13 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         if (!value && !bb->nfiles) return;
         if (!value) value = bb->files[bb->cursor]->fullname;
         entry_t *e = load_entry(bb, value, 1);
-        if (!e) goto invalid_cmd;
+        if (!e) {
+            warn("Could not find file: \"%s\".", value);
+            bb->dirty = 1;
+            return;
+        }
         set_selected(bb, e, !IS_SELECTED(e));
     } else {
-      invalid_cmd:
         warn("Invalid bb command: +%s.", cmd);
         bb->dirty = 1;
     }
