@@ -41,7 +41,7 @@
 #define IS_VIEWED(p) ((p)->index >= 0)
 #define LOWERCASE(c) ('A' <= (c) && (c) <= 'Z' ? ((c) + 'a' - 'A') : (c))
 #define E_ISDIR(e) (S_ISDIR(S_ISLNK((e)->info.st_mode) ? (e)->linkedmode : (e)->info.st_mode))
-#define ONSCREEN (termheight - 3)
+#define ONSCREEN (winsize.ws_row - 3)
 
 #ifdef __APPLE__
 #define mtime(s) (s).st_mtimespec
@@ -62,7 +62,7 @@
 } while (0)
 
 #define warn(...) do { \
-    move_cursor(tty_out, 0, termheight-1); \
+    move_cursor(tty_out, 0, winsize.ws_row-1); \
     fputs("\033[41;33;1m", tty_out); \
     fprintf(tty_out, __VA_ARGS__); \
     fputs(" Press any key to continue...\033[0m  ", tty_out); \
@@ -160,7 +160,7 @@ typedef struct proc_s {
 } proc_t;
 
 // Configurable options:
-#define SCROLLOFF   MIN(5, (termheight-4)/2)
+#define SCROLLOFF   MIN(5, (winsize.ws_row-4)/2)
 #define CMDFILE_FORMAT "/tmp/bb.XXXXXX"
 #define SORT_INDICATOR  "↓"
 #define RSORT_INDICATOR "↑"

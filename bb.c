@@ -11,7 +11,7 @@
 // Variables used within this file to track global state
 static struct termios orig_termios, bb_termios;
 static FILE *tty_out = NULL, *tty_in = NULL;
-static int termwidth, termheight;
+static struct winsize winsize = {0};
 static char *cmdfilename = NULL;
 proc_t *running_procs = NULL;
 static int dirty = 1;
@@ -85,7 +85,7 @@ void bb_browse(bb_t *bb)
             }
             if (mouse_y == 1) {
                 strcpy(bbclicked, "<column label>");
-            } else if (2 <= mouse_y && mouse_y <= termheight - 2
+            } else if (2 <= mouse_y && mouse_y <= winsize.ws_row - 2
                        && bb->scroll + (mouse_y - 2) <= bb->nfiles - 1) {
                 strcpy(bbclicked, bb->files[bb->scroll + (mouse_y - 2)]->fullname);
             } else {
@@ -110,7 +110,7 @@ void bb_browse(bb_t *bb)
         if (is_simple_bbcmd(binding->script)) {
             run_bbcmd(bb, binding->script);
         } else {
-            move_cursor(tty_out, 0, termheight-1);
+            move_cursor(tty_out, 0, winsize.ws_row-1);
             fputs("\033[K", tty_out);
             restore_term(&default_termios);
             run_script(bb, binding->script);
@@ -510,7 +510,7 @@ void print_bindings(int fd)
     for (int i = 0; bindings[i].script && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
         if (bindings[i].key == -1) {
             const char *label = bindings[i].description;
-            sprintf(buf, "\n\033[33;1;4m\033[%dG%s\033[0m\n", (termwidth-(int)strlen(label))/2, label);
+            sprintf(buf, "\n\033[33;1;4m\033[%dG%s\033[0m\n", (winsize.ws_col-(int)strlen(label))/2, label);
             write(fd, buf, strlen(buf));
             continue;
         }
@@ -523,9 +523,9 @@ void print_bindings(int fd)
             p = bkeyname(key, p);
         }
         *p = '\0';
-        sprintf(buf2, "\033[1m\033[%dG%s\033[0m", termwidth/2 - 1 - (int)strlen(buf), buf);
+        sprintf(buf2, "\033[1m\033[%dG%s\033[0m", winsize.ws_col/2 - 1 - (int)strlen(buf), buf);
         write(fd, buf2, strlen(buf2));
-        sprintf(buf2, "\033[1m\033[%dG\033[34m%s\033[0m", termwidth/2 + 1,
+        sprintf(buf2, "\033[1m\033[%dG\033[34m%s\033[0m", winsize.ws_col/2 + 1,
                 bindings[i].description);
         write(fd, buf2, strlen(buf2));
         write(fd, "\033[0m\n", strlen("\033[0m\n"));
@@ -627,7 +627,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
             if (fg-- == 0) child = p;
         }
         if (!child) return;
-        move_cursor(tty_out, 0, termheight-1);
+        move_cursor(tty_out, 0, winsize.ws_row-1);
         fputs("\033[K", tty_out);
         restore_term(&default_termios);
         kill(-(child->pid), SIGCONT);
@@ -687,7 +687,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         isdelta = value[0] == '-' || value[0] == '+';
         n = (int)strtol(value, (char**)&value, 10);
         if (*value == '%')
-            n = (n * (value[1] == 'n' ? bb->nfiles : termheight)) / 100;
+            n = (n * (value[1] == 'n' ? bb->nfiles : winsize.ws_row)) / 100;
         if (isdelta) set_cursor(bb, bb->cursor + n);
         else set_cursor(bb, n);
         if (matches_cmd(cmd, "spread:")) { // +spread:
@@ -704,7 +704,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         int isdelta = value[0] == '+' || value[0] == '-';
         int n = (int)strtol(value, (char**)&value, 10);
         if (*value == '%')
-            n = (n * (value[1] == 'n' ? bb->nfiles : termheight)) / 100;
+            n = (n * (value[1] == 'n' ? bb->nfiles : winsize.ws_row)) / 100;
         if (isdelta)
             set_scroll(bb, bb->scroll + n);
         else
@@ -746,9 +746,9 @@ void render(bb_t *bb)
     if (!dirty) {
         // Use terminal scrolling:
         if (lastscroll > bb->scroll) {
-            fprintf(tty_out, "\033[3;%dr\033[%dT\033[1;%dr", termheight-1, lastscroll - bb->scroll, termheight);
+            fprintf(tty_out, "\033[3;%dr\033[%dT\033[1;%dr", winsize.ws_row-1, lastscroll - bb->scroll, winsize.ws_row);
         } else if (lastscroll < bb->scroll) {
-            fprintf(tty_out, "\033[3;%dr\033[%dS\033[1;%dr", termheight-1, bb->scroll - lastscroll, termheight);
+            fprintf(tty_out, "\033[3;%dr\033[%dS\033[1;%dr", winsize.ws_row-1, bb->scroll - lastscroll, winsize.ws_row);
         }
     }
 
@@ -761,7 +761,7 @@ void render(bb_t *bb)
         fputs(" \033[K\033[0m", tty_out);
 
         static const char *help = "Press '?' to see key bindings ";
-        move_cursor(tty_out, MAX(0, termwidth - (int)strlen(help)), 0);
+        move_cursor(tty_out, MAX(0, winsize.ws_col - (int)strlen(help)), 0);
         fputs(help, tty_out);
         fputs("\033[K\033[0m", tty_out);
 
@@ -912,15 +912,15 @@ void render(bb_t *bb)
         fputs(" \033[K\033[0m", tty_out); // Reset color and attributes
     }
 
-    move_cursor(tty_out, termwidth/2, termheight - 1);
+    move_cursor(tty_out, winsize.ws_col/2, winsize.ws_row - 1);
     fputs("\033[0m\033[K", tty_out);
-    int x = termwidth;
+    int x = winsize.ws_col;
     if (bb->firstselected) { // Number of selected files
         int n = 0;
         for (entry_t *s = bb->firstselected; s; s = s->selected.next) ++n;
         x -= 14;
         for (int k = n; k; k /= 10) x--;
-        move_cursor(tty_out, MAX(0, x), termheight - 1);
+        move_cursor(tty_out, MAX(0, x), winsize.ws_row - 1);
         fprintf(tty_out, "\033[41;30m %d Selected \033[0m", n);
     }
     int nprocs = 0;
@@ -928,10 +928,10 @@ void render(bb_t *bb)
     if (nprocs > 0) { // Number of suspended processes
         x -= 13;
         for (int k = nprocs; k; k /= 10) x--;
-        move_cursor(tty_out, MAX(0, x), termheight - 1);
+        move_cursor(tty_out, MAX(0, x), winsize.ws_row - 1);
         fprintf(tty_out, "\033[44;30m %d Suspended \033[0m", nprocs);
     }
-    move_cursor(tty_out, termwidth/2, termheight - 1);
+    move_cursor(tty_out, winsize.ws_col/2, winsize.ws_row - 1);
 
     lastcursor = bb->cursor;
     lastscroll = bb->scroll;
@@ -1136,11 +1136,9 @@ void update_term_size(int sig)
 {
     (void)sig;
     if (tty_in) {
-        struct winsize sz = {0};
-        ioctl(fileno(tty_in), TIOCGWINSZ, &sz);
-        dirty |= (sz.ws_col != termwidth || sz.ws_row != termheight);
-        termwidth = sz.ws_col;
-        termheight = sz.ws_row;
+        struct winsize oldsize = winsize;
+        ioctl(fileno(tty_in), TIOCGWINSZ, &winsize);
+        dirty |= (oldsize.ws_col != winsize.ws_col || oldsize.ws_row != winsize.ws_row);
     }
 }
 
