@@ -556,11 +556,11 @@ void run_bbcmd(bb_t *bb, const char *cmd)
     const char *value = strchr(cmd, ':');
     if (value) ++value;
 #define set_bool(target) do { if (!value) { target = !target; } else { target = value[0] == '1'; } } while (0)
-    if (matches_cmd(cmd, "..")) { // +..
-        set_bool(bb->show_dotdot);
-        populate_files(bb, bb->path);
-    } else if (matches_cmd(cmd, ".")) { // +.
+    if (matches_cmd(cmd, ".")) { // +.
         set_bool(bb->show_dot);
+        populate_files(bb, bb->path);
+    } else if (matches_cmd(cmd, "..")) { // +..
+        set_bool(bb->show_dotdot);
         populate_files(bb, bb->path);
     } else if (matches_cmd(cmd, "bind:")) { // +bind:<keys>:<script>
         char *value_copy = memcheck(strdup(value));
