@@ -36,7 +36,7 @@ Ctrl-g: # Go to directory
 m: # Mark this directory
     ask mark "Mark: " && ln -s "$PWD" ~/.config/bb/marks/"$mark"
 ': # Go to a marked directory
-    mark="$(printf '%s\0' ~/.config/bb/marks/* | pick "Jump to: ")" &&
+    mark="$(basename -az ~/.config/bb/marks/* | pick "Jump to: ")" &&
         bb +cd:"$(readlink -f ~/.config/bb/marks/"$mark")"
 -,Backspace: # Go to previous directory
     [ $BBPREVPATH ] && bb +cd:"$BBPREVPATH"
