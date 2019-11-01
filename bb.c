@@ -15,6 +15,7 @@ static int termwidth, termheight;
 static char *cmdfilename = NULL;
 proc_t *running_procs = NULL;
 static int nprocs = 0;
+static int dirty = 1;
 
 /*
  * Use bb to browse the filesystem.
@@ -22,23 +23,17 @@ static int nprocs = 0;
 void bb_browse(bb_t *bb)
 {
     static long cmdpos = 0;
-    int lastwidth = termwidth, lastheight = termheight;
     int check_cmds = 1;
-    bb->dirty = 0;
+    dirty = 1;
 
     goto force_check_cmds;
 
     while (!bb->should_quit) {
       redraw:
         render(bb);
-        bb->dirty = 0;
 
       next_input:
-        if (termwidth != lastwidth || termheight != lastheight) {
-            lastwidth = termwidth; lastheight = termheight;
-            bb->dirty = 1;
-            goto redraw;
-        }
+        if (dirty) goto redraw;
 
         if (check_cmds) {
             FILE *cmdfile;
@@ -46,7 +41,7 @@ void bb_browse(bb_t *bb)
             cmdfile = fopen(cmdfilename, "r");
             if (!cmdfile) {
                 cmdpos = 0;
-                if (bb->dirty) goto redraw;
+                if (dirty) goto redraw;
                 goto get_keyboard_input;
             }
 
@@ -59,11 +54,6 @@ void bb_browse(bb_t *bb)
                 cmdpos = ftell(cmdfile);
                 if (!cmd[0]) continue;
                 run_bbcmd(bb, cmd);
-                if (bb->dirty) {
-                    free(cmd);
-                    fclose(cmdfile);
-                    goto redraw;
-                }
                 if (bb->should_quit) {
                     free(cmd);
                     fclose(cmdfile);
@@ -122,7 +112,7 @@ void bb_browse(bb_t *bb)
             run_bbcmd(bb, binding->script);
         } else {
             move_cursor(tty_out, 0, termheight-1);
-            fputs("\033[K" T_ON(T_SHOW_CURSOR), tty_out);
+            fputs("\033[K", tty_out);
             restore_term(&default_termios);
             run_script(bb, binding->script);
             init_term();
@@ -447,7 +437,7 @@ int populate_files(bb_t *bb, const char *path)
         setenv("BBPREVPATH", bb->prev_path, 1);
     }
 
-    bb->dirty = 1;
+    dirty = 1;
     strcpy(bb->path, pbuf);
 
     // Clear old files (if any)
@@ -580,7 +570,6 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         if (!script) {
             free(value_copy);
             warn("No script provided.");
-            bb->dirty = 1;
             return;
         }
         *script = '\0';
@@ -612,13 +601,11 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         }
         free(value_copy);
     } else if (matches_cmd(cmd, "cd:")) { // +cd:
-        if (populate_files(bb, value)) {
+        if (populate_files(bb, value))
             warn("Could not open directory: \"%s\"", value);
-            bb->dirty = 1;
-        }
     } else if (matches_cmd(cmd, "columns:")) { // +columns:
         strncpy(bb->columns, value, MAX_COLS);
-        bb->dirty = 1;
+        dirty = 1;
     } else if (matches_cmd(cmd, "deselect:")) { // +deselect
         char pbuf[PATH_MAX];
         normalize_path(bb->path, value, pbuf, 1);
@@ -661,12 +648,11 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         kill(-(child->pid), SIGCONT);
         wait_for_process(&child);
         init_term();
-        bb->dirty = 1;
+        dirty = 1;
     } else if (matches_cmd(cmd, "goto:")) { // +goto:
         entry_t *e = load_entry(bb, value, 1);
         if (!e) {
             warn("Could not find file: \"%s\".", value);
-            bb->dirty = 1;
             return;
         }
         if (IS_VIEWED(e)) {
@@ -705,7 +691,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         close(fds[1]);
         wait_for_process(&proc);
         init_term();
-        bb->dirty = 1;
+        dirty = 1;
     } else if (matches_cmd(cmd, "interleave:") || matches_cmd(cmd, "interleave")) { // +interleave
         set_bool(bb->interleave_dirs);
         sort_files(bb);
@@ -755,29 +741,25 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         entry_t *e = load_entry(bb, value, 1);
         if (!e) {
             warn("Could not find file: \"%s\".", value);
-            bb->dirty = 1;
             return;
         }
         set_selected(bb, e, !IS_SELECTED(e));
     } else {
         warn("Invalid bb command: +%s.", cmd);
-        bb->dirty = 1;
     }
 }
 
 /*
  * Draw everything to the screen.
- * If bb->dirty is false, then use terminal scrolling to move the file listing
+ * If `dirty` is false, then use terminal scrolling to move the file listing
  * around and only update the files that have changed.
  */
 void render(bb_t *bb)
 {
     static int lastcursor = -1, lastscroll = -1;
     char buf[64];
-    if (lastcursor == -1 || lastscroll == -1)
-        bb->dirty = 1;
 
-    if (!bb->dirty) {
+    if (!dirty) {
         // Use terminal scrolling:
         if (lastscroll > bb->scroll) {
             fprintf(tty_out, "\033[3;%dr\033[%dT\033[1;%dr", termheight-1, lastscroll - bb->scroll, termheight);
@@ -786,7 +768,7 @@ void render(bb_t *bb)
         }
     }
 
-    if (bb->dirty) {
+    if (dirty) {
         // Path
         move_cursor(tty_out, 0, 0);
         const char *color = TITLE_COLOR;
@@ -824,7 +806,7 @@ void render(bb_t *bb)
 
     entry_t **files = bb->files;
     for (int i = bb->scroll; i < bb->scroll + ONSCREEN; i++) {
-        if (!bb->dirty) {
+        if (!dirty) {
             if (i == bb->cursor || i == lastcursor)
                 goto do_render;
             if (i < lastscroll || i >= lastscroll + ONSCREEN)
@@ -968,6 +950,7 @@ void render(bb_t *bb)
     lastcursor = bb->cursor;
     lastscroll = bb->scroll;
     fflush(tty_out);
+    dirty = 0;
 }
 
 /*
@@ -1028,7 +1011,7 @@ int run_script(bb_t *bb, const char *cmd)
     LL_PREPEND(running_procs, proc, running);
     ++nprocs;
     int status = wait_for_process(&proc);
-    bb->dirty = 1;
+    dirty = 1;
     return status;
 }
 
@@ -1089,13 +1072,11 @@ void set_selected(bb_t *bb, entry_t *e, int selected)
     if (IS_SELECTED(e) == selected) return;
 
     if (bb->nfiles > 0 && e != bb->files[bb->cursor])
-        bb->dirty = 1;
+        dirty = 1;
 
     if (selected) {
         LL_PREPEND(bb->firstselected, e, selected);
     } else {
-        if (bb->nfiles > 0 && e != bb->files[bb->cursor])
-            bb->dirty = 1;
         LL_REMOVE(e, selected);
         try_free_entry(e);
     }
@@ -1146,7 +1127,7 @@ void sort_files(bb_t *bb)
 #endif
     for (int i = 0; i < bb->nfiles; i++)
         bb->files[i]->index = i;
-    bb->dirty = 1;
+    dirty = 1;
 }
 
 /*
@@ -1172,6 +1153,7 @@ void update_term_size(int sig)
     if (tty_in) {
         struct winsize sz = {0};
         ioctl(fileno(tty_in), TIOCGWINSZ, &sz);
+        dirty |= (sz.ws_col != termwidth || sz.ws_row != termheight);
         termwidth = sz.ws_col;
         termheight = sz.ws_row;
     }

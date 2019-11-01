@@ -68,6 +68,7 @@
     fputs(" Press any key to continue...\033[0m  ", tty_out); \
     fflush(tty_out); \
     while (bgetkey(tty_in, NULL, NULL) == -1) usleep(100); \
+    dirty = 1; \
 } while (0)
 
 #define LL_PREPEND(head, node, name) do { \
@@ -143,7 +144,6 @@ typedef struct bb_s {
 
     char sort[MAX_SORT+1];
     char columns[MAX_COLS+1];
-    unsigned int dirty : 1;
     unsigned int show_dotdot : 1;
     unsigned int show_dot : 1;
     unsigned int show_dotfiles : 1;
