@@ -300,7 +300,15 @@ entry_t* load_entry(bb_t *bb, const char *path, int clear_dots)
     if (!path || !path[0]) return NULL;
     if (lstat(path, &filestat) == -1) return NULL;
     char pbuf[PATH_MAX];
-    normalize_path(bb->path, path, pbuf, clear_dots);
+    char *slash = strrchr(path, '/');
+    if (slash) {
+        strncpy(pbuf, path, (slash - path));
+        normalize_path(bb->path, pbuf, pbuf);
+        strcat(pbuf, slash);
+    } else {
+        strcpy(pbuf, bb->path);
+        strcat(pbuf, path);
+    }
     if (pbuf[strlen(pbuf)-1] == '/' && pbuf[1])
         pbuf[strlen(pbuf)-1] = '\0';
 
@@ -367,43 +375,23 @@ void* memcheck(void *p)
 
 /*
  * Prepend `root` to relative paths, replace "~" with $HOME.
- * If clear_dots is 1, then also replace "/foo/." with "/foo" and replace "/foo/baz/.." with "/foo".
  * The normalized path is stored in `normalized`.
  */
-void normalize_path(const char *root, const char *path, char *normalized, int clear_dots)
+void normalize_path(const char *root, const char *path, char *normalized)
 {
+    char pbuf[PATH_MAX] = {0};
     if (path[0] == '~' && (path[1] == '\0' || path[1] == '/')) {
         char *home;
         if (!(home = getenv("HOME"))) return;
-        strcpy(normalized, home);
+        strcpy(pbuf, home);
         ++path;
-    } else if (path[0] == '/') {
-        normalized[0] = '\0';
-    } else {
-        strcpy(normalized, root);
-        if (root[strlen(root)-1] != '/') strcat(normalized, "/");
+    } else if (path[0] != '/') {
+        strcpy(pbuf, root);
+        if (root[strlen(root)-1] != '/') strcat(pbuf, "/");
     }
-    strcat(normalized, path);
-
-    if (clear_dots) {
-        char *src = normalized, *dest = normalized;
-        while (*src) {
-            while (src[0] == '/' && src[1] == '.') {
-                // Replace "foo/./?" with "foo/?"
-                if (src[2] == '/' || src[2] == '\0') {
-                    src += 2;
-                } else if (src[2] == '.' && (src[3] == '/' || src[3] == '\0')) {
-                    // Replace "foo/baz/../asdf" with "foo/asdf"
-                    src += 3;
-                    *dest = '\0';
-                    if (dest[-1] == '/') dest[-1] = '\0';
-                    while (dest > normalized && *dest != '/') dest--;
-                } else break;
-            }
-            *(dest++) = *(src++);
-        }
-        *dest = '\0';
-    }
+    strcat(pbuf, path);
+    if (realpath(pbuf, normalized) == NULL)
+        err("Could not find: \"%s\"", pbuf);
 }
 
 /*
@@ -428,7 +416,7 @@ int populate_files(bb_t *bb, const char *path)
         strcpy(pbuf, bb->prev_path);
         if (chdir(pbuf)) return -1;
     } else {
-        normalize_path(bb->path, path, pbuf, 1);
+        normalize_path(bb->path, path, pbuf);
         if (pbuf[strlen(pbuf)-1] != '/')
             strcat(pbuf, "/");
         if (chdir(pbuf)) return -1;
@@ -610,7 +598,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         dirty = 1;
     } else if (matches_cmd(cmd, "deselect:")) { // +deselect
         char pbuf[PATH_MAX];
-        normalize_path(bb->path, value, pbuf, 1);
+        normalize_path(bb->path, value, pbuf);
         entry_t *e = load_entry(bb, pbuf, 0);
         if (e) {
             set_selected(bb, e, 0);
@@ -633,7 +621,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         populate_files(bb, bb->path);
     } else if (matches_cmd(cmd, "execute:")) { // +execute:
         move_cursor(tty_out, 0, termheight-1);
-        fputs("\033[K" T_ON(T_SHOW_CURSOR), tty_out);
+        fputs("\033[K", tty_out);
         restore_term(&default_termios);
         run_script(bb, value);
         init_term();
@@ -1251,10 +1239,19 @@ int main(int argc, char *argv[])
     setenv("BBSHELLFUNC", bbcmdfn, 1);
     char full_initial_path[PATH_MAX];
     getcwd(full_initial_path, PATH_MAX);
-    normalize_path(full_initial_path, initial_path, full_initial_path, 1);
-    if (strcmp(full_initial_path, "/") != 0) strcat(full_initial_path, "/");
+    normalize_path(full_initial_path, initial_path, full_initial_path);
+    struct stat path_stat;
+    if (stat(full_initial_path, &path_stat) != 0)
+        err("Could not find: \"%s\"", initial_path);
+    if (S_ISDIR(path_stat.st_mode)) {
+        if (strcmp(full_initial_path, "/") != 0) strcat(full_initial_path, "/");
+    } else {
+        write(cmdfd, "goto:", 5);
+        write(cmdfd, full_initial_path, strlen(full_initial_path) + 1); // Include null byte
+        char *slash = strrchr(full_initial_path, '/');
+        *slash = '\0';
+    }
     setenv("BBINITIALPATH", full_initial_path, 1);
-
 
     tty_in = fopen("/dev/tty", "r");
     tty_out = fopen("/dev/tty", "w");
@@ -1275,7 +1272,7 @@ int main(int argc, char *argv[])
     strcpy(bb->columns, "*smpn");
     strcpy(bb->sort, "+n");
     if (populate_files(bb, full_initial_path))
-        err("Not a valid path: %s", initial_path);
+        err("Could not find: \"%s\"", initial_path);
 
     run_script(bb, runstartup);
     write(cmdfd, "\0", 1);

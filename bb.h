@@ -206,7 +206,7 @@ static int is_simple_bbcmd(const char *s);
 static entry_t* load_entry(bb_t *bb, const char *path, int clear_dots);
 static inline int matches_cmd(const char *str, const char *cmd);
 static void* memcheck(void *p);
-static void normalize_path(const char *root, const char *path, char *pbuf, int clear_dots);
+static void normalize_path(const char *root, const char *path, char *pbuf);
 static int populate_files(bb_t *bb, const char *path);
 static void print_bindings(int fd);
 static void run_bbcmd(bb_t *bb, const char *cmd);
