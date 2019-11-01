@@ -299,7 +299,7 @@ entry_t* load_entry(bb_t *bb, const char *path, int clear_dots)
     struct stat linkedstat, filestat;
     if (!path || !path[0]) return NULL;
     if (lstat(path, &filestat) == -1) return NULL;
-    char pbuf[PATH_MAX];
+    char pbuf[PATH_MAX] = {0};
     char *slash = strrchr(path, '/');
     if (slash) {
         strncpy(pbuf, path, (slash - path));
@@ -405,7 +405,7 @@ int populate_files(bb_t *bb, const char *path)
     char old_selected[PATH_MAX] = "";
     if (samedir && bb->nfiles > 0) strcpy(old_selected, bb->files[bb->cursor]->fullname);
 
-    char pbuf[PATH_MAX], prev[PATH_MAX] = {0};
+    char pbuf[PATH_MAX] = {0}, prev[PATH_MAX] = {0};
     strcpy(prev, bb->path);
     if (path == NULL) {
         pbuf[0] = '\0';
