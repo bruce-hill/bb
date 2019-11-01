@@ -619,12 +619,6 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         set_bool(bb->show_dotfiles);
         setenv("BBDOTFILES", bb->show_dotfiles ? "1" : "", 1);
         populate_files(bb, bb->path);
-    } else if (matches_cmd(cmd, "execute:")) { // +execute:
-        move_cursor(tty_out, 0, termheight-1);
-        fputs("\033[K", tty_out);
-        restore_term(&default_termios);
-        run_script(bb, value);
-        init_term();
     } else if (matches_cmd(cmd, "fg:") || matches_cmd(cmd, "fg")) { // +fg:
         int fg = value ? nprocs - (int)strtol(value, NULL, 10) : 0;
         proc_t *child = NULL;
