@@ -84,7 +84,7 @@ Shift-End: # Spread the selection to the bottom
     bb +spread:100%n
 Ctrl-a: # Select all files here
     if [ $BBDOTFILES ]; then bb +sel: * .[!.]* ..?*
-    else bb +sel: *
+    else bb +sel: *; fi
 
 Section: File Actions
 Left click: # Move cursor to file
