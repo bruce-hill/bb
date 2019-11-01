@@ -1278,15 +1278,14 @@ int main(int argc, char *argv[])
     write(cmdfd, "\0", 1);
     for (int i = 0; i < argc; i++) {
         if (argv[i][0] == '+') {
-            char *cmd = argv[i];
-            char *colon = strchr(cmd, ':');
+            char *colon = strchr(argv[i], ':');
             if (colon && !colon[1]) {
                 for (++i; i < argc; i++) {
-                    write(cmdfd, cmd, strlen(cmd));
+                    write(cmdfd, argv[i], strlen(argv[i]));
                     write(cmdfd, argv[i], strlen(argv[i])+1); // Include null byte
                 }
             } else {
-                write(cmdfd, cmd, strlen(cmd)+1); // Include null byte
+                write(cmdfd, argv[i], strlen(argv[i])+1); // Include null byte
             }
         }
     }
