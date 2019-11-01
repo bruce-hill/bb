@@ -19,24 +19,24 @@ endif
 
 PICKER_FLAG=
 ifeq (, $(PICKER))
-	PICKER=$(shell sh -c "(which fzy >/dev/null 2>/dev/null && echo 'fzy') || (which fzf >/dev/null 2>/dev/null && echo 'fzf') || (which pick >/dev/null 2>/dev/null && echo 'pick') || (which ask >/dev/null 2>/dev/null && echo 'ask')")
+	PICKER=$(shell sh -c "(which fzf >/dev/null 2>/dev/null && echo 'fzf') || (which fzy >/dev/null 2>/dev/null && echo 'fzy') || (which pick >/dev/null 2>/dev/null && echo 'pick') || (which ask >/dev/null 2>/dev/null && echo 'ask')")
 endif
 ifneq (, $(PICKER))
 	PICKER_FLAG=-D"PICK=\"$(PICKER) --prompt=\\\"$$1\\\"\""
-	ifeq ($(shell which $(PICKER)),$(shell which fzy 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK="printf \"\\033[3A\\033[?25h\" >/dev/tty; fzy --lines=3 --prompt=\"\033[1m$$1\033[0m\""'
-	endif
 	ifeq ($(shell which $(PICKER)),$(shell which fzf 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK="printf \"\\033[3A\\033[?25h\" >/dev/tty; fzf --height=4 --prompt=\"$$1\""'
+		PICKER_FLAG=-D'PICK="printf \"\\033[3A\\033[?25h\" >/dev/tty; fzf --read0 --height=4 --prompt=\"$$1\""'
+	endif
+	ifeq ($(shell which $(PICKER)),$(shell which fzy 2>/dev/null || echo '<none>'))
+		PICKER_FLAG=-D'PICK="printf \"\\033[3A\\033[?25h\" >/dev/tty; tr "\\0" "\\n" | fzy --lines=3 --prompt=\"\033[1m$$1\033[0m\""'
 	endif
 	ifeq ($(shell which $(PICKER)),$(shell which ask 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK="/usr/bin/env ask --prompt=\"$$1\033[?25h\""'
+		PICKER_FLAG=-D'PICK="/usr/bin/env ask --read0 --prompt=\"$$1\033[?25h\""'
 	endif
 	ifeq ($(shell which $(PICKER)),$(shell which pick 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK="printf \"\\033[?25h\" >/dev/tty; pick"'
+		PICKER_FLAG=-D'PICK="printf \"\\033[?25h\" >/dev/tty; tr "\\0" "\\n" | pick"'
 	endif
 	ifeq ($(shell which $(PICKER)),$(shell which dmenu 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK="dmenu -i -l 10 -p \"$$1\""'
+		PICKER_FLAG=-D'PICK="tr "\\0" "\\n" | dmenu -i -l 10 -p \"$$1\""'
 	endif
 endif
 CFLAGS += $(PICKER_FLAG)

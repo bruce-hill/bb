@@ -22,23 +22,21 @@ h,Left: # Parent directory
 l,Right: # Enter directory
     [ -d "$BBCURSOR" ] && bb +cd:"$BBCURSOR"
 Ctrl-f: # Search for file
-    bb +goto:"$(
+    file="$(
         if [ $BBDOTFILES ]; then
-            find -mindepth 1;
-        else find -mindepth 1 ! -path '*/.*';
+            find -mindepth 1 -print0;
+        else find -mindepth 1 ! -path '*/.*' -print0;
         fi | pick "Find: "
-    )"
+    )" && bb +goto:"$file"
 /: # Pick a file
-    bb +goto:"$(
-        if [ $BBDOTFILES ]; then find -mindepth 1 -maxdepth 1;
-        else find -mindepth 1 -maxdepth 1 ! -path '*/.*'; fi | pick "Pick: "
-    )"
+    file="$((printf '%s\0' *; [ $BBDOTFILES ] && printf '%s\0' .[!.]* ..?*) | pick "Pick: ")" &&
+        bb +goto:"$file"
 Ctrl-g: # Go to directory
     ask goto "Go to directory: " && bb +cd:"$goto"
 m: # Mark this directory
     ask mark "Mark: " && ln -s "$PWD" ~/.config/bb/marks/"$mark"
 ': # Go to a marked directory
-    mark="$(ls ~/.config/bb/marks | pick "Jump to: ")" &&
+    mark="$(printf '%s\0' ~/.config/bb/marks/* | pick "Jump to: ")" &&
         bb +cd:"$(readlink -f ~/.config/bb/marks/"$mark")"
 -,Backspace: # Go to previous directory
     [ $BBPREVPATH ] && bb +cd:"$BBPREVPATH"
@@ -73,7 +71,7 @@ Ctrl-y: # Clear selection
 Ctrl-s: # Save the selection
     [ $# -gt 0 ] && ask savename "Save selection as: " && printf '%s\0' "$@" > ~/.config/bb/"$savename"
 Ctrl-o: # Open a saved selection
-    loadpath="$(find ~/.config/bb -maxdepth 1 -type f | pick "Load selection: ")" &&
+    loadpath="$(printf '%s\0' ~/.config/bb/* | pick "Load selection: ")" &&
         [ -e "$loadpath" ] && bb +deselect &&
         while IFS= read -r -d $'\0'; do bb +select:"$REPLY"; done < "$loadpath"
 J: # Spread selection down
@@ -85,8 +83,8 @@ Shift-Home: # Spread the selection to the top
 Shift-End: # Spread the selection to the bottom
     bb +spread:100%n
 Ctrl-a: # Select all files here
-    if [ $BBDOTFILES ]; then find -mindepth 1 -maxdepth 1 -print0;
-    else find -mindepth 1 -maxdepth 1 ! -path '*/.*' -print0; fi | bb +sel:
+    if [ $BBDOTFILES ]; then bb +sel: * .[!.]* ..?*
+    else bb +sel: *
 
 Section: File Actions
 Left click: # Move cursor to file
@@ -129,7 +127,7 @@ C: # Copy all selected files here
             spin cp -ri "$f" "$f.copy";
         else spin cp -ri "$f" .; fi; done; bb +refresh
 Ctrl-n: # New file/directory
-    case "$(printf '%s\n' File Directory | pick "Create new: ")" in
+    case "$(printf '%s\0' File Directory | pick "Create new: ")" in
         File)
             ask name "New File: " || exit
             touch "$name"
