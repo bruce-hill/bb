@@ -14,7 +14,6 @@ static FILE *tty_out = NULL, *tty_in = NULL;
 static int termwidth, termheight;
 static char *cmdfilename = NULL;
 proc_t *running_procs = NULL;
-static int nprocs = 0;
 static int dirty = 1;
 
 /*
@@ -620,6 +619,8 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         setenv("BBDOTFILES", bb->show_dotfiles ? "1" : "", 1);
         populate_files(bb, bb->path);
     } else if (matches_cmd(cmd, "fg:") || matches_cmd(cmd, "fg")) { // +fg:
+        int nprocs = 0;
+        for (proc_t *p = running_procs; p; p = p->running.next) ++nprocs;
         int fg = value ? nprocs - (int)strtol(value, NULL, 10) : 0;
         proc_t *child = NULL;
         for (proc_t *p = running_procs; p && !child; p = p->running.next) {
@@ -667,7 +668,6 @@ void run_bbcmd(bb_t *bb, const char *cmd)
             execvp(SH, args);
         }
         LL_PREPEND(running_procs, proc, running);
-        ++nprocs;
         signal(SIGTTOU, SIG_IGN);
         tcsetpgrp(fileno(tty_out), proc->pid);
         close(fds[0]);
@@ -923,6 +923,8 @@ void render(bb_t *bb)
         move_cursor(tty_out, MAX(0, x), termheight - 1);
         fprintf(tty_out, "\033[41;30m %d Selected \033[0m", n);
     }
+    int nprocs = 0;
+    for (proc_t *p = running_procs; p; p = p->running.next) ++nprocs;
     if (nprocs > 0) { // Number of suspended processes
         x -= 13;
         for (int k = nprocs; k; k /= 10) x--;
@@ -993,7 +995,6 @@ int run_script(bb_t *bb, const char *cmd)
         err("Failed to fork");
 
     LL_PREPEND(running_procs, proc, running);
-    ++nprocs;
     int status = wait_for_process(&proc);
     dirty = 1;
     return status;
@@ -1159,7 +1160,6 @@ int wait_for_process(proc_t **proc)
         LL_REMOVE((*proc), running);
         free(*proc);
         *proc = NULL;
-        --nprocs;
     }
     return status;
 }
