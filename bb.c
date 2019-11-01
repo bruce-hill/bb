@@ -147,9 +147,11 @@ void cleanup(void)
         free(cmdfilename);
         cmdfilename = NULL;
     }
-    fputs(T_OFF(T_ALT_SCREEN) T_ON(T_SHOW_CURSOR), tty_out);
-    fflush(tty_out);
-    tcsetattr(fileno(tty_out), TCSANOW, &orig_termios);
+    if (tty_out) {
+        fputs(T_OFF(T_ALT_SCREEN) T_ON(T_SHOW_CURSOR), tty_out);
+        fflush(tty_out);
+        tcsetattr(fileno(tty_out), TCSANOW, &orig_termios);
+    }
 }
 
 /*
