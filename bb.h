@@ -25,7 +25,7 @@
 #include "bterm.h"
 
 // Macros:
-#define BB_VERSION "0.18.0"
+#define BB_VERSION "0.19.0"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -306,22 +306,6 @@ PICK ";\n"
 #else
 "    ask query \"$1\" && awk '{print length, $1}' | sort -n | cut -d' ' -f2- |\n"
 "      grep -i -m1 \"$(echo \"$query\" | sed 's;.;[^/&]*[&];g')\";\n"
-#endif
-"}\n"
-"spin() {\n"
-#ifdef SPIN
-SPIN ";\n"
-#else
-"    eval \"$@\" &\n"
-"    pid=$!;\n"
-"    spinner='-\\|/';\n"
-"    sleep 0.01;\n"
-"    while kill -0 $pid 2>/dev/null; do\n"
-"        printf '%c\\033[D' \"$spinner\" >/dev/tty;\n"
-"        spinner=\"$(echo $spinner | sed 's/\\(.\\)\\(.*\\)/\\2\\1/')\";\n"
-"        sleep 0.1;\n"
-"    done;\n"
-"    wait $pid;\n"
 #endif
 "}\n"
 #ifdef SH

@@ -115,7 +115,7 @@ D: # Delete all selected files
         confirm && rm -rf "$@" && bb +deselect +refresh
 Ctrl-v: # Move files here
     printf "\033[1mMoving the following to here:\n  \033[33m$(printf '  %s\n' "$@")\033[0m" | more &&
-        confirm && spin mv -i "$@" . && bb +deselect +refresh &&
+        confirm && mv -i "$@" . && bb +deselect +refresh &&
         for f; do bb +sel:"$(basename "$f")"; done ||
         pause
 c: # Copy a file
@@ -124,8 +124,8 @@ C: # Copy all selected files here
     [ $# -gt 0 ] && printf "\033[1mCopying the following to here:\n  \033[33m$(printf '  %s\n' "$@")\033[0m" | more &&
         confirm &&
         for f; do if [ "./$(basename "$f")" -ef "$f" ]; then
-            spin cp -ri "$f" "$f.copy";
-        else spin cp -ri "$f" .; fi; done; bb +refresh
+            cp -ri "$f" "$f.copy" || break;
+        else cp -ri "$f" . || break; fi; done; bb +refresh
 Ctrl-n: # New file/directory
     case "$(printf '%s\0' File Directory | pick "Create new: ")" in
         File)
