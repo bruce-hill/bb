@@ -390,7 +390,7 @@ void normalize_path(const char *root, const char *path, char *normalized)
     }
     strcat(pbuf, path);
     if (realpath(pbuf, normalized) == NULL)
-        err("Could not find: \"%s\"", pbuf);
+        strcpy(normalized, pbuf); // TODO: normalize better?
 }
 
 /*
@@ -637,7 +637,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
     } else if (matches_cmd(cmd, "goto:")) { // +goto:
         entry_t *e = load_entry(bb, value, 1);
         if (!e) {
-            warn("Could not find file: \"%s\".", value);
+            warn("Could not find file to go to: \"%s\".", value);
             return;
         }
         if (IS_VIEWED(e)) {
@@ -724,7 +724,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         if (!value) value = bb->files[bb->cursor]->fullname;
         entry_t *e = load_entry(bb, value, 1);
         if (!e) {
-            warn("Could not find file: \"%s\".", value);
+            warn("Could not find file to toggle: \"%s\".", value);
             return;
         }
         set_selected(bb, e, !IS_SELECTED(e));
@@ -996,6 +996,8 @@ int run_script(bb_t *bb, const char *cmd)
 
     LL_PREPEND(running_procs, proc, running);
     int status = wait_for_process(&proc);
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        run_script(bb, "trap true INT; pause; true");
     dirty = 1;
     return status;
 }
@@ -1234,7 +1236,7 @@ int main(int argc, char *argv[])
     normalize_path(full_initial_path, initial_path, full_initial_path);
     struct stat path_stat;
     if (stat(full_initial_path, &path_stat) != 0)
-        err("Could not find: \"%s\"", initial_path);
+        err("Could not find initial path: \"%s\"", initial_path);
     if (S_ISDIR(path_stat.st_mode)) {
         if (strcmp(full_initial_path, "/") != 0) strcat(full_initial_path, "/");
     } else {
@@ -1264,7 +1266,7 @@ int main(int argc, char *argv[])
     strcpy(bb->columns, "*smpn");
     strcpy(bb->sort, "+n");
     if (populate_files(bb, full_initial_path))
-        err("Could not find: \"%s\"", initial_path);
+        err("Could not find initial path: \"%s\"", initial_path);
 
     run_script(bb, runstartup);
     write(cmdfd, "\0", 1);
