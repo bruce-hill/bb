@@ -111,17 +111,17 @@ d,Delete: # Delete a file
     printf "\033[1mDeleting \033[33m$BBCURSOR\033[0;1m...\033[0m " && confirm &&
         rm -rf "$BBCURSOR" && bb +deselect:"$BBCURSOR" +refresh
 D: # Delete all selected files
-    [ $# -gt 0 ] && printf "\033[1mDeleting the following:\n  \033[33m$(printf '  %s\n' "$@")\033[0m" | more &&
+    [ $# -gt 0 ] && printf "\033[1mDeleting the following:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | more &&
         confirm && rm -rf "$@" && bb +deselect +refresh
 Ctrl-v: # Move files here
-    printf "\033[1mMoving the following to here:\n  \033[33m$(printf '  %s\n' "$@")\033[0m" | more &&
+    printf "\033[1mMoving the following to here:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | more &&
         confirm && mv -i "$@" . && bb +deselect +refresh &&
         for f; do bb +sel:"$(basename "$f")"; done ||
         pause
 c: # Copy a file
     printf "\033[1mCreating copy of \033[33m$BBCURSOR\033[0;1m...\033[0m " && confirm && cp -ri "$BBCURSOR" "$BBCURSOR.copy" && bb +refresh
 C: # Copy all selected files here
-    [ $# -gt 0 ] && printf "\033[1mCopying the following to here:\n  \033[33m$(printf '  %s\n' "$@")\033[0m" | more &&
+    [ $# -gt 0 ] && printf "\033[1mCopying the following to here:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | more &&
         confirm &&
         for f; do if [ "./$(basename "$f")" -ef "$f" ]; then
             cp -ri "$f" "$f.copy" || break;
