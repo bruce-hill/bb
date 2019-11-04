@@ -29,7 +29,7 @@ Ctrl-f: # Search for file
         fi | pick "Find: "
     )" && bb +goto:"$file"
 /: # Pick a file
-    file="$((printf '%s\0' *; [ $BBDOTFILES ] && printf '%s\0' .[!.]* ..?*) | pick "Pick: ")" &&
+    file="$( (printf '%s\0' *; [ $BBDOTFILES ] && printf '%s\0' .[!.]* ..?*) | pick "Pick: ")" &&
         bb +goto:"$file"
 Ctrl-g: # Go to directory
     ask goto "Go to directory: " && bb +cd:"$goto"
