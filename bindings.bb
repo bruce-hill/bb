@@ -66,8 +66,6 @@ v,V,Space: # Toggle selection at cursor
     bb +toggle
 Escape: # Clear selection
     bb +deselect
-Ctrl-y: # Clear selection
-    true && bb +deselect
 Ctrl-s: # Save the selection
     [ $# -gt 0 ] && ask savename "Save selection as: " && printf '%s\0' "$@" > ~/.config/bb/"$savename"
 Ctrl-o: # Open a saved selection
@@ -115,17 +113,17 @@ D: # Delete all selected files
         confirm && rm -rf "$@" && bb +deselect +refresh
 Ctrl-v: # Move files here
     printf "\033[1mMoving the following to here:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | more &&
-        confirm && mv -i "$@" . && bb +deselect +refresh &&
-        for f; do bb +sel:"$(basename "$f")"; done ||
-        pause
+        confirm && printf "\033[1G\033[KMoving..." && mv -i "$@" . && printf "done." &&
+        bb +deselect +refresh && for f; do bb +sel:"$(basename "$f")"; done
 c: # Copy a file
-    printf "\033[1mCreating copy of \033[33m$BBCURSOR\033[0;1m...\033[0m " && confirm && cp -ri "$BBCURSOR" "$BBCURSOR.copy" && bb +refresh
+    printf "\033[1mCreating copy of \033[33m$BBCURSOR\033[0;1m...\033[0m " &&
+        confirm && cp -ri "$BBCURSOR" "$BBCURSOR.copy" && bb +refresh
 C: # Copy all selected files here
     [ $# -gt 0 ] && printf "\033[1mCopying the following to here:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | more &&
-        confirm &&
+        confirm && printf "\033[1G\033[KCopying..." &&
         for f; do if [ "./$(basename "$f")" -ef "$f" ]; then
             cp -ri "$f" "$f.copy" || break;
-        else cp -ri "$f" . || break; fi; done; bb +refresh
+        else cp -ri "$f" . || break; fi; done; printf 'done.' && bb +refresh
 Ctrl-n: # New file/directory
     case "$(printf '%s\0' File Directory | pick "Create new: ")" in
         File)
