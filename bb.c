@@ -376,12 +376,12 @@ void* memcheck(void *p)
  * Prepend `root` to relative paths, replace "~" with $HOME.
  * The normalized path is stored in `normalized`.
  */
-void normalize_path(const char *root, const char *path, char *normalized)
+char *normalize_path(const char *root, const char *path, char *normalized)
 {
     char pbuf[PATH_MAX] = {0};
     if (path[0] == '~' && (path[1] == '\0' || path[1] == '/')) {
         char *home;
-        if (!(home = getenv("HOME"))) return;
+        if (!(home = getenv("HOME"))) return NULL;
         strcpy(pbuf, home);
         ++path;
     } else if (path[0] != '/') {
@@ -389,8 +389,11 @@ void normalize_path(const char *root, const char *path, char *normalized)
         if (root[strlen(root)-1] != '/') strcat(pbuf, "/");
     }
     strcat(pbuf, path);
-    if (realpath(pbuf, normalized) == NULL)
+    if (realpath(pbuf, normalized) == NULL) {
         strcpy(normalized, pbuf); // TODO: normalize better?
+        return NULL;
+    }
+    return normalized;
 }
 
 /*
@@ -413,12 +416,19 @@ int populate_files(bb_t *bb, const char *path)
     } else if (strcmp(path, "..") == 0 && strcmp(bb->path, "<selection>") == 0) {
         if (!bb->prev_path[0]) return -1;
         strcpy(pbuf, bb->prev_path);
-        if (chdir(pbuf)) return -1;
+        if (chdir(pbuf)) {
+            warn("Could not cd to: \"%s\"", pbuf);
+            return -1;
+        }
     } else {
-        normalize_path(bb->path, path, pbuf);
+        if (!normalize_path(bb->path, path, pbuf))
+            warn("Could not normalize path: \"%s\"", path);
         if (pbuf[strlen(pbuf)-1] != '/')
             strcat(pbuf, "/");
-        if (chdir(pbuf)) return -1;
+        if (chdir(pbuf)) {
+            warn("Could not cd to: \"%s\"", pbuf);
+            return -1;
+        }
     }
 
     if (strcmp(bb->path, "<selection>") != 0) {
