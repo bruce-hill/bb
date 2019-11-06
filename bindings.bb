@@ -20,7 +20,7 @@ k,Up: # Previous file
 h,Left: # Parent directory
     bb +cd:..
 l,Right: # Enter directory
-    [ -d "$BBCURSOR" ] && bb +cd:"$BBCURSOR"
+    if [ -d "$BBCURSOR" ]; then bb +cd:"$BBCURSOR"; fi
 Ctrl-f: # Search for file
     file="$(
         if [ $BBDOTFILES ]; then
@@ -39,7 +39,7 @@ m: # Mark this directory
     mark="$(basename -az ~/.config/bb/marks/* | pick "Jump to: ")" &&
         bb +cd:"$(readlink -f ~/.config/bb/marks/"$mark")"
 -,Backspace: # Go to previous directory
-    [ $BBPREVPATH ] && bb +cd:"$BBPREVPATH"
+    [ "$BBPREVPATH" ] && bb +cd:"$BBPREVPATH"
 ;: # Show selected files
     bb +cd:'<selection>'
 0: # Go to intitial directory
@@ -109,17 +109,17 @@ d,Delete: # Delete a file
     printf "\033[1mDeleting \033[33m$BBCURSOR\033[0;1m...\033[0m " && confirm &&
         rm -rf "$BBCURSOR" && bb +deselect:"$BBCURSOR" +refresh
 D: # Delete all selected files
-    [ $# -gt 0 ] && printf "\033[1mDeleting the following:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | more &&
+    [ $# -gt 0 ] && printf "\033[1mDeleting the following:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | butt | more &&
         confirm && rm -rf "$@" && bb +deselect +refresh
 Ctrl-v: # Move files here
-    printf "\033[1mMoving the following to here:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | more &&
+    printf "\033[1mMoving the following to here:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | butt | more &&
         confirm && printf "\033[1G\033[KMoving..." && mv -i "$@" . && printf "done." &&
         bb +deselect +refresh && for f; do bb +sel:"$(basename "$f")"; done
 c: # Copy a file
     printf "\033[1mCreating copy of \033[33m$BBCURSOR\033[0;1m...\033[0m " &&
         confirm && cp -ri "$BBCURSOR" "$BBCURSOR.copy" && bb +refresh
 C: # Copy all selected files here
-    [ $# -gt 0 ] && printf "\033[1mCopying the following to here:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | more &&
+    [ $# -gt 0 ] && printf "\033[1mCopying the following to here:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | butt | more &&
         confirm && printf "\033[1G\033[KCopying..." &&
         for f; do if [ "./$(basename "$f")" -ef "$f" ]; then
             cp -ri "$f" "$f.copy" || break;
@@ -164,9 +164,9 @@ Ctrl-r: # Regex rename files
     command -v rename >/dev/null ||
         { printf '\033[31;1mThe `rename` command is not installed. Please install it to use this key binding.\033[0m\n'; pause; exit; };
     ask patt "Replace pattern: " && ask rep "Replacement: " &&
-        printf "\033[1mRenaming:\n\033[33m$(if [ $# -gt 0 ]; then rename -nv "$patt" "$rep" "$@"; else rename -nv "$patt" "$rep" *; fi)\033[0m" | more &&
-        confirm &&
-        if [ $# -gt 0 ]; then rename -i "$patt" "$rep" "$@"; else rename -i "$patt" "$rep" *; fi;
+        printf "\033[1mRenaming:\n\033[33m$(if [ $# -gt 0 ]; then rename -nv "$patt" "$rep" "$@"; else rename -nv "$patt" "$rep" *; fi)\033[0m" | butt | more &&
+        confirm || exit 1
+    if [ $# -gt 0 ]; then rename -i "$patt" "$rep" "$@"; else rename -i "$patt" "$rep" *; fi
     bb +deselect +refresh
 
 Section: Shell Commands

@@ -264,6 +264,11 @@ static const char *bbcmdfn = "bb() {\n"
 "        printf \"%s\\0\" \"$arg\" >> $BBCMD;\n"
 "    done;\n"
 "}\n"
+"butt() {\n"
+"    input=\"$(cat)\"\n"
+"    printf \"\\033[$(echo \"$input\" | wc -l)A\\033[J\" >/dev/tty\n"
+"    echo \"$input\"\n"
+"}\n"
 "ask() {\n"
 #ifdef ASK
 ASK ";\n"
@@ -290,7 +295,7 @@ ASK1 ";\n"
 #ifdef CONFIRM
 CONFIRM ";\n"
 #else
-"    ask1 REPLY \"\033[1mIs that okay? [y/N] \" && [ \"$REPLY\" = 'y' ];\n"
+"    ask1 REPLY \"$1\033[0;1mIs that okay? [y/N] \" && [ \"$REPLY\" = 'y' ];\n"
 #endif
 "}\n"
 "pause() {\n"
