@@ -300,11 +300,7 @@ CONFIRM ";\n"
 #endif
 "}\n"
 "pause() {\n"
-#ifdef PAUSE
-PAUSE ";\n"
-#else
-"    ask1 REPLY \"\033[0;2mPress any key to continue...\033[0m\";"
-#endif
+"    ask1 REPLY \"\033[0;2m Press any key to continue...\033[0m\";"
 "}\n"
 "pick() {\n"
 #ifdef PICK
@@ -315,9 +311,7 @@ PICK ";\n"
 #endif
 "}\n"
 #ifdef SH
-"alias sh=" SH";\n"
-#else
-#define SH "sh"
+"alias sh="SH";\n"
 #endif
 ;
 
