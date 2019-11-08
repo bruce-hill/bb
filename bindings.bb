@@ -67,11 +67,13 @@ v,V,Space: # Toggle selection at cursor
 Escape: # Clear selection
     bb +deselect
 Ctrl-s: # Save the selection
-    [ $# -gt 0 ] && ask savename "Save selection as: " && printf '%s\0' "$@" > ~/.config/bb/"$savename"
+    [ $# -gt 0 ] && ask savename "Save selection as: " || exit 1
+    if ! expr "$savename" : ".*\.sel" >/dev/null; then savename="$savename.sel"; fi
+    printf '%s\0' "$@" > ~/.config/bb/"$savename"
 Ctrl-o: # Open a saved selection
-    loadpath="$(printf '%s\0' ~/.config/bb/* | pick "Load selection: ")" &&
-        [ -e "$loadpath" ] && bb +deselect &&
-        while IFS= read -r -d $'\0'; do bb +select:"$REPLY"; done < "$loadpath"
+    [ $# -gt 0 ] && ! confirm "The current selection will be discarded. " && exit 1
+    loadpath="$(find ~/.config/bb/ -name '*.sel' -exec basename -az '{}' ';' | pick "Load selection: ")" &&
+        cat ~/.config/bb/"$loadpath" | bb +deselect +select:
 J: # Spread selection down
     bb +spread:+1
 K: # Spread selection up
