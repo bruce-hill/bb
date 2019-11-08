@@ -312,6 +312,8 @@ PICK ";\n"
 "}\n"
 #ifdef SH
 "alias sh="SH";\n"
+#else
+#define SH "sh"
 #endif
 ;
 
