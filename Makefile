@@ -45,7 +45,7 @@ ifneq (, $(ASKER))
 	PERCENT := %
 	ifeq ($(shell which $(ASKER)),$(shell which ask 2>/dev/null || echo '<none>'))
 		CFLAGS += -D'ASK="eval \"$$1=\\$$(/usr/bin/env ask --history=bb.hist --prompt=\\\"$$2\033[?25h\\\" --query=\\\"$$3\\\")\""'
-		CFLAGS += -D'CONFIRM="/usr/bin/env ask -n \"Is that okay?\033[?25h\""'
+		CFLAGS += -D'CONFIRM="/usr/bin/env ask -n \"$$1Is that okay?\033[?25h\""'
 	endif
 	ifeq ($(shell which $(ASKER)),$(shell which dmenu 2>/dev/null || echo '<none>'))
 		CFLAGS += -D'ASK="eval \"$$1=\\$$(echo \"$$3\" | dmenu -p \"$$2\")\""'
