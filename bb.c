@@ -458,7 +458,7 @@ int populate_files(bb_t *bb, const char *path)
 
     size_t space = 0;
     if (strcmp(bb->path, "<selection>") == 0) {
-        for (entry_t *e = bb->firstselected; e; e = e->selected.next) {
+        for (entry_t *e = bb->selected; e; e = e->selected.next) {
             if ((size_t)bb->nfiles + 1 > space)
                 bb->files = memcheck(realloc(bb->files, (space += 100)*sizeof(void*)));
             e->index = bb->nfiles;
@@ -614,16 +614,15 @@ void run_bbcmd(bb_t *bb, const char *cmd)
             return;
         }
         // Filename may no longer exist:
-        for (e = bb->firstselected; e; e = e->selected.next) {
+        for (e = bb->selected; e; e = e->selected.next) {
             if (strcmp(e->fullname, pbuf) == 0) {
                 set_selected(bb, e, 0);
                 break;
             }
         }
     } else if (matches_cmd(cmd, "deselect")) { // +deselect
-        while (bb->firstselected)
-            set_selected(bb, bb->firstselected, 0);
-        return;
+        while (bb->selected)
+            set_selected(bb, bb->selected, 0);
     } else if (matches_cmd(cmd, "dotfiles:") || matches_cmd(cmd, "dotfiles")) { // +dotfiles:
         set_bool(bb->show_dotfiles);
         setenv("BBDOTFILES", bb->show_dotfiles ? "1" : "", 1);
@@ -720,10 +719,13 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         else
             set_scroll(bb, n);
     } else if (matches_cmd(cmd, "select:") || matches_cmd(cmd, "select")) { // +select:
-        if (!value && !bb->nfiles) return;
-        if (!value) value = bb->files[bb->cursor]->fullname;
-        entry_t *e = load_entry(bb, value, 1);
-        if (e) set_selected(bb, e, 1);
+        if (!value) {
+            for (int i = 0; i < bb->nfiles; i++)
+                set_selected(bb, bb->files[i], 1);
+        } else {
+            entry_t *e = load_entry(bb, value, 1);
+            if (e) set_selected(bb, e, 1);
+        }
     } else if (matches_cmd(cmd, "sort:")) { // +sort:
         set_sort(bb, value);
         sort_files(bb);
@@ -925,9 +927,9 @@ void render(bb_t *bb)
     move_cursor(tty_out, winsize.ws_col/2, winsize.ws_row - 1);
     fputs("\033[0m\033[K", tty_out);
     int x = winsize.ws_col;
-    if (bb->firstselected) { // Number of selected files
+    if (bb->selected) { // Number of selected files
         int n = 0;
-        for (entry_t *s = bb->firstselected; s; s = s->selected.next) ++n;
+        for (entry_t *s = bb->selected; s; s = s->selected.next) ++n;
         x -= 14;
         for (int k = n; k; k /= 10) x--;
         move_cursor(tty_out, MAX(0, x), winsize.ws_row - 1);
@@ -975,20 +977,18 @@ int run_script(bb_t *bb, const char *cmd)
         fclose(tty_out); tty_out = NULL;
         fclose(tty_in); tty_in = NULL;
         setpgid(0, 0);
-        // TODO: is there a max number of args? Should this be batched?
-        size_t space = 32;
-        char **args = memcheck(calloc(space, sizeof(char*)));
-        size_t i = 0;
+        char **args = memcheck(calloc(4 + bb->nselected + 1, sizeof(char*)));
+        int i = 0;
         args[i++] = SH;
         args[i++] = "-c";
         args[i++] = fullcmd;
         args[i++] = "--"; // ensure files like "-i" are not interpreted as flags for sh
-        for (entry_t *e = bb->firstselected; e; e = e->selected.next) {
-            if (i >= space)
-                args = memcheck(realloc(args, (space += 100)*sizeof(char*)));
-            args[i++] = e->fullname;
-        }
-        args[i] = NULL;
+        // bb->selected is in most-recent order, so populate args in reverse to make sure
+        // that $1 is the first selected, etc.
+        i += bb->nselected;
+        for (entry_t *e = bb->selected; e; e = e->selected.next)
+            args[--i] = e->fullname;
+
         setenv("BBCURSOR", bb->nfiles ? bb->files[bb->cursor]->fullname : "", 1);
 
         int ttyout, ttyin;
@@ -1072,10 +1072,12 @@ void set_selected(bb_t *bb, entry_t *e, int selected)
         dirty = 1;
 
     if (selected) {
-        LL_PREPEND(bb->firstselected, e, selected);
+        LL_PREPEND(bb->selected, e, selected);
+        ++bb->nselected;
     } else {
         LL_REMOVE(e, selected);
         try_free_entry(e);
+        --bb->nselected;
     }
 }
 
@@ -1301,8 +1303,8 @@ int main(int argc, char *argv[])
     fputs(T_LEAVE_BBMODE, tty_out);
     cleanup();
 
-    if (bb->firstselected && print_selection) {
-        for (entry_t *e = bb->firstselected; e; e = e->selected.next) {
+    if (bb->selected && print_selection) {
+        for (entry_t *e = bb->selected; e; e = e->selected.next) {
             write(STDOUT_FILENO, e->fullname, strlen(e->fullname));
             write(STDOUT_FILENO, &sep, 1);
         }
@@ -1313,13 +1315,8 @@ int main(int argc, char *argv[])
 
     // Cleanup:
     populate_files(bb, NULL);
-    for (entry_t *next, *e = bb->firstselected; e; e = next) {
-        next = e->selected.next;
-        e->selected.atme = NULL;
-        e->selected.next = NULL;
-        try_free_entry(e);
-    }
-    bb->firstselected = NULL;
+    while (bb->selected)
+        set_selected(bb, bb->selected, 0);
     free(bb);
     if (cmdfilename) free(cmdfilename);
 

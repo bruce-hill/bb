@@ -25,7 +25,7 @@
 #include "bterm.h"
 
 // Macros:
-#define BB_VERSION "0.19.0"
+#define BB_VERSION "0.19.1"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -136,10 +136,10 @@ typedef struct entry_s {
 typedef struct bb_s {
     entry_t *hash[HASH_SIZE];
     entry_t **files;
-    entry_t *firstselected;
+    entry_t *selected;
     char path[PATH_MAX];
     char prev_path[PATH_MAX];
-    int nfiles;
+    int nfiles, nselected;
     int scroll, cursor;
 
     char sort[MAX_SORT+1];
