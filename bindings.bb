@@ -23,20 +23,20 @@ l,Right: # Enter directory
     if [ -d "$BBCURSOR" ]; then bb +cd:"$BBCURSOR"; fi
 Ctrl-f: # Search for file
     file="$(
-        if [ $BBDOTFILES ]; then
-            find -mindepth 1 -print0;
-        else find -mindepth 1 ! -path '*/.*' -print0;
+        if [ $BBDOTFILES ]; then find -mindepth 1 -printf '%P\0';
+        else find -mindepth 1 ! -path '*/.*' -printf '%P\0';
         fi | pick "Find: "
     )" && bb +goto:"$file"
 /: # Pick a file
-    file="$( (printf '%s\0' *; [ $BBDOTFILES ] && printf '%s\0' .[!.]* ..?*) | pick "Pick: ")" &&
-        bb +goto:"$file"
+    file="$(find -mindepth 1 -maxdepth 1 -printf '%P\0' | pick "Pick: ")" || exit
+    expr "$file" : "\..*" >/dev/null && ! [ "$BBDOTFILES" ] && bb +dotfiles
+    bb +goto:"$file"
 Ctrl-g: # Go to directory
     ask goto "Go to directory: " && bb +cd:"$goto"
 m: # Mark this directory
     ask mark "Mark: " && ln -s "$PWD" ~/.config/bb/marks/"$mark"
 ': # Go to a marked directory
-    mark="$(basename -az ~/.config/bb/marks/* | pick "Jump to: ")" &&
+    mark="$(find ~/.config/bb/marks/ -mindepth 1 -printf '%P\0' | pick "Jump to: ")" &&
         bb +cd:"$(readlink -f ~/.config/bb/marks/"$mark")"
 -,Backspace: # Go to previous directory
     [ "$BBPREVPATH" ] && bb +cd:"$BBPREVPATH"
@@ -66,13 +66,17 @@ v,V,Space: # Toggle selection at cursor
     bb +toggle
 Escape: # Clear selection
     bb +deselect
+S: # Select pattern
+    ask patt "Select: " && eval bb +select: "$patt"
+U: # Unselect pattern
+    ask patt "Unselect: " && eval bb +deselect: "$patt"
 Ctrl-s: # Save the selection
     [ $# -gt 0 ] && ask savename "Save selection as: " || exit 1
     if ! expr "$savename" : ".*\.sel" >/dev/null; then savename="$savename.sel"; fi
     printf '%s\0' "$@" > ~/.config/bb/"$savename"
 Ctrl-o: # Open a saved selection
     [ $# -gt 0 ] && ! confirm "The current selection will be discarded. " && exit 1
-    loadpath="$(find ~/.config/bb/ -name '*.sel' -exec basename -az '{}' ';' | pick "Load selection: ")" &&
+    loadpath="$(find ~/.config/bb/ -mindepth 1 -name '*.sel' -printf '%P\0' | pick "Load selection: ")" &&
         cat ~/.config/bb/"$loadpath" | bb +deselect +select:
 J: # Spread selection down
     bb +spread:+1
@@ -167,7 +171,8 @@ Ctrl-r: # Regex rename files
     ask patt "Replace pattern: " && ask rep "Replacement: " &&
         printf "\033[1mRenaming:\n\033[33m$(if [ $# -gt 0 ]; then rename -nv "$patt" "$rep" "$@"; else rename -nv "$patt" "$rep" *; fi)\033[0m" | unscroll | more &&
         confirm || exit 1
-    if [ $# -gt 0 ]; then rename -i "$patt" "$rep" "$@"; else rename -i "$patt" "$rep" *; fi
+    if [ $# -eq 0 ]; then set -- *; ! [ -e "$1" ] && exit; fi
+    rename -i "$patt" "$rep" "$@"
     bb +deselect +refresh
 
 Section: Shell Commands
