@@ -1006,8 +1006,6 @@ int run_script(bb_t *bb, const char *cmd)
 
     LL_PREPEND(running_procs, proc, running);
     int status = wait_for_process(&proc);
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
-        run_script(bb, "trap true INT; pause; true");
     dirty = 1;
     return status;
 }
