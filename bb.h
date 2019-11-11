@@ -25,7 +25,7 @@
 #include "bterm.h"
 
 // Macros:
-#define BB_VERSION "0.19.2"
+#define BB_VERSION "0.20.0"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -254,11 +254,11 @@ static const char *description_str = "bb - an itty bitty console TUI file browse
 static const char *usage_str = "Usage: bb (-h/--help | -v/--version | -s | -d | -0 | +command | path)*\n";
 
 // Shell functions
-static const char *bbcmdfn = "bb() {\n"
+static const char *bbcmdfn = "bbcmd() {\n"
 "    if test $# -eq 0; then cat >> $BBCMD; return; fi\n"
 "    for arg; do\n"
 "        shift;\n"
-"        if expr \"$arg\" : \"^+[^:]*:$\" >/dev/null; then\n"
+"        if expr \"$arg\" : \"^[^:]*:$\" >/dev/null; then\n"
 "            if test $# -gt 0; then printf \"$arg%s\\0\" \"$@\" >> $BBCMD;\n"
 "            else sed \"s/\\([^\\x00]\\+\\)/$arg\\1/g\" >> $BBCMD; fi;\n"
 "            return;\n"

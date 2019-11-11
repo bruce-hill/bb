@@ -263,13 +263,13 @@ void init_term(void)
 
 /* 
  * Return whether or not 's' is a simple bb command that doesn't need
- * a full shell instance (e.g. "bb +cd:.." or "bb +move:+1").
+ * a full shell instance (e.g. "bbcmd cd:.." or "bbcmd move:+1").
  */
 static int is_simple_bbcmd(const char *s)
 {
     if (!s) return 0;
     while (*s == ' ') ++s;
-    if (s[0] != '+' && strncmp(s, "bb +", 4) != 0)
+    if (strncmp(s, "bbcmd ", strlen("bbcmd ")) != 0)
         return 0;
     const char *special = ";$&<>|\n*?\\\"'";
     for (const char *p = special; *p; ++p) {
@@ -542,8 +542,7 @@ void print_bindings(int fd)
  */
 void run_bbcmd(bb_t *bb, const char *cmd)
 {
-    if (cmd[0] == '+') ++cmd;
-    else if (strncmp(cmd, "bb +", 4) == 0) cmd = &cmd[4];
+    if (strncmp(cmd, "bbcmd ", strlen("bbcmd ")) == 0) cmd = &cmd[strlen("bbcmd ")];
     const char *value = strchr(cmd, ':');
     if (value) ++value;
 #define set_bool(target) do { if (!value) { target = !target; } else { target = value[0] == '1'; } } while (0)
@@ -1212,6 +1211,12 @@ int main(int argc, char *argv[])
 
     // Set up environment variables
     // Default values
+    char xdg_config_home[PATH_MAX], xdg_data_home[PATH_MAX];
+    sprintf(xdg_config_home, "%s/.config", getenv("HOME"));
+    setenv("XDG_CONFIG_HOME", xdg_config_home, 0);
+    sprintf(xdg_data_home, "%s/.local/share", getenv("HOME"));
+    setenv("XDG_DATA_HOME", xdg_data_home, 0);
+    setenv("sysconfdir", "/etc", 0);
     setenv("SHELL", "bash", 0);
     setenv("EDITOR", "nano", 0);
     char *curdepth = getenv("BB_DEPTH");
@@ -1254,7 +1259,7 @@ int main(int argc, char *argv[])
     write(cmdfd, "\0", 1);
     for (int i = 0; i < argc; i++) {
         if (argv[i][0] == '+') {
-            char *cmd = argv[i];
+            char *cmd = argv[i] + 1;
             char *colon = strchr(cmd, ':');
             if (colon && !colon[1]) {
                 for (++i; i < argc; i++) {

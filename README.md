@@ -49,7 +49,7 @@ to the filesystem (passing selected files as arguments), rather than
 reinventing the wheel by hard-coding operations like `rm`, `mv`, `cp`, `touch`,
 and so on.  Shell scripts can be bound to keypresses in
 `~/.config/bb/bindings.bb`. For example, `D` is bound to a script that prints a
-confirmation message, then runs `rm -rf "$@" && bb +deselect +refresh`,
+confirmation message, then runs `rm -rf "$@" && bbcmd deselect refresh`,
 which means selecting `file1` and `file2`, then pressing `D` will cause `bb` to
 run the shell command `rm -rf file1 file2` and then tell `bb` to deselect all
 (now deleted) files and refresh.
@@ -74,8 +74,8 @@ up an easy way to repeat some custom workflow).
 ### API
 
 `bb` also exposes an API that allows shell scripts to modify `bb`'s internal
-state. To do this, call `bb +<your command>` from within `bb`. For example, by
-default, `j` is bound to `bb +move:+1`, which has the effect of moving `bb`'s
+state. To do this, call `bbcmd <your command>` from within `bb`. For example, by
+default, `j` is bound to `bbcmd move:+1`, which has the effect of moving `bb`'s
 cursor down one item. More details about the API can be found in [the API
 documentation](API.md).
 

@@ -36,7 +36,7 @@ environment variables:
 
 ## BB Internal State Commands
 
-In order to modify bb's internal state, you can call `bb +cmd`, where "cmd"
+In order to modify bb's internal state, you can call `bbcmd <cmd>`, where "cmd"
 is one of the following commands (or a unique prefix of one):
 
 - `.:[01]`                   Whether to show "." in each directory
@@ -57,10 +57,10 @@ is one of the following commands (or a unique prefix of one):
 - `spread:<num*>`            Spread the selection state at the cursor
 - `toggle:<filename>`        Toggle the selection status of <filename>
 
-For any of these commands (e.g. `+select`), an empty parameter followed by
-additional arguments (e.g. `bb +select: <file1> <file2> ...`) is equivalent to
-repeating the command with each argument (e.g. `bb +select:<file1>
-+select:<file2> ...`).
+For any of these commands (e.g. `select`), an empty parameter followed by
+additional arguments (e.g. `bbcmd select: <file1> <file2> ...`) is equivalent to
+repeating the command with each argument (e.g. `bbcmd select:<file1>
+select:<file2> ...`).
 
 Note: for numeric-based commands (like scroll), the number can be either an
 absolute value or a relative value (starting with `+` or `-`), and/or a percent
@@ -70,12 +70,13 @@ height down, and `100%n` means the last file)
 
 ## Final Notes
 
-Internally, `bb` writes the commands (NUL terminated) to a file whose path is
-in`$BBCMD` and reads from that file when `bb` resumes. These commands can also
-be passed to bb at startup, and will run immediately.  E.g. `bb '+col:n'
-'+sort:+r' .` will launch `bb` only showing the name column, randomly sorted.
+Internally, `bbcmd` writes the commands (NUL terminated) to a file whose path is
+in`$BBCMD` and `bb` reads from that file when it resumes. These commands can also
+be passed to `bb` at startup as command line arugments starting with `+`, and
+will run immediately.  E.g. `bbcmd +'col:n' +'sort:+r' .` will launch `bb` only
+showing the name column, randomly sorted.
 
-`bb` also optimizes any scripts that only contain just a `bb` command and no
-shell variables, other commands, etc. (e.g. `bb +move:+1`) These
-`bb`-command-only scripts directly modify `bb`'s internal state without
+`bb` also optimizes any scripts that only contain just a `bbcmd` command and no
+shell variables, other commands, etc. (e.g. `bbcmd move:+1`) These
+`bbcmd`-command-only scripts directly modify `bb`'s internal state without
 spawning a shell, so they're much faster and avoid flickering the screen.
