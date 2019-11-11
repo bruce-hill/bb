@@ -191,7 +191,7 @@ const column_t columns[] = {
 };
 
 // Functions
-void bb_browse(bb_t *bb);
+void bb_browse(bb_t *bb, const char *initial_path);
 static void cleanup(void);
 static void cleanup_and_raise(int sig);
 static const char* color_of(mode_t mode);

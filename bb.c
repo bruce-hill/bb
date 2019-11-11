@@ -19,11 +19,15 @@ static int dirty = 1;
 /*
  * Use bb to browse the filesystem.
  */
-void bb_browse(bb_t *bb)
+void bb_browse(bb_t *bb, const char *initial_path)
 {
     static long cmdpos = 0;
     int check_cmds = 1;
     dirty = 1;
+
+    if (populate_files(bb, initial_path))
+        err("Could not find initial path: \"%s\"", initial_path);
+    run_script(bb, runstartup);
 
     goto force_check_cmds;
 
@@ -1259,13 +1263,6 @@ int main(int argc, char *argv[])
     for (int i = 0; i < sizeof(signals)/sizeof(signals[0]); i++)
         sigaction(signals[i], &sa, NULL);
 
-    bb_t *bb = memcheck(calloc(1, sizeof(bb_t)));
-    strcpy(bb->columns, "*smpn");
-    strcpy(bb->sort, "+n");
-    if (populate_files(bb, full_initial_path))
-        err("Could not find initial path: \"%s\"", initial_path);
-
-    run_script(bb, runstartup);
     write(cmdfd, "\0", 1);
     for (int i = 0; i < argc; i++) {
         if (argv[i][0] == '+') {
@@ -1284,27 +1281,29 @@ int main(int argc, char *argv[])
     close(cmdfd); cmdfd = -1;
 
     init_term();
-    bb_browse(bb);
+    bb_t bb = {
+        .columns = "*smpn",
+        .sort = "+n"
+    };
+    bb_browse(&bb, full_initial_path);
     fputs(T_LEAVE_BBMODE, tty_out);
     cleanup();
 
-    if (bb->selected && print_selection) {
-        for (entry_t *e = bb->selected; e; e = e->selected.next) {
+    if (bb.selected && print_selection) {
+        for (entry_t *e = bb.selected; e; e = e->selected.next) {
             write(STDOUT_FILENO, e->fullname, strlen(e->fullname));
             write(STDOUT_FILENO, &sep, 1);
         }
         fflush(stdout);
     }
     if (print_dir)
-        printf("%s\n", bb->path);
+        printf("%s\n", bb.path);
 
     // Cleanup:
-    populate_files(bb, NULL);
-    while (bb->selected)
-        set_selected(bb, bb->selected, 0);
-    free(bb);
+    populate_files(&bb, NULL);
+    while (bb.selected)
+        set_selected(&bb, bb.selected, 0);
     if (cmdfilename) free(cmdfilename);
-
     return 0;
 }
 
