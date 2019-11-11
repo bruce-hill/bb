@@ -21,107 +21,35 @@ static int dirty = 1;
  */
 void bb_browse(bb_t *bb, const char *initial_path)
 {
-    static long cmdpos = 0;
-    int check_cmds = 1;
-    dirty = 1;
-
     if (populate_files(bb, initial_path))
         err("Could not find initial path: \"%s\"", initial_path);
     run_script(bb, runstartup);
-
-    goto force_check_cmds;
+    check_cmdfile(bb);
 
     while (!bb->should_quit) {
-      redraw:
         render(bb);
-
-      next_input:
-        if (dirty) goto redraw;
-
-        if (check_cmds) {
-            FILE *cmdfile;
-          force_check_cmds:
-            cmdfile = fopen(cmdfilename, "r");
-            if (!cmdfile) {
-                cmdpos = 0;
-                if (dirty) goto redraw;
-                goto get_keyboard_input;
-            }
-
-            if (cmdpos) 
-                fseek(cmdfile, cmdpos, SEEK_SET);
-
-            char *cmd = NULL;
-            size_t space = 0;
-            while (getdelim(&cmd, &space, '\0', cmdfile) >= 0) {
-                cmdpos = ftell(cmdfile);
-                if (!cmd[0]) continue;
-                run_bbcmd(bb, cmd);
-                if (bb->should_quit) {
-                    free(cmd);
-                    fclose(cmdfile);
-                    return;
-                }
-            }
-            free(cmd);
-            fclose(cmdfile);
-            unlink(cmdfilename);
-            cmdpos = 0;
-            check_cmds = 0;
-            goto redraw;
-        }
-
-        int key, mouse_x, mouse_y;
-      get_keyboard_input:
-        key = bgetkey(tty_in, &mouse_x, &mouse_y);
-        if (key == -1) goto next_input;
-        static char bbmousecol[2] = {0, 0};
-        static char bbclicked[PATH_MAX];
-        if (mouse_x != -1 && mouse_y != -1) {
-            bbmousecol[0] = '\0';
-            // Get bb column:
-            for (int col = 0, x = 0; bb->columns[col]; col++, x++) {
-                x += columns[(int)bb->columns[col]].width;
-                if (x >= mouse_x) {
-                    bbmousecol[0] = bb->columns[col];
-                    break;
-                }
-            }
-            if (mouse_y == 1) {
-                strcpy(bbclicked, "<column label>");
-            } else if (2 <= mouse_y && mouse_y <= winsize.ws_row - 2
-                       && bb->scroll + (mouse_y - 2) <= bb->nfiles - 1) {
-                strcpy(bbclicked, bb->files[bb->scroll + (mouse_y - 2)]->fullname);
-            } else {
-                bbclicked[0] = '\0';
-            }
-            setenv("BBMOUSECOL", bbmousecol, 1);
-            setenv("BBCLICKED", bbclicked, 1);
-        }
-        // Search user-defined key bindings
-        binding_t *binding = NULL;
-        for (int i = 0; bindings[i].script && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
-            if (key == bindings[i].key) {
-                binding = &bindings[i];
-                break;
-            }
-        }
-        if (!binding)
-            goto next_input;
-
-        if (cmdpos != 0)
-            err("Command file still open");
-        if (is_simple_bbcmd(binding->script)) {
-            run_bbcmd(bb, binding->script);
-        } else {
-            move_cursor(tty_out, 0, winsize.ws_row-1);
-            fputs("\033[K", tty_out);
-            restore_term(&default_termios);
-            run_script(bb, binding->script);
-            init_term();
-            check_cmds = 1;
-        }
+        handle_next_key_binding(bb);
     }
+}
+
+/*
+ * Check the bb command file and run any and all commands that have been
+ * written to it.
+ */
+void check_cmdfile(bb_t *bb)
+{
+    FILE *cmdfile = fopen(cmdfilename, "r");
+    if (!cmdfile) return;
+    char *cmd = NULL;
+    size_t space = 0;
+    while (getdelim(&cmd, &space, '\0', cmdfile) >= 0) {
+        if (!cmd[0]) continue;
+        run_bbcmd(bb, cmd);
+        if (bb->should_quit) break;
+    }
+    free(cmd);
+    fclose(cmdfile);
+    unlink(cmdfilename);
 }
 
 /*
@@ -257,6 +185,66 @@ int fputs_escaped(FILE *f, const char *str, const char *color)
         }
     }
     return escaped;
+}
+
+/*
+ * Wait until the user has pressed a key with an associated key binding and run
+ * that binding.
+ */
+void handle_next_key_binding(bb_t *bb)
+{
+    int key, mouse_x, mouse_y;
+    binding_t *binding;
+    do {
+        do {
+            key = bgetkey(tty_in, &mouse_x, &mouse_y);
+        } while (key == -1);
+
+        binding = NULL;
+        for (int i = 0; bindings[i].script && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
+            if (key == bindings[i].key) {
+                binding = &bindings[i];
+                break;
+            }
+        }
+    } while (!binding);
+
+    char bbmousecol[2] = {0, 0}, bbclicked[PATH_MAX];
+    if (mouse_x != -1 && mouse_y != -1) {
+        // Get bb column:
+        for (int col = 0, x = 0; bb->columns[col]; col++, x++) {
+            x += columns[(int)bb->columns[col]].width;
+            if (x >= mouse_x) {
+                bbmousecol[0] = bb->columns[col];
+                break;
+            }
+        }
+        if (mouse_y == 1) {
+            strcpy(bbclicked, "<column label>");
+        } else if (2 <= mouse_y && mouse_y <= winsize.ws_row - 2
+                   && bb->scroll + (mouse_y - 2) <= bb->nfiles - 1) {
+            strcpy(bbclicked, bb->files[bb->scroll + (mouse_y - 2)]->fullname);
+        } else {
+            bbclicked[0] = '\0';
+        }
+        setenv("BBMOUSECOL", bbmousecol, 1);
+        setenv("BBCLICKED", bbclicked, 1);
+    }
+
+    if (is_simple_bbcmd(binding->script)) {
+        run_bbcmd(bb, binding->script);
+    } else {
+        move_cursor(tty_out, 0, winsize.ws_row-1);
+        fputs("\033[K", tty_out);
+        restore_term(&default_termios);
+        run_script(bb, binding->script);
+        init_term();
+        check_cmdfile(bb);
+    }
+    if (mouse_x != -1 && mouse_y != -1) {
+        setenv("BBMOUSECOL", "", 1);
+        setenv("BBCLICKED", "", 1);
+    }
 }
 
 /*

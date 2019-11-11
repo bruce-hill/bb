@@ -25,7 +25,7 @@
 #include "bterm.h"
 
 // Macros:
-#define BB_VERSION "0.19.1"
+#define BB_VERSION "0.19.2"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -192,6 +192,7 @@ const column_t columns[] = {
 
 // Functions
 void bb_browse(bb_t *bb, const char *initial_path);
+static void check_cmdfile(bb_t *bb);
 static void cleanup(void);
 static void cleanup_and_raise(int sig);
 static const char* color_of(mode_t mode);
@@ -201,6 +202,7 @@ static int compare_files(void *v, const void *v1, const void *v2);
 static int compare_files(const void *v1, const void *v2, void *v);
 #endif
 static int fputs_escaped(FILE *f, const char *str, const char *color);
+static void handle_next_key_binding(bb_t *bb);
 static void init_term(void);
 static int is_simple_bbcmd(const char *s);
 static entry_t* load_entry(bb_t *bb, const char *path, int clear_dots);
