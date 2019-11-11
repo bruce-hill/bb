@@ -663,28 +663,14 @@ void run_bbcmd(bb_t *bb, const char *cmd)
             set_cursor(bb, e->index);
         else try_free_entry(e);
     } else if (matches_cmd(cmd, "help")) { // +help
-        restore_term(&default_termios);
-        int fds[2];
-        pipe(fds);
-        proc_t *proc = memcheck(calloc(1, sizeof(proc_t)));
-        if ((proc->pid = fork()) == 0) {
-            fclose(tty_out); tty_out = NULL;
-            fclose(tty_in); tty_in = NULL;
-            setpgid(0, 0);
-            close(fds[1]);
-            dup2(fds[0], STDIN_FILENO);
-            char *args[] = {SH, "-c", "less -rKX", NULL};
-            execvp(SH, args);
-        }
-        LL_PREPEND(running_procs, proc, running);
-        signal(SIGTTOU, SIG_IGN);
-        tcsetpgrp(fileno(tty_out), proc->pid);
-        close(fds[0]);
-        print_bindings(fds[1]);
-        close(fds[1]);
-        wait_for_process(&proc);
-        init_term();
-        dirty = 1;
+        char filename[256] = "/tmp/bbhelp.XXXXXX";
+        int fd = mkostemp(filename, O_WRONLY);
+        print_bindings(fd);
+        close(fd);
+        char script[512] = "less -rKX < ";
+        strcat(script, filename);
+        run_script(bb, script);
+        unlink(filename);
     } else if (matches_cmd(cmd, "interleave:") || matches_cmd(cmd, "interleave")) { // +interleave
         set_bool(bb->interleave_dirs);
         sort_files(bb);
