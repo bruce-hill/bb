@@ -13,7 +13,7 @@ static struct termios orig_termios, bb_termios;
 static FILE *tty_out = NULL, *tty_in = NULL;
 static struct winsize winsize = {0};
 static char *cmdfilename = NULL;
-proc_t *running_procs = NULL;
+static proc_t *running_procs = NULL;
 static int dirty = 1;
 
 /*
