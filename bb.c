@@ -665,12 +665,13 @@ void run_bbcmd(bb_t *bb, const char *cmd)
     } else if (matches_cmd(cmd, "help")) { // +help
         char filename[256] = "/tmp/bbhelp.XXXXXX";
         int fd = mkostemp(filename, O_WRONLY);
+        if (fd == -1) err("Couldn't create temporary help file in /tmp/");
         print_bindings(fd);
         close(fd);
         char script[512] = "less -rKX < ";
         strcat(script, filename);
         run_script(bb, script);
-        unlink(filename);
+        if (unlink(filename) == -1) err("Couldn't delete temporary help file: '%s'", filename);
     } else if (matches_cmd(cmd, "interleave:") || matches_cmd(cmd, "interleave")) { // +interleave
         set_bool(bb->interleave_dirs);
         sort_files(bb);
