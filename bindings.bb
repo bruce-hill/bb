@@ -99,13 +99,12 @@ Left click: # Move cursor to file
         bb +goto:"$BBCLICKED"
     fi
 Enter,Double left click: # Open file/directory
-    if [ "$(uname)" = "Darwin" ]; then
-        if [ -d "$BBCURSOR" ]; then bb +cd:"$BBCURSOR";
-        elif file -bI "$BBCURSOR" | grep -q '^\(text/\|inode/empty\)'; then $EDITOR "$BBCURSOR";
+    if [ -d "$BBCURSOR" ]; then bb +cd:"$BBCURSOR";
+    elif [ "$(uname)" = "Darwin" ]; then
+        if expr "$(file -bI "$BBCURSOR")" : '\(text/\|inode/empty\)' >/dev/null; then $EDITOR "$BBCURSOR";
         else open "$BBCURSOR"; fi
     else
-        if [ -d "$BBCURSOR" ]; then bb +cd:"$BBCURSOR";
-        elif file -bi "$BBCURSOR" | grep -q '^\(text/\|inode/x-empty\)'; then $EDITOR "$BBCURSOR";
+        if expr "$(file -bi "$BBCURSOR")" : '\(text/\|inode/x-empty\)' >/dev/null; then $EDITOR "$BBCURSOR";
         else xdg-open "$BBCURSOR"; fi
     fi
 e: # Edit file in $EDITOR
