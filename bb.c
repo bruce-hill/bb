@@ -1154,23 +1154,25 @@ int wait_for_process(proc_t **proc)
 
 int main(int argc, char *argv[])
 {
-    char *initial_path = NULL, depthstr[16] = {0};
+    char *initial_path;
+    if (argc >= 3 && strcmp(argv[argc-2], "--") == 0) {
+        initial_path = argv[argc-1];
+        argc -= 2;
+    } else if (argc >= 2 && argv[argc-1][0] != '-' && argv[argc-1][0] != '+') {
+        initial_path = argv[argc-1];
+        argc -= 1;
+    } else {
+        initial_path = ".";
+    }
+
     char sep = '\n';
     int print_dir = 0, print_selection = 0;
-
     for (int i = 1; i < argc; i++) {
         // Commands are processed below, after flags have been parsed
         if (argv[i][0] == '+') {
             char *colon = strchr(argv[i], ':');
             if (colon && !colon[1])
                 break;
-        } else if (strcmp(argv[i], "--") == 0) {
-            if (i + 1 < argc) initial_path = argv[i+1];
-            if (i + 2 < argc) {
-                printf("Extra arguments after %s\n%s", argv[i+1], usage_str);
-                return 1;
-            }
-            break;
         } else if (strcmp(argv[i], "--help") == 0) {
           help:
             printf("%s%s", description_str, usage_str);
@@ -1179,11 +1181,7 @@ int main(int argc, char *argv[])
           version:
             printf("bb " BB_VERSION "\n");
             return 0;
-        } else if (argv[i][0] == '-' && argv[i][1] == '-') {
-            if (argv[i][2] == '\0') break;
-            printf("Unknown command line argument: %s\n%s", argv[i], usage_str);
-            return 1;
-        } else if (argv[i][0] == '-') {
+        } else if (argv[i][0] == '-' && argv[i][1] != '-') {
             for (char *c = &argv[i][1]; *c; c++) {
                 switch (*c) {
                     case 'h': goto help;
@@ -1195,14 +1193,11 @@ int main(int argc, char *argv[])
                              return 1;
                 }
             }
-        } else if (!initial_path) {
-            initial_path = argv[i];
         } else {
-            printf("Unknown command line argument: %s\n%s", argv[i], usage_str);
+            printf("Unknown command line argument: \"%s\"\n%s", argv[i], usage_str);
             return 1;
         }
     }
-    if (!initial_path) initial_path = ".";
 
     cmdfilename = memcheck(strdup(CMDFILE_FORMAT));
     int cmdfd;
@@ -1221,6 +1216,7 @@ int main(int argc, char *argv[])
     setenv("EDITOR", "nano", 0);
     char *curdepth = getenv("BB_DEPTH");
     int depth = curdepth ? atoi(curdepth) : 0;
+    char depthstr[16];
     sprintf(depthstr, "%d", depth + 1);
     setenv("BB_DEPTH", depthstr, 1);
     setenv("BBCMD", cmdfilename, 1);
@@ -1258,7 +1254,6 @@ int main(int argc, char *argv[])
 
     write(cmdfd, "\0", 1);
     for (int i = 0; i < argc; i++) {
-        if (strcmp(argv[i], "--") == 0) break;
         if (argv[i][0] == '+') {
             char *cmd = argv[i] + 1;
             char *colon = strchr(cmd, ':');

@@ -251,7 +251,7 @@ static const struct termios default_termios = {
 };
 
 static const char *description_str = "bb - an itty bitty console TUI file browser\n";
-static const char *usage_str = "Usage: bb (-h/--help | -v/--version | -s | -d | -0 | +command | path)*\n";
+static const char *usage_str = "Usage: bb (-h/--help | -v/--version | -s | -d | -0 | +command)* [[--] directory]\n";
 
 // Shell functions
 static const char *bbcmdfn = "bbcmd() {\n"
