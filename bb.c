@@ -1258,6 +1258,7 @@ int main(int argc, char *argv[])
 
     write(cmdfd, "\0", 1);
     for (int i = 0; i < argc; i++) {
+        if (strcmp(argv[i], "--") == 0) break;
         if (argv[i][0] == '+') {
             char *cmd = argv[i] + 1;
             char *colon = strchr(cmd, ':');
