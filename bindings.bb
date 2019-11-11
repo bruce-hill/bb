@@ -137,11 +137,11 @@ Ctrl-n: # New file/directory
     case "$(printf '%s\0' File Directory | pick "Create new: ")" in
         File)
             ask name "New File: " || exit
-            touch "$name"
+            touch -- "$name"
             ;;
         Directory)
             ask name "New Directory: " || exit
-            mkdir "$name"
+            mkdir -- "$name"
             ;;
         *) exit
             ;;
