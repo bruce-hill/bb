@@ -12,14 +12,14 @@
 
 ## Building
 
-No dependencies besides `make` and a C compiler, just:
+`bb` has no build dependencies besides `make` and a C compiler, just:
 
     make
     sudo make install
 
 To run `bb`, it's expected that you have some basic unix tools:
-`basename`, `cat`, `cp`, `echo`, `find`, `grep`, `mkdir`, `more`, `mv`,
-`printf`, `read`, `rm`, `sed`, `sh`, `sleep`, `touch`, `tput`, `tr`, `wait`.
+`basename`, `cat`, `cp`, `echo`, `find`, `kill`, `less`, `ln`, `mkdir`, `more`,
+`mv`, `printf`, `read`, `rm`, `sed`, `sh`, `touch`, `tput`, `tr`.
 
 ## Usage
 
@@ -34,12 +34,12 @@ Run `bb` to launch the file browser. `bb` also has the flags:
 - `-v`: print version
 
 Within `bb`, press `?` for a full list of available key bindings. In short:
-`h`/`j`/`k`/`l` or arrow keys for navigation, `q` to quit, `<space>` to toggle
-selection, `d` to delete, `c` to copy, `Ctrl-v` to move, `r` to rename,
-`Ctrl-n` to create a new file or directory, `:` to run a command with the
-selected files in `$@`, and `|` to pipe the selected files to a command.
-Pressing `Ctrl-c` will cause `bb` to exit with a failure status and without
-printing anything.
+`h`/`j`/`k`/`l` (or arrow keys) for navigation, `q` to quit, `Enter` to open a
+file, `<space>` to toggle selection, `d` to delete, `C` to copy, `Ctrl-v` to
+move, `r` to rename, `Ctrl-n` to create a new file or directory, `:` to run a
+command with the selected files in `$@`, and `|` to pipe the selected files to
+a command.  Pressing `Ctrl-c` will cause `bb` to exit with a failure status and
+without printing anything.
 
 ## bb's Philosophy
 
@@ -48,20 +48,28 @@ The core idea behind `bb` is that `bb` is a file **browser**, not a file
 to the filesystem (passing selected files as arguments), rather than
 reinventing the wheel by hard-coding operations like `rm`, `mv`, `cp`, `touch`,
 and so on.  Shell scripts can be bound to keypresses in
-`~/.config/bb/bindings.bb`. For example, `p` is bound to `$PAGER "$@"`, which
-means selecting `file1` and `file2`, then pressing `p` will cause `bb` to run
-the shell command `$PAGER file1 file2`.
+`~/.config/bb/bindings.bb`. For example, `D` is bound to a script that prints a
+confirmation message, then runs `rm -rf "$@" && bb +deselect +refresh`,
+which means selecting `file1` and `file2`, then pressing `D` will cause `bb` to
+run the shell command `rm -rf file1 file2` and then tell `bb` to deselect all
+(now deleted) files and refresh.
 
 ## Customizing bb
 
+`bb` runs a script at startup (by default [bbstartup.sh](bbstartup.sh), installed
+to `/etc/xdg/bb/bbstartup.sh`) that sets up `bb`'s key bindings and a few other
+minor things. You can override this with your own custom startup script by creating
+a file at `~/.config/bb/bbstartup.sh`. The default startup script loads key bindings
+from (in order) `/etc/xdg/bb/bindings.bb` and `~/.config/bb/bindings.bb` (or if
+neither exists, from the local directory).
+
 `bb` comes with a bunch of pre-defined bindings for basic actions in
-[bindings.bb](bindings.bb) (installed to `/etc/xdg/bb/bindings.bb`) (within
-`bb`, press `?` to see descriptions of the bindings), but it's very easy to add
-new bindings for whatever custom scripts you want to run, just `mkdir -p
-~/.config/bb && cp -n /etc/xdg/bb/bindings.bb ~/.config/bb/` and edit
-`~/.config/bb/bindings.bb` to have your new bindings. You can also create
-bindings at runtime by hitting `Ctrl-b` (in case you want to set up an easy way
-to repeat some custom workflow).
+[bindings.bb](bindings.bb) (installed to `/etc/xdg/bb/bindings.bb`). It's very
+easy to add new bindings for whatever custom scripts you want to run, just
+create a file called `~/.config/bb/bindings.bb` and put your bindings there.
+You can also create bindings at runtime by hitting `Ctrl-b`, pressing the key
+you want to bind, and then entering in a script to run (in case you want to set
+up an easy way to repeat some custom workflow).
 
 ### API
 
@@ -77,7 +85,7 @@ documentation](API.md).
 
 Applications cannot change the shell's working directory on their own, but you
 can define a shell function that uses the shell's builtin `cd` function on the
-output of `bb -d` (print directory on exit). For bash (sh, zsh, etc.), you can
+output of `bb -d` (print directory on exit). For bash (or sh, zsh, etc.), you can
 put the following function in your `~/.profile` (or `~/.bashrc`, `~/.zshrc`,
 etc.):
 
