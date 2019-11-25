@@ -64,7 +64,7 @@ void cleanup_and_raise(int sig)
     raise(sig);
     // This code will only ever be run if sig is SIGTSTP/SIGSTOP, otherwise, raise() won't return:
     init_term();
-    struct sigaction sa = {.sa_handler = &cleanup_and_raise, .sa_flags = SA_NODEFER | SA_RESETHAND};
+    struct sigaction sa = {.sa_handler = &cleanup_and_raise, .sa_flags = (int)(SA_NODEFER | SA_RESETHAND)};
     sigaction(sig, &sa, NULL);
 }
 
@@ -201,7 +201,7 @@ void handle_next_key_binding(bb_t *bb)
         } while (key == -1);
 
         binding = NULL;
-        for (int i = 0; bindings[i].script && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
+        for (size_t i = 0; bindings[i].script && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
             if (key == bindings[i].key) {
                 binding = &bindings[i];
                 break;
@@ -285,7 +285,7 @@ static int is_simple_bbcmd(const char *s)
  * Warning: this does not deduplicate entries, and it's best if there aren't
  * duplicate entries hanging around.
  */
-entry_t* load_entry(bb_t *bb, const char *path, int clear_dots)
+entry_t* load_entry(bb_t *bb, const char *path)
 {
     struct stat linkedstat, filestat;
     if (!path || !path[0]) return NULL;
@@ -293,7 +293,7 @@ entry_t* load_entry(bb_t *bb, const char *path, int clear_dots)
     char pbuf[PATH_MAX] = {0};
     char *slash = strrchr(path, '/');
     if (slash) {
-        strncpy(pbuf, path, (slash - path));
+        strncpy(pbuf, path, (size_t)(slash - path));
         normalize_path(bb->path, pbuf, pbuf);
         strcat(pbuf, slash);
     } else {
@@ -472,7 +472,7 @@ int populate_files(bb_t *bb, const char *path)
             if ((size_t)bb->nfiles + 1 > space)
                 bb->files = memcheck(realloc(bb->files, (space += 100)*sizeof(void*)));
             // Don't normalize path so we can get "." and ".."
-            entry_t *entry = load_entry(bb, dp->d_name, 0);
+            entry_t *entry = load_entry(bb, dp->d_name);
             if (!entry) err("Failed to load entry: '%s'", dp->d_name);
             entry->index = bb->nfiles;
             bb->files[bb->nfiles++] = entry;
@@ -490,11 +490,11 @@ int populate_files(bb_t *bb, const char *path)
     if (samedir) {
         set_scroll(bb, old_scroll);
         if (old_selected[0]) {
-            entry_t *e = load_entry(bb, old_selected, 0);
+            entry_t *e = load_entry(bb, old_selected);
             if (e) set_cursor(bb, e->index);
         }
     } else {
-        entry_t *p = load_entry(bb, prev, 0);
+        entry_t *p = load_entry(bb, prev);
         if (p) {
             if (IS_VIEWED(p)) set_cursor(bb, p->index);
             else try_free_entry(p);
@@ -509,18 +509,18 @@ int populate_files(bb_t *bb, const char *path)
 void print_bindings(int fd)
 {
     char buf[1000], buf2[1024];
-    for (int i = 0; bindings[i].script && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
+    for (size_t i = 0; bindings[i].script && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
         if (bindings[i].key == -1) {
             const char *label = bindings[i].description;
             sprintf(buf, "\n\033[33;1;4m\033[%dG%s\033[0m\n", (winsize.ws_col-(int)strlen(label))/2, label);
             write(fd, buf, strlen(buf));
             continue;
         }
-        int to_skip = -1;
+        size_t shared = 0;
         char *p = buf;
-        for (int j = i; bindings[j].script && strcmp(bindings[j].description, bindings[i].description) == 0; j++) {
+        for (size_t j = i; bindings[j].script && strcmp(bindings[j].description, bindings[i].description) == 0; j++) {
             if (j > i) p = stpcpy(p, ", ");
-            ++to_skip;
+            ++shared;
             int key = bindings[j].key;
             p = bkeyname(key, p);
         }
@@ -531,7 +531,7 @@ void print_bindings(int fd)
                 bindings[i].description);
         write(fd, buf2, strlen(buf2));
         write(fd, "\033[0m\n", strlen("\033[0m\n"));
-        i += to_skip;
+        i += shared - 1;
     }
     write(fd, "\n", 1);
 }
@@ -574,7 +574,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
             int is_section = strcmp(key, "Section") == 0;
             int keyval = bkeywithname(key);
             if (keyval == -1 && !is_section) continue;
-            for (int i = 0; i < sizeof(bindings)/sizeof(bindings[0]); i++) {
+            for (size_t i = 0; i < sizeof(bindings)/sizeof(bindings[0]); i++) {
                 if (bindings[i].script && (bindings[i].key != keyval || is_section))
                     continue;
                 binding_t binding = {keyval, memcheck(strdup(script)),
@@ -599,7 +599,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
     } else if (matches_cmd(cmd, "deselect:")) { // +deselect
         char pbuf[PATH_MAX];
         normalize_path(bb->path, value, pbuf);
-        entry_t *e = load_entry(bb, pbuf, 0);
+        entry_t *e = load_entry(bb, pbuf);
         if (e) {
             set_selected(bb, e, 0);
             return;
@@ -635,7 +635,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         init_term();
         dirty = 1;
     } else if (matches_cmd(cmd, "goto:")) { // +goto:
-        entry_t *e = load_entry(bb, value, 1);
+        entry_t *e = load_entry(bb, value);
         if (!e) {
             warn("Could not find file to go to: \"%s\".", value);
             return;
@@ -701,7 +701,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
             for (int i = 0; i < bb->nfiles; i++)
                 set_selected(bb, bb->files[i], 1);
         } else {
-            entry_t *e = load_entry(bb, value, 1);
+            entry_t *e = load_entry(bb, value);
             if (e) set_selected(bb, e, 1);
         }
     } else if (matches_cmd(cmd, "sort:")) { // +sort:
@@ -712,7 +712,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
     } else if (matches_cmd(cmd, "toggle:") || matches_cmd(cmd, "toggle")) { // +toggle
         if (!value && !bb->nfiles) return;
         if (!value) value = bb->files[bb->cursor]->fullname;
-        entry_t *e = load_entry(bb, value, 1);
+        entry_t *e = load_entry(bb, value);
         if (!e) {
             warn("Could not find file to toggle: \"%s\".", value);
             return;
@@ -955,7 +955,7 @@ int run_script(bb_t *bb, const char *cmd)
         fclose(tty_out); tty_out = NULL;
         fclose(tty_in); tty_in = NULL;
         setpgid(0, 0);
-        char **args = memcheck(calloc(4 + bb->nselected + 1, sizeof(char*)));
+        char **args = memcheck(calloc(4 + (size_t)bb->nselected + 1, sizeof(char*)));
         int i = 0;
         args[i++] = SH;
         args[i++] = "-c";
@@ -1248,8 +1248,8 @@ int main(int argc, char *argv[])
     struct sigaction sa_winch = {.sa_handler = &update_term_size};
     sigaction(SIGWINCH, &sa_winch, NULL);
     int signals[] = {SIGTERM, SIGINT, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF, SIGSEGV, SIGTSTP};
-    struct sigaction sa = {.sa_handler = &cleanup_and_raise, .sa_flags = SA_NODEFER | SA_RESETHAND};
-    for (int i = 0; i < sizeof(signals)/sizeof(signals[0]); i++)
+    struct sigaction sa = {.sa_handler = &cleanup_and_raise, .sa_flags = (int)(SA_NODEFER | SA_RESETHAND)};
+    for (size_t i = 0; i < sizeof(signals)/sizeof(signals[0]); i++)
         sigaction(signals[i], &sa, NULL);
 
     write(cmdfd, "\0", 1);

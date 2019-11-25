@@ -3,14 +3,13 @@ PREFIX=
 CC=gcc
 O=-O2
 CFLAGS=-std=c99 -D_XOPEN_SOURCE=500 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L
-CWARN=-Wall -Wpedantic -Wno-unknown-pragmas
-#CWARN += -fsanitize=address -fno-omit-frame-pointer
+CWARN=-Wall -Wpedantic -Wextra -Wno-unknown-pragmas -Wno-missing-field-initializers\
+	  -Wno-padded -Wsign-conversion -Wno-missing-noreturn -Wno-cast-qual -Wtype-limits
+#CFLAGS += -fsanitize=address -fno-omit-frame-pointer
 G=
 
 ifeq ($(shell uname),Darwin)
 	CFLAGS += -D_DARWIN_C_SOURCE
-	CWARN += -Weverything -Wno-missing-field-initializers -Wno-padded\
-			  -Wno-missing-noreturn -Wno-cast-qual
 endif
 
 ifneq (, $(SH))

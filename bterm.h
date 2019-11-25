@@ -130,7 +130,7 @@ static inline int nextchar(int fd)
     return read(fd, &c, 1) == 1 ? c : -1;
 }
 
-static inline char nextnum(int fd, char c, int *n)
+static inline int nextnum(int fd, int c, int *n)
 {
     for (*n = 0; '0' <= c && c <= '9'; c = nextchar(fd))
         *n = 10*(*n) + (c - '0');
@@ -296,7 +296,7 @@ char *bkeyname(int key, char *buf)
     if (key & MOD_ALT) buf = stpcpy(buf, "Alt-");
     if (key & MOD_SHIFT) buf = stpcpy(buf, "Shift-");
     key &= ~(MOD_META | MOD_CTRL | MOD_ALT | MOD_SHIFT);
-    for (int i = 0; i < sizeof(key_names)/sizeof(key_names[0]); i++) {
+    for (size_t i = 0; i < sizeof(key_names)/sizeof(key_names[0]); i++) {
         if (key_names[i].key == key) {
             return stpcpy(buf, key_names[i].name);
         }
@@ -318,11 +318,11 @@ int bkeywithname(const char *name)
         {"Super-", MOD_META}, {"Ctrl-", MOD_CTRL}, {"Alt-", MOD_ALT}, {"Shift-", MOD_SHIFT}
     };
   check_names:
-    for (int i = 0; i < sizeof(key_names)/sizeof(key_names[0]); i++) {
+    for (size_t i = 0; i < sizeof(key_names)/sizeof(key_names[0]); i++) {
         if (strcmp(key_names[i].name, name) == 0)
             return modifiers | key_names[i].key;
     }
-    for (int i = 0; i < sizeof(modnames)/sizeof(modnames[0]); i++) {
+    for (size_t i = 0; i < sizeof(modnames)/sizeof(modnames[0]); i++) {
         if (strncmp(name, modnames[i].prefix, strlen(modnames[i].prefix)) == 0) {
             modifiers |= modnames[i].modifier;
             name += strlen(modnames[i].prefix);

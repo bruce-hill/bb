@@ -176,10 +176,10 @@ typedef struct proc_s {
 
 #define MAX_BINDINGS 1024
 
-binding_t bindings[MAX_BINDINGS];
+static binding_t bindings[MAX_BINDINGS];
 
 // Column widths and titles:
-const column_t columns[] = {
+static const column_t columns[] = {
     ['*'] = {2,  "*"},
     ['a'] = {21, "      Accessed"},
     ['c'] = {21, "      Created"},
@@ -205,7 +205,7 @@ static int fputs_escaped(FILE *f, const char *str, const char *color);
 static void handle_next_key_binding(bb_t *bb);
 static void init_term(void);
 static int is_simple_bbcmd(const char *s);
-static entry_t* load_entry(bb_t *bb, const char *path, int clear_dots);
+static entry_t* load_entry(bb_t *bb, const char *path);
 static inline int matches_cmd(const char *str, const char *cmd);
 static void* memcheck(void *p);
 static char* normalize_path(const char *root, const char *path, char *pbuf);
@@ -327,7 +327,7 @@ PICK ";\n"
 #endif
 ;
 
-const char *runstartup = 
+static const char *runstartup = 
 "[ ! \"$XDG_CONFIG_HOME\" ] && XDG_CONFIG_HOME=~/.config;\n"
 "[ ! \"$sysconfdir\" ] && sysconfdir=/etc;\n"
 "for path in \"$XDG_CONFIG_HOME/bb\" \"$sysconfdir/xdg/bb\" .; do\n"
