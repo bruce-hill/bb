@@ -279,7 +279,11 @@ ASK ";\n"
 "    [ $# -lt 2 ] && printf '\033[31;1mNot enough args to ask!\033[0m\n' && return 1;\n"
 "    printf \"\033[1m%s\033[0m\" \"$2\" >/dev/tty;\n"
 "    tput cvvis >/dev/tty;\n"
+#ifdef __APPLE__
+"    read -e $1 </dev/tty >/dev/tty;\n"
+#else
 "    read $1 </dev/tty >/dev/tty;\n"
+#endif
 #endif
 "}\n"
 "ask1() {\n"
@@ -289,7 +293,11 @@ ASK1 ";\n"
 "    tput civis >/dev/tty;\n"
 "    printf \"\033[1m%s\033[0m\" \"$2\" >/dev/tty;\n"
 "    stty -icanon -echo >/dev/tty;\n"
+#ifdef __APPLE__
+"    read -n 1 $1 </dev/tty >/dev/tty;\n"
+#else
 "    eval \"$1=\\$(dd bs=1 count=1 2>/dev/null </dev/tty)\";\n"
+#endif
 "    stty icanon echo >/dev/tty;\n"
 "    tput cvvis >/dev/tty;\n"
 #endif
