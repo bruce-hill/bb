@@ -200,7 +200,7 @@ s: # Sort by...
     bbcmd dotfiles
 i: # Toggle interleaving files and directories
     bbcmd interleave
-F5: # Refresh view
+F5,Ctrl-l: # Refresh view
     bbcmd refresh
 Ctrl-b: # Bind a key to a script
     ask1 key "Press key to bind..." && echo && ask script "Bind script: " &&
