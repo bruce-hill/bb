@@ -67,8 +67,7 @@ install: $(NAME)
 	fi; \
 	[ ! "$$prefix" ] && prefix="/usr/local"; \
 	[ ! "$$sysconfdir" ] && sysconfdir=/etc; \
-	mkdir -m 644 -pv "$$prefix/share/man/man1" \
-	mkdir -m 755 -pv "$$prefix/bin" "$$sysconfdir/xdg/bb" \
+	mkdir -pv -m 755 "$$prefix/share/man/man1" "$$prefix/bin" "$$sysconfdir/xdg/bb" \
 	&& cp -v bbstartup.sh bindings.bb "$$sysconfdir/xdg/bb/" \
 	&& cp -v $(NAME).1 "$$prefix/share/man/man1/" \
 	&& cp -v $(NAME) "$$prefix/bin/"
