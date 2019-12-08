@@ -198,6 +198,7 @@ void handle_next_key_binding(bb_t *bb)
     do {
         do {
             key = bgetkey(tty_in, &mouse_x, &mouse_y);
+            if (key == -1 && dirty) return;
         } while (key == -1);
 
         binding = NULL;
@@ -1125,11 +1126,9 @@ static char *trim(char *s)
 void update_term_size(int sig)
 {
     (void)sig;
-    if (tty_in) {
-        struct winsize oldsize = winsize;
-        ioctl(fileno(tty_in), TIOCGWINSZ, &winsize);
-        dirty |= (oldsize.ws_col != winsize.ws_col || oldsize.ws_row != winsize.ws_row);
-    }
+    struct winsize oldsize = winsize;
+    ioctl(STDIN_FILENO, TIOCGWINSZ, &winsize);
+    dirty |= (oldsize.ws_col != winsize.ws_col || oldsize.ws_row != winsize.ws_row);
 }
 
 /*
@@ -1199,6 +1198,13 @@ int main(int argc, char *argv[])
         }
     }
 
+    struct sigaction sa_winch = {.sa_handler = &update_term_size};
+    sigaction(SIGWINCH, &sa_winch, NULL);
+    update_term_size(0);
+    // Wait 10ms at a time for terminal to initialize if necessary
+    while (winsize.ws_row == 0)
+        usleep(10000);
+
     cmdfilename = memcheck(strdup(CMDFILE_FORMAT));
     int cmdfd;
     if ((cmdfd = mkostemp(cmdfilename, O_APPEND)) == -1)
@@ -1237,21 +1243,6 @@ int main(int argc, char *argv[])
     }
     setenv("BBINITIALPATH", full_initial_path, 1);
 
-    tty_in = fopen("/dev/tty", "r");
-    tty_out = fopen("/dev/tty", "w");
-    tcgetattr(fileno(tty_out), &orig_termios);
-    memcpy(&bb_termios, &orig_termios, sizeof(bb_termios));
-    cfmakeraw(&bb_termios);
-    bb_termios.c_cc[VMIN] = 0;
-    bb_termios.c_cc[VTIME] = 1;
-    atexit(cleanup);
-    struct sigaction sa_winch = {.sa_handler = &update_term_size};
-    sigaction(SIGWINCH, &sa_winch, NULL);
-    int signals[] = {SIGTERM, SIGINT, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF, SIGSEGV, SIGTSTP};
-    struct sigaction sa = {.sa_handler = &cleanup_and_raise, .sa_flags = (int)(SA_NODEFER | SA_RESETHAND)};
-    for (size_t i = 0; i < sizeof(signals)/sizeof(signals[0]); i++)
-        sigaction(signals[i], &sa, NULL);
-
     write(cmdfd, "\0", 1);
     for (int i = 0; i < argc; i++) {
         if (argv[i][0] == '+') {
@@ -1269,11 +1260,24 @@ int main(int argc, char *argv[])
     }
     close(cmdfd); cmdfd = -1;
 
-    init_term();
+    tty_in = fopen("/dev/tty", "r");
+    tty_out = fopen("/dev/tty", "w");
+    tcgetattr(fileno(tty_out), &orig_termios);
+    memcpy(&bb_termios, &orig_termios, sizeof(bb_termios));
+    cfmakeraw(&bb_termios);
+    bb_termios.c_cc[VMIN] = 0;
+    bb_termios.c_cc[VTIME] = 1;
+    atexit(cleanup);
+    int signals[] = {SIGTERM, SIGINT, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF, SIGSEGV, SIGTSTP};
+    struct sigaction sa = {.sa_handler = &cleanup_and_raise, .sa_flags = (int)(SA_NODEFER | SA_RESETHAND)};
+    for (size_t i = 0; i < sizeof(signals)/sizeof(signals[0]); i++)
+        sigaction(signals[i], &sa, NULL);
+
     bb_t bb = {
         .columns = "*smpn",
         .sort = "+n"
     };
+    init_term();
     bb_browse(&bb, full_initial_path);
     fputs(T_LEAVE_BBMODE, tty_out);
     cleanup();
