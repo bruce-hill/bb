@@ -25,7 +25,7 @@
 #include "bterm.h"
 
 // Macros:
-#define BB_VERSION "0.20.2"
+#define BB_VERSION "0.20.3"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -292,13 +292,13 @@ ASK1 ";\n"
 #else
 "    tput civis >/dev/tty;\n"
 "    printf \"\033[1m%s\033[0m\" \"$2\" >/dev/tty;\n"
-"    stty -icanon -echo >/dev/tty;\n"
+"    stty -icanon -echo >/dev/tty 2>/dev/tty;\n"
 #ifdef __APPLE__
 "    read -n 1 $1 </dev/tty >/dev/tty;\n"
 #else
 "    eval \"$1=\\$(dd bs=1 count=1 2>/dev/null </dev/tty)\";\n"
 #endif
-"    stty icanon echo >/dev/tty;\n"
+"    stty icanon echo >/dev/tty 2>/dev/tty;\n"
 "    tput cvvis >/dev/tty;\n"
 #endif
 "}\n"

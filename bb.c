@@ -79,7 +79,7 @@ void cleanup(void)
         cmdfilename = NULL;
     }
     if (tty_out) {
-        fputs(T_OFF(T_ALT_SCREEN) T_ON(T_SHOW_CURSOR), tty_out);
+        fputs(T_LEAVE_BBMODE, tty_out);
         fflush(tty_out);
         tcsetattr(fileno(tty_out), TCSANOW, &orig_termios);
     }
@@ -631,8 +631,12 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         move_cursor(tty_out, 0, winsize.ws_row-1);
         fputs("\033[K", tty_out);
         restore_term(&default_termios);
+        signal(SIGTTOU, SIG_IGN);
+        if (tcsetpgrp(fileno(tty_out), child->pid))
+            err("Couldn't set pgrp");
         kill(-(child->pid), SIGCONT);
         wait_for_process(&child);
+        signal(SIGTTOU, SIG_DFL);
         init_term();
         dirty = 1;
     } else if (matches_cmd(cmd, "goto:")) { // +goto:
@@ -952,10 +956,14 @@ int run_script(bb_t *bb, const char *cmd)
     strcat(fullcmd, cmd);
 
     proc_t *proc = memcheck(calloc(1, sizeof(proc_t)));
+    signal(SIGTTOU, SIG_IGN);
     if ((proc->pid = fork()) == 0) {
         fclose(tty_out); tty_out = NULL;
         fclose(tty_in); tty_in = NULL;
-        setpgid(0, 0);
+        pid_t pgrp = getpid();
+        (void)setpgid(0, pgrp);
+        if (tcsetpgrp(STDIN_FILENO, pgrp))
+            err("Couldn't set pgrp");
         char **args = memcheck(calloc(4 + (size_t)bb->nselected + 1, sizeof(char*)));
         int i = 0;
         args[i++] = SH;
@@ -983,6 +991,7 @@ int run_script(bb_t *bb, const char *cmd)
     if (proc->pid == -1)
         err("Failed to fork");
 
+    (void)setpgid(proc->pid, proc->pid);
     LL_PREPEND(running_procs, proc, running);
     int status = wait_for_process(&proc);
     dirty = 1;
@@ -1136,18 +1145,21 @@ void update_term_size(int sig)
  */
 int wait_for_process(proc_t **proc)
 {
-    signal(SIGTTOU, SIG_IGN);
     tcsetpgrp(fileno(tty_out), (*proc)->pid);
     int status;
-    while (waitpid((*proc)->pid, &status, WUNTRACED) < 0 && errno == EINTR) // Can happen, e.g. if process sends SIGTSTP
-        continue;
-    tcsetpgrp(fileno(tty_out), getpgid(0));
-    signal(SIGTTOU, SIG_DFL);
-    if (!WIFSTOPPED(status)) {
-        LL_REMOVE((*proc), running);
-        free(*proc);
-        *proc = NULL;
+    while (*proc) {
+        if (waitpid((*proc)->pid, &status, WUNTRACED) < 0)
+            continue;
+        if (WIFEXITED(status) || WIFSIGNALED(status)) {
+            LL_REMOVE((*proc), running);
+            free(*proc);
+            *proc = NULL;
+        } else if (WIFSTOPPED(status))
+            break;
     }
+    if (tcsetpgrp(fileno(tty_out), getpid()))
+        err("Failed to set pgrp");
+    signal(SIGTTOU, SIG_DFL);
     return status;
 }
 
