@@ -951,10 +951,6 @@ void restore_term(const struct termios *term)
  */
 int run_script(bb_t *bb, const char *cmd)
 {
-    char *fullcmd = calloc(strlen(cmd) + strlen(bbcmdfn) + 1, sizeof(char));
-    strcpy(fullcmd, bbcmdfn);
-    strcat(fullcmd, cmd);
-
     proc_t *proc = memcheck(calloc(1, sizeof(proc_t)));
     signal(SIGTTOU, SIG_IGN);
     if ((proc->pid = fork()) == 0) {
@@ -968,6 +964,9 @@ int run_script(bb_t *bb, const char *cmd)
         int i = 0;
         args[i++] = SH;
         args[i++] = "-c";
+        char *fullcmd = calloc(strlen(cmd) + strlen(bbcmdfn) + 1, sizeof(char));
+        strcpy(fullcmd, bbcmdfn);
+        strcat(fullcmd, cmd);
         args[i++] = fullcmd;
         args[i++] = "--"; // ensure files like "-i" are not interpreted as flags for sh
         // bb->selected is in most-recent order, so populate args in reverse to make sure

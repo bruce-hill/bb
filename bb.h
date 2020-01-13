@@ -25,7 +25,7 @@
 #include "bterm.h"
 
 // Macros:
-#define BB_VERSION "0.20.4"
+#define BB_VERSION "0.20.5"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
