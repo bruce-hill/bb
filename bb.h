@@ -25,7 +25,7 @@
 #include "bterm.h"
 
 // Macros:
-#define BB_VERSION "0.20.3"
+#define BB_VERSION "0.20.4"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -161,7 +161,6 @@ typedef struct proc_s {
 
 // Configurable options:
 #define SCROLLOFF   MIN(5, (winsize.ws_row-4)/2)
-#define CMDFILE_FORMAT "/tmp/bb.XXXXXX"
 #define SORT_INDICATOR  "↓"
 #define RSORT_INDICATOR "↑"
 #define SELECTED_INDICATOR " \033[31;7m \033[0m"

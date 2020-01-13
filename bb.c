@@ -12,7 +12,7 @@
 static struct termios orig_termios, bb_termios;
 static FILE *tty_out = NULL, *tty_in = NULL;
 static struct winsize winsize = {0};
-static char *cmdfilename = NULL;
+static char cmdfilename[PATH_MAX] = {0};
 static proc_t *running_procs = NULL;
 static int dirty = 1;
 
@@ -73,10 +73,9 @@ void cleanup_and_raise(int sig)
  */
 void cleanup(void)
 {
-    if (cmdfilename) {
+    if (cmdfilename[0]) {
         unlink(cmdfilename);
-        free(cmdfilename);
-        cmdfilename = NULL;
+        cmdfilename[0] = '\0';
     }
     if (tty_out) {
         fputs(T_LEAVE_BBMODE, tty_out);
@@ -659,9 +658,10 @@ void run_bbcmd(bb_t *bb, const char *cmd)
             set_cursor(bb, e->index);
         else try_free_entry(e);
     } else if (matches_cmd(cmd, "help")) { // +help
-        char filename[256] = "/tmp/bbhelp.XXXXXX";
-        int fd = mkostemp(filename, O_WRONLY);
-        if (fd == -1) err("Couldn't create temporary help file in /tmp/");
+        char filename[PATH_MAX];
+        sprintf(filename, "%s/bbhelp.XXXXXX", getenv("TMPDIR"));
+        int fd = mkstemp(filename);
+        if (fd == -1) err("Couldn't create temporary help file at %s", filename);
         print_bindings(fd);
         close(fd);
         char script[512] = "less -rKX < ";
@@ -1217,13 +1217,14 @@ int main(int argc, char *argv[])
     while (winsize.ws_row == 0)
         usleep(10000);
 
-    cmdfilename = memcheck(strdup(CMDFILE_FORMAT));
-    int cmdfd;
-    if ((cmdfd = mkostemp(cmdfilename, O_APPEND)) == -1)
-        err("Couldn't create tmpfile: '%s'", CMDFILE_FORMAT);
-
     // Set up environment variables
     // Default values
+    setenv("TMPDIR", "/tmp", 0);
+    sprintf(cmdfilename, "%s/bb.XXXXXX", getenv("TMPDIR"));
+    int cmdfd;
+    if ((cmdfd = mkostemp(cmdfilename, O_APPEND)) == -1)
+        err("Couldn't create bb command file: '%s'", cmdfilename);
+    setenv("BBCMD", cmdfilename, 1);
     char xdg_config_home[PATH_MAX], xdg_data_home[PATH_MAX];
     sprintf(xdg_config_home, "%s/.config", getenv("HOME"));
     setenv("XDG_CONFIG_HOME", xdg_config_home, 0);
@@ -1237,7 +1238,6 @@ int main(int argc, char *argv[])
     char depthstr[16];
     sprintf(depthstr, "%d", depth + 1);
     setenv("BB_DEPTH", depthstr, 1);
-    setenv("BBCMD", cmdfilename, 1);
     setenv("BBSHELLFUNC", bbcmdfn, 1);
     char full_initial_path[PATH_MAX];
     getcwd(full_initial_path, PATH_MAX);
@@ -1308,7 +1308,6 @@ int main(int argc, char *argv[])
     populate_files(&bb, NULL);
     while (bb.selected)
         set_selected(&bb, bb.selected, 0);
-    if (cmdfilename) free(cmdfilename);
     return 0;
 }
 
