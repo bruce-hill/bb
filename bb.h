@@ -25,7 +25,7 @@
 #include "bterm.h"
 
 // Macros:
-#define BB_VERSION "0.20.5"
+#define BB_VERSION "0.21.0"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -172,6 +172,8 @@ typedef struct proc_s {
 #define LINK_COLOR       "\033[35m"
 #define DIR_COLOR        "\033[34m"
 #define EXECUTABLE_COLOR "\033[31m"
+#define SCROLLBAR_FG "\033[48;5;247m "
+#define SCROLLBAR_BG "\033[48;5;239m "
 
 #define MAX_BINDINGS 1024
 

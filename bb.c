@@ -907,6 +907,17 @@ void render(bb_t *bb)
         fputs(" \033[K\033[0m", tty_out); // Reset color and attributes
     }
 
+    // Scrollbar:
+    if (bb->nfiles > ONSCREEN) {
+        int height = (ONSCREEN*ONSCREEN + (bb->nfiles-1))/bb->nfiles;
+        int start = 2 + (bb->scroll*ONSCREEN)/bb->nfiles;
+        for (int i = 2; i < 2 + ONSCREEN; i++) {
+            move_cursor(tty_out, winsize.ws_col-1, i);
+            fprintf(tty_out, "%s\033[0m",
+                (i >= start && i < start + height) ?  SCROLLBAR_FG : SCROLLBAR_BG);
+        }
+    }
+
     move_cursor(tty_out, winsize.ws_col/2, winsize.ws_row - 1);
     fputs("\033[0m\033[K", tty_out);
     int x = winsize.ws_col;
