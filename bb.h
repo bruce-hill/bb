@@ -25,7 +25,7 @@
 #include "bterm.h"
 
 // Macros:
-#define BB_VERSION "0.21.0"
+#define BB_VERSION "0.21.1"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -220,6 +220,7 @@ static void set_cursor(bb_t *bb, int i);
 static void set_selected(bb_t *bb, entry_t *e, int selected);
 static void set_scroll(bb_t *bb, int i);
 static void set_sort(bb_t *bb, const char *sort);
+static void set_title(bb_t *bb);
 static void sort_files(bb_t *bb);
 static char *trim(char *s);
 static int try_free_entry(entry_t *e);

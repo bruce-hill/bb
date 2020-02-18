@@ -239,6 +239,7 @@ void handle_next_key_binding(bb_t *bb)
         restore_term(&default_termios);
         run_script(bb, binding->script);
         init_term();
+        set_title(bb);
         check_cmdfile(bb);
     }
     if (mouse_x != -1 && mouse_y != -1) {
@@ -430,6 +431,7 @@ int populate_files(bb_t *bb, const char *path)
 
     dirty = 1;
     strcpy(bb->path, pbuf);
+    set_title(bb);
 
     // Clear old files (if any)
     if (bb->files) {
@@ -637,6 +639,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         wait_for_process(&child);
         signal(SIGTTOU, SIG_DFL);
         init_term();
+        set_title(bb);
         dirty = 1;
     } else if (matches_cmd(cmd, "goto:")) { // +goto:
         entry_t *e = load_entry(bb, value);
@@ -752,7 +755,14 @@ void render(bb_t *bb)
         move_cursor(tty_out, 0, 0);
         const char *color = TITLE_COLOR;
         fputs(color, tty_out);
-        fputs_escaped(tty_out, bb->path, color);
+
+        char *home = getenv("HOME");
+        if (home && strncmp(bb->path, home, strlen(home)) == 0) {
+            fputs("~", tty_out);
+            fputs_escaped(tty_out, bb->path + strlen(home), color);
+        } else {
+            fputs_escaped(tty_out, bb->path, color);
+        }
         fputs(" \033[K\033[0m", tty_out);
 
         static const char *help = "Press '?' to see key bindings ";
@@ -1096,6 +1106,18 @@ void set_sort(bb_t *bb, const char *sort)
     size_t len = MIN(MAX_SORT, strlen(sort));
     memmove(bb->sort + len, bb->sort, MAX_SORT+1 - len);
     memmove(bb->sort, sortbuf, len);
+}
+
+/*
+ * Set the xwindow title property to: bb - current path
+ */
+void set_title(bb_t *bb)
+{
+    char *home = getenv("HOME");
+    if (home && strncmp(bb->path, home, strlen(home)) == 0)
+        fprintf(tty_out, "\033]2;bb: ~%s\007", bb->path + strlen(home));
+    else
+        fprintf(tty_out, "\033]2;bb: %s\007", bb->path);
 }
 
 /*
