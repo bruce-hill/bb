@@ -70,6 +70,7 @@ install: $(NAME)
 	mkdir -pv -m 755 "$$prefix/share/man/man1" "$$prefix/bin" "$$sysconfdir/xdg/bb" \
 	&& cp -v bbstartup.sh bindings.bb "$$sysconfdir/xdg/bb/" \
 	&& cp -v $(NAME).1 "$$prefix/share/man/man1/" \
+	&& rm -f "$$prefix/bin/$(NAME)" \
 	&& cp -v $(NAME) "$$prefix/bin/"
 
 uninstall:
