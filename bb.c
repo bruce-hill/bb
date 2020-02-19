@@ -397,6 +397,7 @@ int populate_files(bb_t *bb, const char *path)
 {
     int samedir = path && strcmp(bb->path, path) == 0;
     int old_scroll = bb->scroll;
+    int old_cursor = bb->cursor;
     char old_selected[PATH_MAX] = "";
     if (samedir && bb->nfiles > 0) strcpy(old_selected, bb->files[bb->cursor]->fullname);
 
@@ -491,6 +492,7 @@ int populate_files(bb_t *bb, const char *path)
     sort_files(bb);
     if (samedir) {
         set_scroll(bb, old_scroll);
+        bb->cursor = old_cursor > bb->nfiles-1 ? bb->nfiles-1 : old_cursor;
         if (old_selected[0]) {
             entry_t *e = load_entry(bb, old_selected);
             if (e) set_cursor(bb, e->index);
@@ -827,8 +829,8 @@ void render(bb_t *bb)
         for (int col = 0; bb->columns[col]; col++) {
             fprintf(tty_out, "\033[%d;%dH\033[K", y+1, x+1);
             if (col > 0) {
-                if (i == bb->cursor) fputs("│", tty_out);
-                else fputs("\033[37;2m│\033[22m", tty_out);
+                if (i == bb->cursor) fputs("┃", tty_out);
+                else fputs("\033[37;2m┃\033[22m", tty_out);
                 fputs(i == bb->cursor ? CURSOR_COLOR : "\033[0m", tty_out);
                 x += 1;
             }
