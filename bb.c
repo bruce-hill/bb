@@ -783,7 +783,7 @@ void render(bb_t *bb)
             if (!title) title = "";
             move_cursor(tty_out, x, 1);
             if (col > 0) {
-                fputs("│\033[K", tty_out);
+                fputs("┃\033[K", tty_out);
                 x += 1;
             }
             const char *indicator = " ";
