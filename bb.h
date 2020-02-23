@@ -7,6 +7,7 @@
  */
 #include <dirent.h>
 #include <fcntl.h>
+#include <glob.h>
 #include <limits.h>
 #include <signal.h>
 #include <stdio.h>
@@ -25,12 +26,13 @@
 #include "bterm.h"
 
 // Macros:
-#define BB_VERSION "0.21.2"
+#define BB_VERSION "0.22.0"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
 
+#define BB_TIME_FMT " %I:%M%p %D "
 #define MAX_COLS 12
 #define MAX_SORT (2*MAX_COLS)
 #define HASH_SIZE 1024
@@ -142,11 +144,9 @@ typedef struct bb_s {
     int nfiles, nselected;
     int scroll, cursor;
 
+    char *globpats;
     char sort[MAX_SORT+1];
     char columns[MAX_COLS+1];
-    unsigned int show_dotdot : 1;
-    unsigned int show_dot : 1;
-    unsigned int show_dotfiles : 1;
     unsigned int interleave_dirs : 1;
     unsigned int should_quit : 1;
 } bb_t;
@@ -182,9 +182,9 @@ static binding_t bindings[MAX_BINDINGS];
 // Column widths and titles:
 static const column_t columns[] = {
     ['*'] = {2,  "*"},
-    ['a'] = {21, "      Accessed"},
-    ['c'] = {21, "      Created"},
-    ['m'] = {21, "      Modified"},
+    ['a'] = {18, "      Accessed"},
+    ['c'] = {18, "      Created"},
+    ['m'] = {18, "      Modified"},
     ['n'] = {40, "Name"},
     ['p'] = {5,  "Permissions"},
     ['r'] = {2,  "Random"},
@@ -217,6 +217,7 @@ static void render(bb_t *bb);
 static void restore_term(const struct termios *term);
 static int run_script(bb_t *bb, const char *cmd);
 static void set_cursor(bb_t *bb, int i);
+static void set_globs(bb_t *bb, const char *globs);
 static void set_selected(bb_t *bb, entry_t *e, int selected);
 static void set_scroll(bb_t *bb, int i);
 static void set_sort(bb_t *bb, const char *sort);
@@ -330,8 +331,6 @@ PICK ";\n"
 ;
 
 static const char *runstartup = 
-"[ ! \"$XDG_CONFIG_HOME\" ] && XDG_CONFIG_HOME=~/.config;\n"
-"[ ! \"$sysconfdir\" ] && sysconfdir=/etc;\n"
 "for path in \"$XDG_CONFIG_HOME/bb\" \"$sysconfdir/xdg/bb\" .; do\n"
 "    if [ -e \"$path/bbstartup.sh\" ]; then\n"
 "        . \"$path/bbstartup.sh\";\n"

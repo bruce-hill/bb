@@ -81,7 +81,6 @@ uninstall:
 	fi; \
 	[ ! "$$prefix" ] && prefix="/usr/local"; \
 	[ ! "$$sysconfdir" ] && sysconfdir=/etc; \
-	[ ! "$$XDG_CONFIG_HOME" ] && XDG_CONFIG_HOME=~/.config; \
 	echo "Deleting..."; \
 	rm -rvf "$$prefix/bin/$(NAME)" "$$prefix/share/man/man1/$(NAME).1" "$$sysconfdir/xdg/bb"; \
 	printf "\033[1mIf you created any config files in ~/.config/bb, you may want to delete them manually.\033[0m"

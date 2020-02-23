@@ -460,27 +460,21 @@ int populate_files(bb_t *bb, const char *path)
             bb->files[bb->nfiles++] = e;
         }
     } else {
-        DIR *dir = opendir(bb->path);
-        if (!dir)
-            err("Couldn't open dir: %s", bb->path);
-
-        for (struct dirent *dp; (dp = readdir(dir)) != NULL; ) {
-            if (dp->d_name[0] == '.') {
-                if (dp->d_name[1] == '.' && dp->d_name[2] == '\0') {
-                    if (!bb->show_dotdot || strcmp(bb->path, "/") == 0) continue;
-                } else if (dp->d_name[1] == '\0') {
-                    if (!bb->show_dot) continue;
-                } else if (!bb->show_dotfiles) continue;
-            }
+        glob_t globbuf = {0};
+        char *pat, *tmpglob = memcheck(strdup(bb->globpats));
+        while ((pat = strsep(&tmpglob, " ")) != NULL)
+            glob(pat, GLOB_NOSORT|GLOB_APPEND, NULL, &globbuf);
+        free(tmpglob);
+        for (size_t i = 0; i < globbuf.gl_pathc; i++) {
             if ((size_t)bb->nfiles + 1 > space)
                 bb->files = memcheck(realloc(bb->files, (space += 100)*sizeof(void*)));
             // Don't normalize path so we can get "." and ".."
-            entry_t *entry = load_entry(bb, dp->d_name);
-            if (!entry) err("Failed to load entry: '%s'", dp->d_name);
+            entry_t *entry = load_entry(bb, globbuf.gl_pathv[i]);
+            if (!entry) err("Failed to load entry: '%s'", globbuf.gl_pathv[i]);
             entry->index = bb->nfiles;
             bb->files[bb->nfiles++] = entry;
         }
-        closedir(dir);
+        globfree(&globbuf);
     }
 
     for (int i = 0; i < bb->nfiles; i++) {
@@ -551,10 +545,10 @@ void run_bbcmd(bb_t *bb, const char *cmd)
     if (value) ++value;
 #define set_bool(target) do { if (!value) { target = !target; } else { target = value[0] == '1'; } } while (0)
     if (matches_cmd(cmd, ".")) { // +.
-        set_bool(bb->show_dot);
+        set_globs(bb, ". *");
         populate_files(bb, bb->path);
     } else if (matches_cmd(cmd, "..")) { // +..
-        set_bool(bb->show_dotdot);
+        set_globs(bb, ".. *");
         populate_files(bb, bb->path);
     } else if (matches_cmd(cmd, "bind:")) { // +bind:<keys>:<script>
         char *value_copy = memcheck(strdup(value));
@@ -619,8 +613,12 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         while (bb->selected)
             set_selected(bb, bb->selected, 0);
     } else if (matches_cmd(cmd, "dotfiles:") || matches_cmd(cmd, "dotfiles")) { // +dotfiles:
-        set_bool(bb->show_dotfiles);
-        setenv("BBDOTFILES", bb->show_dotfiles ? "1" : "", 1);
+        int dotfiles = strstr(bb->globpats, ".*") != NULL;
+        set_bool(dotfiles);
+        if (dotfiles)
+            set_globs(bb, ".* *");
+        else
+            set_globs(bb, "*");
         populate_files(bb, bb->path);
     } else if (matches_cmd(cmd, "fg:") || matches_cmd(cmd, "fg")) { // +fg:
         int nprocs = 0;
@@ -643,6 +641,9 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         init_term();
         set_title(bb);
         dirty = 1;
+    } else if (matches_cmd(cmd, "glob:")) { // +glob:
+        set_globs(bb, value[0] ? value : "*");
+        populate_files(bb, bb->path);
     } else if (matches_cmd(cmd, "goto:")) { // +goto:
         entry_t *e = load_entry(bb, value);
         if (!e) {
@@ -765,6 +766,7 @@ void render(bb_t *bb)
         } else {
             fputs_escaped(tty_out, bb->path, color);
         }
+        fprintf(tty_out, "\033[0;2m[%s]", bb->globpats);
         fputs(" \033[K\033[0m", tty_out);
 
         static const char *help = "Press '?' to see key bindings ";
@@ -862,17 +864,17 @@ void render(bb_t *bb)
                 }
 
                 case COL_MTIME:
-                    strftime(buf, sizeof(buf), " %I:%M%p %b %e %Y ", localtime(&(entry->info.st_mtime)));
+                    strftime(buf, sizeof(buf), BB_TIME_FMT, localtime(&(entry->info.st_mtime)));
                     fputs(buf, tty_out);
                     break;
 
                 case COL_CTIME:
-                    strftime(buf, sizeof(buf), " %I:%M%p %b %e %Y ", localtime(&(entry->info.st_ctime)));
+                    strftime(buf, sizeof(buf), BB_TIME_FMT, localtime(&(entry->info.st_ctime)));
                     fputs(buf, tty_out);
                     break;
 
                 case COL_ATIME:
-                    strftime(buf, sizeof(buf), " %I:%M%p %b %e %Y ", localtime(&(entry->info.st_atime)));
+                    strftime(buf, sizeof(buf), BB_TIME_FMT, localtime(&(entry->info.st_atime)));
                     fputs(buf, tty_out);
                     break;
 
@@ -1067,6 +1069,17 @@ void set_scroll(bb_t *bb, int newscroll)
     bb->cursor += delta;
     if (bb->cursor > bb->nfiles - 1) bb->cursor = bb->nfiles - 1;
     if (bb->cursor < 0) bb->cursor = 0;
+}
+
+
+/*
+ * Set the glob pattern(s) used by bb. Patterns are ' ' delimited
+ */
+void set_globs(bb_t *bb, const char *globs)
+{
+    free(bb->globpats);
+    bb->globpats = memcheck(strdup(globs));
+    setenv("BBGLOBS", bb->globpats, 1);
 }
 
 /*
@@ -1321,8 +1334,9 @@ int main(int argc, char *argv[])
 
     bb_t bb = {
         .columns = "*smpn",
-        .sort = "+n"
+        .sort = "+n",
     };
+    set_globs(&bb, "*");
     init_term();
     bb_browse(&bb, full_initial_path);
     fputs(T_LEAVE_BBMODE, tty_out);
@@ -1335,6 +1349,18 @@ int main(int argc, char *argv[])
         }
         fflush(stdout);
     }
+
+    {
+        char path[PATH_MAX + strlen("/bb/state.sh")];
+        sprintf(path, "%s/bb/state.sh", xdg_data_home);
+        FILE *f = fopen(path, "w");
+        fprintf(f, "bbcmd glob:'%s'\n", bb.globpats);
+        fprintf(f, "bbcmd sort:'%s'\n", bb.sort);
+        fprintf(f, "bbcmd columns:'%s'\n", bb.columns);
+        if (bb.interleave_dirs) fprintf(f, "bbcmd interleave\n");
+        fclose(f);
+    }
+
     if (print_dir)
         printf("%s\n", bb.path);
 
@@ -1342,6 +1368,7 @@ int main(int argc, char *argv[])
     populate_files(&bb, NULL);
     while (bb.selected)
         set_selected(&bb, bb.selected, 0);
+    free(bb.globpats);
     return 0;
 }
 

@@ -23,14 +23,14 @@ l,Right: # Enter directory
     if [ -d "$BBCURSOR" ]; then bbcmd cd:"$BBCURSOR"; fi
 Ctrl-f: # Search for file
     file="$(
-        if [ $BBDOTFILES ]; then find -mindepth 1 -printf '%P\0';
-        else find -mindepth 1 ! -path '*/.*' -printf '%P\0';
-        fi | pick "Find: "
+        find $BBGLOBS -mindepth 1 -printf '%P\0' | pick "Find: "
     )" && bbcmd goto:"$file"
 /: # Pick a file
-    file="$(find -mindepth 1 -maxdepth 1 -printf '%P\0' | pick "Pick: ")" || exit
-    expr "$file" : "\..*" >/dev/null && ! [ "$BBDOTFILES" ] && bbcmd dotfiles
+    file="$(printf "%s\0" $BBGLOBS | pick "Pick: ")" || exit
     bbcmd goto:"$file"
+*: # Set the glob
+    ask BBGLOBS "Show files matching: "
+    bbcmd glob:"$BBGLOBS"
 Ctrl-g: # Go to directory
     ask goto "Go to directory: " && bbcmd cd:"$goto"
 m: # Mark this directory
