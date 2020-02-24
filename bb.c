@@ -213,6 +213,7 @@ void handle_next_key_binding(bb_t *bb)
     if (mouse_x != -1 && mouse_y != -1) {
         // Get bb column:
         for (int col = 0, x = 0; bb->columns[col]; col++, x++) {
+            if (!columns[(int)bb->columns[col]].name) continue;
             x += (int)strlen(columns[(int)bb->columns[col]].name);
             if (x >= mouse_x) {
                 bbmousecol[0] = bb->columns[col];
@@ -732,6 +733,7 @@ void render(bb_t *bb)
     int space = winsize.ws_col - 1, nstretchy = 0;
     for (int c = 0; bb->columns[c]; c++) {
         column_t col = columns[(int)bb->columns[c]];
+        if (!col.name) continue;
         if (col.stretchy) {
             ++nstretchy;
         } else {
@@ -769,21 +771,23 @@ void render(bb_t *bb)
         move_cursor(tty_out, 0, 1);
         fputs("\033[0;44;30m\033[K", tty_out);
         int x = 0;
-        for (int col = 0; bb->columns[col]; col++) {
-            const char *title = columns[(int)bb->columns[col]].name;
+        for (int c = 0; bb->columns[c]; c++) {
+            column_t col = columns[(int)bb->columns[c]];
+            if (!col.name) continue;
+            const char *title = col.name;
             if (!title) title = "";
             move_cursor(tty_out, x, 1);
-            if (col > 0) {
+            if (c > 0) {
                 fputs("┃\033[K", tty_out);
                 x += 1;
             }
             const char *indicator = " ";
-            if (bb->columns[col] == bb->sort[1])
+            if (bb->columns[c] == bb->sort[1])
                 indicator = bb->sort[0] == '-' ? RSORT_INDICATOR : SORT_INDICATOR;
             move_cursor(tty_out, x, 1);
             fputs(indicator, tty_out);
             fputs(title, tty_out);
-            x += colwidths[col];
+            x += colwidths[c];
         }
         fputs(" \033[K\033[0m", tty_out);
     }
@@ -821,7 +825,7 @@ void render(bb_t *bb)
         int x = 0;
         for (int c = 0; bb->columns[c]; c++) {
             column_t col = columns[(int)bb->columns[c]];
-            if (col.name == NULL) continue;
+            if (!col.name) continue;
             move_cursor(tty_out, x, y);
             fputs(color, tty_out);
             if (c > 0) {
