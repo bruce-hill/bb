@@ -176,6 +176,8 @@ typedef struct proc_s {
 
 static binding_t bindings[MAX_BINDINGS];
 
+#include "columns.h"
+
 // Functions
 void bb_browse(bb_t *bb, const char *initial_path);
 static void check_cmdfile(bb_t *bb);
@@ -321,7 +323,5 @@ static const char *runstartup =
 "        break;\n"
 "    fi;\n"
 "done\n";
-
-#include "columns.h"
 
 // vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1
