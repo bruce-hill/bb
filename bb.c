@@ -896,8 +896,6 @@ int run_script(bb_t *bb, const char *cmd)
     proc_t *proc = memcheck(calloc(1, sizeof(proc_t)));
     signal(SIGTTOU, SIG_IGN);
     if ((proc->pid = fork()) == 0) {
-        fclose(tty_out); tty_out = NULL;
-        fclose(tty_in); tty_in = NULL;
         pid_t pgrp = getpid();
         (void)setpgid(0, pgrp);
         if (tcsetpgrp(STDIN_FILENO, pgrp))
@@ -916,11 +914,8 @@ int run_script(bb_t *bb, const char *cmd)
 
         setenv("BBCURSOR", bb->nfiles ? bb->files[bb->cursor]->fullname : "", 1);
 
-        int ttyout, ttyin;
-        ttyout = open("/dev/tty", O_RDWR);
-        ttyin = open("/dev/tty", O_RDONLY);
-        dup2(ttyout, STDOUT_FILENO);
-        dup2(ttyin, STDIN_FILENO);
+        dup2(fileno(tty_out), STDOUT_FILENO);
+        dup2(fileno(tty_in), STDIN_FILENO);
         execvp(args[0], args);
         err("Failed to execute command: '%s'", cmd);
         return -1;
