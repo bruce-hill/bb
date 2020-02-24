@@ -113,7 +113,9 @@ void col_ctime(bb_t *bb, entry_t *entry, char *buf, int width) {
 
 void col_selected(bb_t *bb, entry_t *entry, char *buf, int width) {
     (void)bb; (void)width;
-    strcpy(buf, IS_SELECTED(entry) ? SELECTED_INDICATOR : NOT_SELECTED_INDICATOR);
+    buf = stpcpy(buf, IS_SELECTED(entry) ? SELECTED_INDICATOR : NOT_SELECTED_INDICATOR);
+    buf = stpcpy(buf, entry == bb->files[bb->cursor] ?
+                 CURSOR_COLOR : color_of(entry->info.st_mode));
 }
 
 void col_perm(bb_t *bb, entry_t *entry, char *buf, int width) {
