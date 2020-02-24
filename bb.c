@@ -85,18 +85,6 @@ void cleanup(void)
 }
 
 /*
- * Returns the color of a file listing, given its mode.
- */
-const char* color_of(mode_t mode)
-{
-    if (S_ISDIR(mode)) return DIR_COLOR;
-    else if (S_ISLNK(mode)) return LINK_COLOR;
-    else if (mode & (S_IXUSR | S_IXGRP | S_IXOTH))
-        return EXECUTABLE_COLOR;
-    else return NORMAL_COLOR;
-}
-
-/*
  * Used for sorting, this function compares files according to the sorting-related options,
  * like bb->sort
  */
@@ -213,7 +201,7 @@ void handle_next_key_binding(bb_t *bb)
     if (mouse_x != -1 && mouse_y != -1) {
         // Get bb column:
         for (int col = 0, x = 0; bb->columns[col]; col++, x++) {
-            x += columns[(int)bb->columns[col]].width;
+            x += (int)strlen(columns[(int)bb->columns[col]].name);
             if (x >= mouse_x) {
                 bbmousecol[0] = bb->columns[col];
                 break;
@@ -735,7 +723,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
 void render(bb_t *bb)
 {
     static int lastcursor = -1, lastscroll = -1;
-    char buf[64];
+    char buf[PATH_MAX * 2];
 
     if (!dirty) {
         // Use terminal scrolling:
@@ -785,7 +773,7 @@ void render(bb_t *bb)
             move_cursor(tty_out, x, 1);
             fputs(indicator, tty_out);
             fputs(title, tty_out);
-            x += columns[(int)bb->columns[col]].width;
+            x += (int)strlen(title) + 1;
         }
         fputs(" \033[K\033[0m", tty_out);
     }
@@ -819,97 +807,24 @@ void render(bb_t *bb)
         entry_t *entry = files[i];
         if (i == bb->cursor) fputs(CURSOR_COLOR, tty_out);
 
-        int use_fullname =  strcmp(bb->path, "<selection>") == 0;
         int x = 0;
-        for (int col = 0; bb->columns[col]; col++) {
+        for (int c = 0; bb->columns[c]; c++) {
+            column_t col = columns[(int)bb->columns[c]];
+            memset(buf, 0, sizeof(buf));
+            col.render(bb, entry, buf, strlen(col.name)+1);
+
             fprintf(tty_out, "\033[%d;%dH\033[K", y+1, x+1);
-            if (col > 0) {
+            if (col.name == NULL) continue;
+            if (c > 0) {
                 if (i == bb->cursor) fputs("┃", tty_out);
                 else fputs("\033[37;2m┃\033[22m", tty_out);
                 fputs(i == bb->cursor ? CURSOR_COLOR : "\033[0m", tty_out);
                 x += 1;
             }
             move_cursor(tty_out, x, y);
-            switch (bb->columns[col]) {
-                case COL_SELECTED:
-                    fputs(IS_SELECTED(entry) ? SELECTED_INDICATOR : NOT_SELECTED_INDICATOR, tty_out);
-                    fputs(i == bb->cursor ? CURSOR_COLOR : "\033[0m", tty_out);
-                    break;
-
-                case COL_RANDOM: {
-                    double k = (double)entry->shufflepos/(double)bb->nfiles;
-                    int color = (int)(k*232 + (1.-k)*255);
-                    fprintf(tty_out, "\033[48;5;%dm  \033[0m%s", color,
-                            i == bb->cursor ? CURSOR_COLOR : "\033[0m");
-                    break;
-                }
-
-                case COL_SIZE: {
-                    int j = 0;
-                    const char* units = "BKMGTPEZY";
-                    double bytes = (double)entry->info.st_size;
-                    while (bytes > 1024) {
-                        bytes /= 1024;
-                        j++;
-                    }
-                    fprintf(tty_out, " %6.*f%c ", j > 0 ? 1 : 0, bytes, units[j]);
-                    break;
-                }
-
-                case COL_MTIME:
-                    strftime(buf, sizeof(buf), BB_TIME_FMT, localtime(&(entry->info.st_mtime)));
-                    fputs(buf, tty_out);
-                    break;
-
-                case COL_CTIME:
-                    strftime(buf, sizeof(buf), BB_TIME_FMT, localtime(&(entry->info.st_ctime)));
-                    fputs(buf, tty_out);
-                    break;
-
-                case COL_ATIME:
-                    strftime(buf, sizeof(buf), BB_TIME_FMT, localtime(&(entry->info.st_atime)));
-                    fputs(buf, tty_out);
-                    break;
-
-                case COL_PERM:
-                    fprintf(tty_out, " %03o", entry->info.st_mode & 0777);
-                    break;
-
-                case COL_NAME: {
-                    char color[128];
-                    strcpy(color, color_of(entry->info.st_mode));
-                    if (i == bb->cursor) strcat(color, CURSOR_COLOR);
-                    fputs(color, tty_out);
-
-                    char *name = use_fullname ? entry->fullname : entry->name;
-                    if (entry->no_esc) fputs(name, tty_out);
-                    else entry->no_esc |= !fputs_escaped(tty_out, name, color);
-
-                    if (E_ISDIR(entry)) fputs("/", tty_out);
-
-                    if (entry->linkname) {
-                        if (i != bb->cursor)
-                            fputs("\033[37m", tty_out);
-                        fputs("\033[2m -> \033[3m", tty_out);
-                        strcpy(color, color_of(entry->linkedmode));
-                        if (i == bb->cursor) strcat(color, CURSOR_COLOR);
-                        strcat(color, "\033[3;2m");
-                        fputs(color, tty_out);
-                        if (entry->link_no_esc) fputs(entry->linkname, tty_out);
-                        else entry->link_no_esc |= !fputs_escaped(tty_out, entry->linkname, color);
-
-                        if (S_ISDIR(entry->linkedmode))
-                            fputs("/", tty_out);
-
-                        fputs("\033[22;23m", tty_out);
-                    }
-                    fputs(i == bb->cursor ? CURSOR_COLOR : "\033[0m", tty_out);
-                    fputs("\033[K", tty_out);
-                    break;
-                }
-                default: break;
-            }
-            x += columns[(int)bb->columns[col]].width;
+            fputs(buf, tty_out);
+            fputs("\033[K", tty_out);
+            x += (int)strlen(col.name) + 1;
         }
         fputs(" \033[K\033[0m", tty_out); // Reset color and attributes
     }

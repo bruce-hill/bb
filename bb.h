@@ -97,11 +97,6 @@ typedef struct {
     char *description;
 } binding_t;
 
-typedef struct {
-    int width;
-    const char *name;
-} column_t;
-
 typedef enum {
     COL_NONE = 0,
     COL_NAME = 'n',
@@ -181,24 +176,11 @@ typedef struct proc_s {
 
 static binding_t bindings[MAX_BINDINGS];
 
-// Column widths and titles:
-static const column_t columns[] = {
-    ['*'] = {2,  "*"},
-    ['a'] = {18, "      Accessed"},
-    ['c'] = {18, "      Created"},
-    ['m'] = {18, "      Modified"},
-    ['n'] = {40, "Name"},
-    ['p'] = {5,  "Permissions"},
-    ['r'] = {2,  "Random"},
-    ['s'] = {9,  "  Size"},
-};
-
 // Functions
 void bb_browse(bb_t *bb, const char *initial_path);
 static void check_cmdfile(bb_t *bb);
 static void cleanup(void);
 static void cleanup_and_raise(int sig);
-static const char* color_of(mode_t mode);
 #ifdef __APPLE__
 static int compare_files(void *v, const void *v1, const void *v2);
 #else
@@ -339,5 +321,7 @@ static const char *runstartup =
 "        break;\n"
 "    fi;\n"
 "done\n";
+
+#include "columns.h"
 
 // vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1
