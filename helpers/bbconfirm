@@ -1,0 +1,9 @@
+#!/bin/sh
+# Ask for user confirmation
+set -e
+if command -v ask >/dev/null; then
+    ask -n "$(printf "$1Is that okay?\033[?25h")"
+else
+    reply="$(bbask -1 "$(printf "$1\033[0;1mIs that okay? [y/N] ")")"
+    [ "$reply" != 'y' ]
+fi

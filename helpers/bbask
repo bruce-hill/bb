@@ -1,0 +1,31 @@
+#!/bin/sh
+# A simple user-input asker. Result is output to stdout.
+#    Usage: ask [-1] [prompt [initial query]]
+if [ "$1" = '-1' ]; then
+    # Get one character of input
+    tput civis >/dev/tty;
+    printf '\033[1m%s\033[0m' "$2" >/dev/tty;
+    stty -icanon -echo >/dev/tty 2>/dev/tty;
+    if [ "$(uname)" = "Darwin" ]; then
+        read -n 1 REPLY </dev/tty >/dev/tty;
+        echo $REPLY
+    else
+        dd bs=1 count=1 2>/dev/null </dev/tty
+    fi
+    stty icanon echo >/dev/tty 2>/dev/tty
+    tput cvvis >/dev/tty
+else
+    # Get a line of input
+    if command -v ask >/dev/null; then
+        ask --history=bb.hist --prompt="$(printf '%s\033[?25h' "$1")" --query="$2"
+    else
+        printf "\033[1m%s\033[0m" "$1" >/dev/tty
+        tput cvvis >/dev/tty
+        if [ "$(uname)" = "Darwin" ]; then
+            read -e REPLY </dev/tty >/dev/tty
+        else
+            read REPLY </dev/tty >/dev/tty
+        fi
+        echo $REPLY
+    fi
+fi

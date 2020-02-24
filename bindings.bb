@@ -23,23 +23,22 @@ l,Right: # Enter directory
     if [ -d "$BBCURSOR" ]; then bbcmd cd:"$BBCURSOR"; fi
 Ctrl-f: # Search for file
     file="$(
-        find $BBGLOB -mindepth 1 -printf '%P\0' | pick "Find: "
+        find $BBGLOB -mindepth 1 -printf '%P\0' | bbpick "Find: "
     )" && bbcmd goto:"$file"
 /: # Pick a file
-    file="$(printf "%s\0" $BBGLOB | pick "Pick: ")" || exit
+    file="$(printf "%s\0" $BBGLOB | bbpick "Pick: ")" || exit
     bbcmd goto:"$file"
 *: # Set the glob
-    ask BBGLOB "Show files matching: "
-    bbcmd glob:"$BBGLOB"
+    glob="$(bbask "Show files matching: ")" && bbcmd glob:"$glob"
 Ctrl-g: # Go to directory
-    ask goto "Go to directory: " && bbcmd cd:"$goto"
+    cd="$(bbask "Go to directory: ")" && bbcmd cd:"$cd"
 m: # Mark this directory
     mkdir -p "$XDG_CONFIG_HOME/bb/marks"
     ln -sT "$2" "$XDG_CONFIG_HOME/bb/marks/$1" 2>/dev/null
-    ask mark "Mark: " && ln -s "$PWD" "$XDG_CONFIG_HOME"/bb/marks/"$mark"
+    mark="$(bbask "Mark: ") && ln -s "$PWD" "$XDG_CONFIG_HOME"/bb/marks/"$mark"
 ': # Go to a marked directory
     [ -d "$XDG_CONFIG_HOME"/bb/marks ] || exit
-    mark="$(find "$XDG_CONFIG_HOME"/bb/marks/ -mindepth 1 -type l -printf '%P\0' | pick "Jump to: ")" &&
+    mark="$(find "$XDG_CONFIG_HOME"/bb/marks/ -mindepth 1 -type l -printf '%P\0' | bbpick "Jump to: ")" &&
         bbcmd cd:"$(readlink -f "$XDG_CONFIG_HOME"/bb/marks/"$mark")"
 -,Backspace: # Go to previous directory
     [ "$BBPREVPATH" ] && bbcmd cd:"$BBPREVPATH"
@@ -70,18 +69,18 @@ v,V,Space: # Toggle selection at cursor
 Escape: # Clear selection
     bbcmd deselect
 S: # Select pattern
-    ask patt "Select: " && bbcmd select: $patt
+    patt="$(bbask "Select: ")" && bbcmd select: $patt
 U: # Unselect pattern
-    ask patt "Unselect: " && eval bbcmd deselect: "$patt"
+    patt="$(bbask "Unselect: ")" && bbcmd deselect: $patt
 Ctrl-s: # Save the selection
-    [ $# -gt 0 ] && ask savename "Save selection as: " || exit 1
+    [ $# -gt 0 ] && savename="$(bbask "Save selection as: ")" || exit 1
     mkdir -p "$XDG_DATA_HOME"/bb
     if ! expr "$savename" : ".*\.sel" >/dev/null; then savename="$savename.sel"; fi
     printf '%s\0' "$@" > "$XDG_DATA_HOME"/bb/"$savename"
 Ctrl-o: # Open a saved selection
     [ -d "$XDG_DATA_HOME"/bb ] || exit
-    [ $# -gt 0 ] && ! confirm "The current selection will be discarded. " && exit 1
-    loadpath="$(find "$XDG_DATA_HOME"/bb/ -mindepth 1 -name '*.sel' -printf '%P\0' | pick "Load selection: ")" &&
+    [ $# -gt 0 ] && ! bbconfirm "The current selection will be discarded. " && exit 1
+    loadpath="$(find "$XDG_DATA_HOME"/bb/ -mindepth 1 -name '*.sel' -printf '%P\0' | bbpick "Load selection: ")" &&
         cat "$XDG_DATA_HOME"/bb/"$loadpath" | bbcmd deselect select:
 J: # Spread selection down
     bbcmd spread:+1
@@ -113,77 +112,79 @@ Enter,Double left click: # Open file/directory
         else xdg-open "$BBCURSOR"; fi
     fi
 e: # Edit file in $EDITOR
-    $EDITOR "$BBCURSOR" || pause
-d,Delete: # Delete a file
-    printf "\033[1mDeleting \033[33m$BBCURSOR\033[0;1m...\033[0m " && confirm &&
-        rm -rf "$BBCURSOR" && bbcmd deselect:"$BBCURSOR" refresh
-D: # Delete all selected files
-    [ $# -gt 0 ] && printf "\033[1mDeleting the following:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | unscroll | more &&
-        confirm && rm -rf "$@" && bbcmd deselect refresh
+    $EDITOR "$BBCURSOR" || bbpause
+d,Delete: # Delete
+    case "$(bbtargets "$BBCURSOR" "$@")" in
+        cursor) set -- "$BBCURSOR" ;;
+        both) set -- "$BBCURSOR" "$@" ;;
+    esac
+    printf "\033[1mDeleting the following:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | bbunscroll | more &&
+        bbconfirm && rm -rf "$@" && bbcmd deselect refresh
 Ctrl-v: # Move files here
-    printf "\033[1mMoving the following to here:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | unscroll | more &&
-        confirm && printf "\033[1G\033[KMoving..." && mv -i "$@" . && printf "done." &&
+    printf "\033[1mMoving the following to here:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | bbunscroll | more &&
+        bbconfirm && printf "\033[1G\033[KMoving..." && mv -i "$@" . && printf "done." &&
         bbcmd deselect refresh && for f; do bbcmd sel:"$(basename "$f")"; done
 c: # Copy a file
-    printf "\033[1mCreating copy of \033[33m$BBCURSOR\033[0;1m...\033[0m " &&
-        confirm && cp -ri "$BBCURSOR" "$BBCURSOR.copy" && bbcmd refresh
-C: # Copy all selected files here
-    [ $# -gt 0 ] && printf "\033[1mCopying the following to here:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | unscroll | more &&
-        confirm && printf "\033[1G\033[KCopying..." &&
+    case "$(bbtargets "$BBCURSOR" "$@")" in
+        cursor) set -- "$BBCURSOR";;
+        both) set -- "$BBCURSOR" "$@";;
+    esac
+    [ $# -gt 0 ] || exit
+    printf "\033[1mCopying the following to here:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | bbunscroll | more
+    bbconfirm && printf "\033[1G\033[KCopying..." &&
         for f; do if [ "./$(basename "$f")" -ef "$f" ]; then
             cp -ri "$f" "$f.copy" || break;
         else cp -ri "$f" . || break; fi; done; printf 'done.' && bbcmd refresh
 Ctrl-n: # New file/directory
-    case "$(printf '%s\0' File Directory | pick "Create new: ")" in
+    case "$(printf '%s\0' File Directory | bbpick "Create new: ")" in
         File)
-            ask name "New File: " || exit
-            touch -- "$name"
+            name="$(bbask "New File: ")" && touch -- "$name"
             ;;
         Directory)
-            ask name "New Directory: " || exit
-            mkdir -- "$name"
+            name="$(bbask "New Directory: ")" && mkdir -- "$name"
             ;;
         *) exit
             ;;
-    esac && bbcmd goto:"$name" refresh || pause
+    esac && bbcmd goto:"$name" refresh || bbpause
 p: # Page through a file with `less`
     less -XK "$BBCURSOR"
-r,F2: # Rename a file
-    ask newname "Rename $(printf "\033[33m%s\033[39m" "$(basename "$BBCURSOR")"): " "$(basename "$BBCURSOR")" || exit
-    r="$(dirname "$BBCURSOR")/$newname" || exit
-    [ "$r" = "$BBCURSOR" ] && exit
-    [ -e "$r" ] && printf "\033[31;1m$r already exists! It will be overwritten.\033[0m " &&
-        confirm && { rm -rf "$r" || { pause; exit; }; }
-    mv "$BBCURSOR" "$r" && bbcmd refresh &&
-        while [ $# -gt 0 ]; do  "$1" = "$BBCURSOR"  && bbcmd deselect:"$BBCURSOR" select:"$r"; shift; done &&
-        bbcmd goto:"$r" || { pause; exit; }
-R: # Rename all selected files
+r,F2: # Rename files
+    case "$(bbtargets "$BBCURSOR" "$@")" in
+        cursor) set -- "$BBCURSOR";;
+        both) set -- "$BBCURSOR" "$@";;
+    esac
     for f; do
-        ask newname "Rename $(printf "\033[33m%s\033[39m" "$(basename "$f")"): " "$(basename "$f")" || break;
+        newname="$(bbask "Rename $(printf "\033[33m%s\033[39m" "$(basename "$f")"): " "$(basename "$f")")" || break;
         r="$(dirname "$f")/$newname";
         [ "$r" = "$f" ] && continue;
         [ -e "$r" ] && printf "\033[31;1m$r already exists! It will be overwritten.\033[0m "
-            && confirm && { rm -rf "$r" || { pause; exit; }; }
-        mv "$f" "$r" || { pause; exit; }
+            && bbconfirm && { rm -rf "$r" || { bbpause; exit; }; }
+        mv "$f" "$r" || { bbpause; exit; }
         bbcmd deselect:"$f" select:"$r";
         [ "$f" = "$BBCURSOR" ] && bbcmd goto:"$r";
     done;
     bbcmd refresh
 Ctrl-r: # Regex rename files
+    case "$(bbtargets "$BBCURSOR" "$@")" in
+        cursor) set -- "$BBCURSOR";;
+        both) set -- "$BBCURSOR" "$@";;
+    esac
     command -v rename >/dev/null ||
-        { printf '\033[31;1mThe `rename` command is not installed. Please install it to use this key binding.\033[0m\n'; pause; exit; };
-    ask patt "Replace pattern: " && ask rep "Replacement: " &&
-        printf "\033[1mRenaming:\n\033[33m$(if [ $# -gt 0 ]; then rename -nv "$patt" "$rep" "$@"; else rename -nv "$patt" "$rep" *; fi)\033[0m" | unscroll | more &&
-        confirm || exit 1
+        { printf '\033[31;1mThe `rename` command is not installed. Please install it to use this key binding.\033[0m\n'; bbpause; exit; };
+    patt="$(bbask "Replace pattern: ") && rep="$(bbask "Replacement: ")" &&
+        printf "\033[1mRenaming:\n\033[33m$(if [ $# -gt 0 ]; then rename -nv "$patt" "$rep" "$@"; else rename -nv "$patt" "$rep" *; fi)\033[0m" | bbunscroll | more &&
+        bbconfirm || exit 1
     if [ $# -eq 0 ]; then set -- *; ! [ -e "$1" ] && exit; fi
     rename -i "$patt" "$rep" "$@"
     bbcmd deselect refresh
 
 Section: Shell Commands
 :: # Run a command
-    ask cmd ':' && sh -c "$BBSHELLFUNC$cmd" -- "$@"; bbcmd refresh; pause
+    cmd="$(bbask ':')" && sh -c "$cmd" -- "$@"; bbcmd refresh; bbpause
 |: # Pipe selected files to a command
-    ask cmd '|' && printf '%s\n' "$@" | sh -c "$BBSHELLFUNC$cmd"; bbcmd refresh; pause
+    cmd="$(bbask '|')" && printf '%s\n' "$@" | sh -c "$cmd"; bbcmd refresh; bbpause
+@: # Pipe selected files to a command
+    cmd="$(bbask '@')" && sh -c "$cmd \"$$@\"" -- "$@"; bbcmd refresh; bbpause
 >: # Open a shell
     tput rmcup; tput cvvis; $SHELL; bbcmd refresh
 f: # Resume suspended process
@@ -191,10 +192,10 @@ f: # Resume suspended process
 
 Section: Viewing Options
 s: # Sort by...
-    ask1 sort "Sort (n)ame (s)ize (m)odification (c)reation (a)ccess (r)andom (p)ermissions: " &&
+    sort="$(bbask -1 "Sort (n)ame (s)ize (m)odification (c)reation (a)ccess (r)andom (p)ermissions: ")" &&
         bbcmd sort:"~$sort"
 ---,#: # Set columns
-    ask columns "Set columns (*)selected (a)ccessed (c)reated (m)odified (n)ame (p)ermissions (r)andom (s)ize: " &&
+    columns="$(bbask "Set columns (*)selected (a)ccessed (c)reated (m)odified (n)ame (p)ermissions (r)andom (s)ize: ")" &&
         bbcmd col:"$columns"
 .: # Toggle dotfile visibility
     if [ "$BBGLOB" = ".* *" ]; then
@@ -207,7 +208,7 @@ i: # Toggle interleaving files and directories
 F5,Ctrl-l: # Refresh view
     bbcmd refresh
 Ctrl-b: # Bind a key to a script
-    ask1 key "Press key to bind..." && echo && ask script "Bind script: " &&
-        bbcmd bind:"$key":"{ $script; } || pause" || pause
+    key="$(bbask -1 "Press key to bind...")" && echo && script="$(bbask "Bind script: ")" &&
+        bbcmd bind:"$key":"{ $script; } || bbpause" || bbpause
 
 Section: User Bindings

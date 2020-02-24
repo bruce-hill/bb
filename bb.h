@@ -26,7 +26,7 @@
 #include "bterm.h"
 
 // Macros:
-#define BB_VERSION "0.24.0"
+#define BB_VERSION "0.25.0"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -242,80 +242,6 @@ static const struct termios default_termios = {
 
 static const char *description_str = "bb - an itty bitty console TUI file browser\n";
 static const char *usage_str = "Usage: bb (-h/--help | -v/--version | -s | -d | -0 | +command)* [[--] directory]\n";
-
-// Shell functions
-static const char *bbcmdfn = "bbcmd() {\n"
-"    if test $# -eq 0; then cat >> $BBCMD; return; fi\n"
-"    for arg; do\n"
-"        shift;\n"
-"        if expr \"$arg\" : \"^[^:]*:$\" >/dev/null; then\n"
-"            if test $# -gt 0; then printf \"$arg%s\\0\" \"$@\" >> $BBCMD;\n"
-"            else sed \"s/\\([^\\x00]\\+\\)/$arg\\1/g\" >> $BBCMD; fi;\n"
-"            return;\n"
-"        fi;\n"
-"        printf \"%s\\0\" \"$arg\" >> $BBCMD;\n"
-"    done;\n"
-"}\n"
-// This shell function overwrites the lines above the cursor instead of scrolling the screen
-"unscroll() {\n"
-"    input=\"$(cat)\"\n"
-"    printf \"\\033[$(echo \"$input\" | wc -l)A\\033[J\" >/dev/tty\n"
-"    echo \"$input\"\n"
-"}\n"
-"ask() {\n"
-#ifdef ASK
-ASK ";\n"
-#else
-"    [ $# -lt 2 ] && printf '\033[31;1mNot enough args to ask!\033[0m\n' && return 1;\n"
-"    printf \"\033[1m%s\033[0m\" \"$2\" >/dev/tty;\n"
-"    tput cvvis >/dev/tty;\n"
-#ifdef __APPLE__
-"    read -e $1 </dev/tty >/dev/tty;\n"
-#else
-"    read $1 </dev/tty >/dev/tty;\n"
-#endif
-#endif
-"}\n"
-"ask1() {\n"
-#ifdef ASK1
-ASK1 ";\n"
-#else
-"    tput civis >/dev/tty;\n"
-"    printf \"\033[1m%s\033[0m\" \"$2\" >/dev/tty;\n"
-"    stty -icanon -echo >/dev/tty 2>/dev/tty;\n"
-#ifdef __APPLE__
-"    read -n 1 $1 </dev/tty >/dev/tty;\n"
-#else
-"    eval \"$1=\\$(dd bs=1 count=1 2>/dev/null </dev/tty)\";\n"
-#endif
-"    stty icanon echo >/dev/tty 2>/dev/tty;\n"
-"    tput cvvis >/dev/tty;\n"
-#endif
-"}\n"
-"confirm() {\n"
-#ifdef CONFIRM
-CONFIRM ";\n"
-#else
-"    ask1 REPLY \"$1\033[0;1mIs that okay? [y/N] \" && [ \"$REPLY\" = 'y' ];\n"
-#endif
-"}\n"
-"pause() {\n"
-"    ask1 REPLY \"\033[0;2m Press any key to continue...\033[0m\";"
-"}\n"
-"pick() {\n"
-#ifdef PICK
-PICK ";\n"
-#else
-"    ask query \"$1\" && awk '{print length, $1}' | sort -n | cut -d' ' -f2- |\n"
-"      grep -i -m1 \"$(echo \"$query\" | sed 's;.;[^/&]*[&];g')\";\n"
-#endif
-"}\n"
-#ifdef SH
-"alias sh="SH";\n"
-#else
-#define SH "sh"
-#endif
-;
 
 static const char *runstartup = 
 "for path in \"$XDG_CONFIG_HOME/bb\" \"$sysconfdir/xdg/bb\" .; do\n"

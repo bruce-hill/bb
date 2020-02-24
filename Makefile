@@ -8,49 +8,6 @@ CWARN=-Wall -Wpedantic -Wextra -Wno-unknown-pragmas -Wno-missing-field-initializ
 #CFLAGS += -fsanitize=address -fno-omit-frame-pointer
 G=
 
-ifeq ($(shell uname),Darwin)
-	CFLAGS += -D_DARWIN_C_SOURCE
-endif
-
-ifneq (, $(SH))
-	CFLAGS += -D'SH="$(SH)"'
-endif
-
-PICKER_FLAG=
-ifeq (, $(PICKER))
-	PICKER=$(shell sh -c "(which fzf >/dev/null 2>/dev/null && echo 'fzf') || (which fzy >/dev/null 2>/dev/null && echo 'fzy') || (which pick >/dev/null 2>/dev/null && echo 'pick') || (which ask >/dev/null 2>/dev/null && echo 'ask')")
-endif
-ifneq (, $(PICKER))
-	PICKER_FLAG=-D"PICK=\"$(PICKER) --prompt=\\\"$$1\\\"\""
-	ifeq ($(shell which $(PICKER)),$(shell which fzf 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK="printf \"\\033[3A\\033[?25h\" >/dev/tty; fzf --read0 --height=4 --prompt=\"$$1\""'
-	endif
-	ifeq ($(shell which $(PICKER)),$(shell which fzy 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK="printf \"\\033[3A\\033[?25h\" >/dev/tty; tr "\\0" "\\n" | fzy --lines=3 --prompt=\"\033[1m$$1\033[0m\""'
-	endif
-	ifeq ($(shell which $(PICKER)),$(shell which ask 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK="/usr/bin/env ask --read0 --prompt=\"$$1\033[?25h\""'
-	endif
-	ifeq ($(shell which $(PICKER)),$(shell which pick 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK="printf \"\\033[?25h\" >/dev/tty; tr "\\0" "\\n" | pick"'
-	endif
-	ifeq ($(shell which $(PICKER)),$(shell which dmenu 2>/dev/null || echo '<none>'))
-		PICKER_FLAG=-D'PICK="tr "\\0" "\\n" | dmenu -i -l 10 -p \"$$1\""'
-	endif
-endif
-CFLAGS += $(PICKER_FLAG)
-
-ifneq (, $(ASKER))
-	PERCENT := %
-	ifeq ($(shell which $(ASKER)),$(shell which ask 2>/dev/null || echo '<none>'))
-		CFLAGS += -D'ASK="eval \"$$1=\\$$(/usr/bin/env ask --history=bb.hist --prompt=\\\"$$2\033[?25h\\\" --query=\\\"$$3\\\")\""'
-		CFLAGS += -D'CONFIRM="/usr/bin/env ask -n \"$$1Is that okay?\033[?25h\""'
-	endif
-	ifeq ($(shell which $(ASKER)),$(shell which dmenu 2>/dev/null || echo '<none>'))
-		CFLAGS += -D'ASK="eval \"$$1=\\$$(echo \"$$3\" | dmenu -p \"$$2\")\""'
-	endif
-endif
-
 all: $(NAME)
 
 clean:
@@ -67,8 +24,8 @@ install: $(NAME)
 	fi; \
 	[ ! "$$prefix" ] && prefix="/usr/local"; \
 	[ ! "$$sysconfdir" ] && sysconfdir=/etc; \
-	mkdir -pv -m 755 "$$prefix/share/man/man1" "$$prefix/bin" "$$sysconfdir/xdg/bb" \
-	&& cp -v bbstartup.sh bindings.bb "$$sysconfdir/xdg/bb/" \
+	mkdir -pv -m 755 "$$prefix/share/man/man1" "$$prefix/bin" "$$sysconfdir/xdg/bb" "$$sysconfdir/xdg/bb/helpers" \
+	&& cp -rv bbstartup.sh bindings.bb helpers "$$sysconfdir/xdg/bb/" \
 	&& cp -v bb.1 bbcmd.1 "$$prefix/share/man/man1/" \
 	&& rm -f "$$prefix/bin/$(NAME)" \
 	&& cp -v $(NAME) "$$prefix/bin/"
@@ -83,5 +40,5 @@ uninstall:
 	[ ! "$$sysconfdir" ] && sysconfdir=/etc; \
 	echo "Deleting..."; \
 	rm -rvf "$$prefix/bin/$(NAME)" "$$prefix/share/man/man1/bb.1" "$$prefix/share/man/man1/bbcmd.1" "$$sysconfdir/xdg/bb"; \
-	printf "\033[1mIf you created any config files in ~/.config/bb, you may want to delete them manually.\033[0m"
+	printf "\033[1mIf you created any config files in ~/.config/bb, you may want to delete them manually.\033[0m\n"
 

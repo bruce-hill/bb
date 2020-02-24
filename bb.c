@@ -904,12 +904,9 @@ int run_script(bb_t *bb, const char *cmd)
             err("Couldn't set pgrp");
         char **args = memcheck(calloc(4 + (size_t)bb->nselected + 1, sizeof(char*)));
         int i = 0;
-        args[i++] = SH;
+        args[i++] = "sh";
         args[i++] = "-c";
-        char *fullcmd = calloc(strlen(cmd) + strlen(bbcmdfn) + 1, sizeof(char));
-        strcpy(fullcmd, bbcmdfn);
-        strcat(fullcmd, cmd);
-        args[i++] = fullcmd;
+        args[i++] = (char*)cmd;
         args[i++] = "--"; // ensure files like "-i" are not interpreted as flags for sh
         // bb->selected is in most-recent order, so populate args in reverse to make sure
         // that $1 is the first selected, etc.
@@ -924,7 +921,7 @@ int run_script(bb_t *bb, const char *cmd)
         ttyin = open("/dev/tty", O_RDONLY);
         dup2(ttyout, STDOUT_FILENO);
         dup2(ttyin, STDIN_FILENO);
-        execvp(SH, args);
+        execvp(args[0], args);
         err("Failed to execute command: '%s'", cmd);
         return -1;
     }
@@ -1195,6 +1192,10 @@ int main(int argc, char *argv[])
     sprintf(xdg_data_home, "%s/.local/share", getenv("HOME"));
     setenv("XDG_DATA_HOME", xdg_data_home, 0);
     setenv("sysconfdir", "/etc", 0);
+    char *newpath;
+    if (asprintf(&newpath, "%s/xdg/bb/helpers:%s/bb/helpers:%s", getenv("sysconfdir"), getenv("XDG_CONFIG_HOME"), getenv("PATH")) < 0)
+        err("Could not allocate memory");
+    setenv("PATH", newpath, 1);
     setenv("SHELL", "bash", 0);
     setenv("EDITOR", "nano", 0);
     char *curdepth = getenv("BBDEPTH");
@@ -1202,7 +1203,6 @@ int main(int argc, char *argv[])
     char depthstr[16];
     sprintf(depthstr, "%d", depth + 1);
     setenv("BBDEPTH", depthstr, 1);
-    setenv("BBSHELLFUNC", bbcmdfn, 1);
     char full_initial_path[PATH_MAX];
     getcwd(full_initial_path, PATH_MAX);
     normalize_path(full_initial_path, initial_path, full_initial_path);

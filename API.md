@@ -9,18 +9,18 @@ internal state.
 
 ## Helper Functions
 
-- `bb`: used for modifying `bb`'s internal state (see BB Commands).
-- `ask`: get user input in a standardized and customizable way. The first
-  argument is a variable where the value is stored. The second argument is
-  a prompt. A third optional argument can provide a default value (may be
-  ignored).
-- `ask1`: get a single character of user input. The first argument is a variable
-  where the input will be stored and the second argument is a prompt.
-- `pause`: Display a "press any key to continue" message and wait for a keypress.
-- `confirm`: Display a "Is this okay? [y/N]" prompt and exit with failure if
-  the user does not press 'y'.
-- `spin`: Display a spinning icon while a slow command executes in the background.
-  (e.g. `spin sleep 5`).
+- `bbask [-1] [prompt [initial]]`: get user input in a standardized and
+  customizable way and output it to `STDOUT`.
+- `bbcmd <cmd>*`: used for modifying `bb`'s internal state (see BB Commands).
+- `bbconfirm [prompt]`: Display a "Is this okay? [y/N]" prompt and exit with
+  failure if the user does not press 'y'.
+- `bbpause`: Display a "press any key to continue" message and wait for a keypress.
+- `bbpick [prompt]`: Select one of `NULL`-delimited multiple inputs and print it.
+- `bbtargets "$BBCMD" "$@"`: If `$BBCURSOR` is not currently among `$@` (the
+  selected files), this script prompts the user to ask whether they want to
+  perform an action on the selected files, or on the cursor. The result is
+  printed as `cursor` or `selected`.
+- `bbunscroll`: Print text to the screen *above* the cursor instead of below it.
 
 ## Environment Variables
 
@@ -80,7 +80,7 @@ glob is available in `$BBGLOB`, which can be used in scripts if left unquoted.
 
 ## Final Notes
 
-Internally, `bbcmd` writes the commands (NUL terminated) to a file whose path is
+Internally, `bbcmd` writes the commands (`NULL` terminated) to a file whose path is
 in`$BBCMD` and `bb` reads from that file when it resumes. These commands can also
 be passed to `bb` at startup as command line arugments starting with `+`, and
 will run immediately.  E.g. `bbcmd +'col:n' +'sort:+r' .` will launch `bb` only

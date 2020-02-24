@@ -1,0 +1,5 @@
+#!/bin/sh
+# Display text from the current line upward (instead of downward)
+input="$(cat)"
+printf "\\033[$(echo "$input" | wc -l)A\\033[J" >/dev/tty
+echo "$input"

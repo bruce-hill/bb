@@ -1,0 +1,11 @@
+#!/bin/sh
+if [ $# -eq 0 ]; then cat >> $BBCMD; exit; fi
+for arg; do
+    shift
+    if expr "$arg" : '^[^:]*:$' >/dev/null; then
+        if [ $# -gt 0 ]; then printf "$arg%s\\0" "$@" >> $BBCMD
+        else sed "s/\([^\\x00]\+\)/$arg\1/g" >> $BBCMD; fi
+        exit
+    fi
+    printf "%s\\0" "$arg" >> $BBCMD
+done

@@ -1,0 +1,39 @@
+#!/bin/sh
+# Pick from the provided input
+if [ -z "$PICKER" ]; then
+    if command -v fzf >/dev/null; then
+        PICKER=fzf
+    elif command -v fzy >/dev/null; then
+        PICKER=fzy
+    elif command -v ask >/dev/null; then
+        PICKER=ask
+    elif command -v dmenu >/dev/null; then
+        PICKER=dmenu
+    elif command -v pick >/dev/null; then
+        PICKER=pick
+    fi
+fi
+
+case "$PICKER" in
+    fzf)
+        printf '\033[3A\033[?25h' >/dev/tty
+        fzf --read0 --height=4 --prompt="$(printf "$1")"
+        ;;
+    fzy)
+        printf '\033[3A\033[?25h' >/dev/tty
+        tr '\0' '\n' | fzy --lines=3 --prompt="$(printf "\033[1m$1\033[0m")"
+        ;;
+    ask)
+        ask --read0 --prompt="$(printf "$1\033[?25h")"
+        ;;
+    dmenu)
+        tr '\0' '\n' | dmenu -i -l 10 -p "$(printf "$1")"
+        ;;
+    pick)
+		printf '\033[?25h' >/dev/tty
+        tr '\0' '\n' | pick
+        ;;
+    *)
+        query="$(bbask "$1")" && grep -i -m1 "$(echo "$query" | sed 's;.;[^/&]*[&];g')"
+        ;;
+esac

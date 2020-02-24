@@ -1,0 +1,4 @@
+#!/bin/sh
+# Pause before continuing
+printf '\033[0;2m Press any key to continue...\033[0m' >/dev/tty
+bbask -1 >/dev/null
