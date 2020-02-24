@@ -26,7 +26,7 @@
 #include "bterm.h"
 
 // Macros:
-#define BB_VERSION "0.25.0"
+#define BB_VERSION "0.26.0"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -203,8 +203,10 @@ static void run_bbcmd(bb_t *bb, const char *cmd);
 static void render(bb_t *bb);
 static void restore_term(const struct termios *term);
 static int run_script(bb_t *bb, const char *cmd);
+static void set_columns(bb_t *bb, const char *cols);
 static void set_cursor(bb_t *bb, int i);
 static void set_globs(bb_t *bb, const char *globs);
+static void set_interleave(bb_t *bb, int interleave);
 static void set_selected(bb_t *bb, entry_t *e, int selected);
 static void set_scroll(bb_t *bb, int i);
 static void set_sort(bb_t *bb, const char *sort);
@@ -242,16 +244,5 @@ static const struct termios default_termios = {
 
 static const char *description_str = "bb - an itty bitty console TUI file browser\n";
 static const char *usage_str = "Usage: bb (-h/--help | -v/--version | -s | -d | -0 | +command)* [[--] directory]\n";
-
-static const char *runstartup = 
-"if [ \"$BBPATH\" ]; then\n"
-"    . \"$BBPATH/bbstartup.sh\"\n"
-"else\n"
-"    for path in \"$XDG_CONFIG_HOME/bb\" \"$sysconfdir/xdg/bb\"; do\n"
-"        [ -e \"$path/bbstartup.sh\" ] || continue\n"
-"        . \"$path/bbstartup.sh\"\n"
-"        break\n"
-"    done\n"
-"fi\n";
 
 // vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1

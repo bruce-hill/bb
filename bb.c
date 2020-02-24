@@ -23,13 +23,13 @@ void bb_browse(bb_t *bb, const char *initial_path)
 {
     if (populate_files(bb, initial_path))
         err("Could not find initial path: \"%s\"", initial_path);
-    run_script(bb, runstartup);
+    run_script(bb, "bbstartup");
     check_cmdfile(bb);
-
     while (!bb->should_quit) {
         render(bb);
         handle_next_key_binding(bb);
     }
+    run_script(bb, "bbshutdown");
 }
 
 /*
@@ -580,8 +580,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         if (populate_files(bb, value))
             warn("Could not open directory: \"%s\"", value);
     } else if (matches_cmd(cmd, "columns:")) { // +columns:
-        strncpy(bb->columns, value, MAX_COLS);
-        dirty = 1;
+        set_columns(bb, value);
     } else if (matches_cmd(cmd, "deselect")) { // +deselect
         while (bb->selected)
             set_selected(bb, bb->selected, 0);
@@ -656,6 +655,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         if (unlink(filename) == -1) err("Couldn't delete temporary help file: '%s'", filename);
     } else if (matches_cmd(cmd, "interleave:") || matches_cmd(cmd, "interleave")) { // +interleave
         set_bool(bb->interleave_dirs);
+        set_interleave(bb, bb->interleave_dirs);
         sort_files(bb);
     } else if (matches_cmd(cmd, "move:")) { // +move:
         int oldcur, isdelta, n;
@@ -936,6 +936,15 @@ int run_script(bb_t *bb, const char *cmd)
 }
 
 /*
+ * Set the columns displayed by bb.
+ */
+void set_columns(bb_t *bb, const char *cols)
+{
+    strncpy(bb->columns, cols, MAX_COLS);
+    setenv("BBCOLUMNS", bb->columns, 1);
+}
+
+/*
  * Set bb's file cursor to the given index (and adjust the scroll as necessary)
  */
 void set_cursor(bb_t *bb, int newcur)
@@ -965,6 +974,28 @@ void set_cursor(bb_t *bb, int newcur)
 }
 
 /*
+ * Set the glob pattern(s) used by bb. Patterns are ' ' delimited
+ */
+void set_globs(bb_t *bb, const char *globs)
+{
+    free(bb->globpats);
+    bb->globpats = memcheck(strdup(globs));
+    setenv("BBGLOB", bb->globpats, 1);
+}
+
+
+/*
+ * Set whether or not bb should interleave directories and files.
+ */
+void set_interleave(bb_t *bb, int interleave)
+{
+    bb->interleave_dirs = interleave;
+    if (interleave) setenv("BBINTERLEAVE", "interleave", 1);
+    else unsetenv("BBINTERLEAVE");
+    dirty = 1;
+}
+
+/*
  * Set bb's scroll to the given index (and adjust the cursor as necessary)
  */
 void set_scroll(bb_t *bb, int newscroll)
@@ -982,17 +1013,6 @@ void set_scroll(bb_t *bb, int newscroll)
     bb->cursor += delta;
     if (bb->cursor > bb->nfiles - 1) bb->cursor = bb->nfiles - 1;
     if (bb->cursor < 0) bb->cursor = 0;
-}
-
-
-/*
- * Set the glob pattern(s) used by bb. Patterns are ' ' delimited
- */
-void set_globs(bb_t *bb, const char *globs)
-{
-    free(bb->globpats);
-    bb->globpats = memcheck(strdup(globs));
-    setenv("BBGLOB", bb->globpats, 1);
 }
 
 /*
@@ -1034,6 +1054,7 @@ void set_sort(bb_t *bb, const char *sort)
     size_t len = MIN(MAX_SORT, strlen(sort));
     memmove(bb->sort + len, bb->sort, MAX_SORT+1 - len);
     memmove(bb->sort, sortbuf, len);
+    setenv("BBSORT", bb->sort, 1);
 }
 
 /*
@@ -1204,12 +1225,12 @@ int main(int argc, char *argv[])
         setenv("BBPATH", bbpath, 1);
     }
     if (getenv("BBPATH")) {
-        if (asprintf(&newpath, "%s/helpers:%s/bb/helpers:%s",
-                     getenv("BBPATH"), getenv("XDG_CONFIG_HOME"), getenv("PATH")) < 0)
+        if (asprintf(&newpath, "%s/bb:%s/scripts:%s",
+                     getenv("XDG_CONFIG_HOME"), getenv("BBPATH"), getenv("PATH")) < 0)
             err("Could not allocate memory for PATH");
     } else {
-        if (asprintf(&newpath, "%s/xdg/bb/helpers:%s/bb/helpers:%s",
-                     getenv("sysconfdir"), getenv("XDG_CONFIG_HOME"), getenv("PATH")) < 0)
+        if (asprintf(&newpath, "%s/bb:%s/xdg/bb:%s",
+                     getenv("XDG_CONFIG_HOME"), getenv("sysconfdir"), getenv("PATH")) < 0)
             err("Could not allocate memory for PATH");
     }
     setenv("PATH", newpath, 1);
@@ -1283,17 +1304,6 @@ int main(int argc, char *argv[])
             write(STDOUT_FILENO, &sep, 1);
         }
         fflush(stdout);
-    }
-
-    {
-        char path[PATH_MAX + strlen("/bb/state.sh")];
-        sprintf(path, "%s/bb/state.sh", xdg_data_home);
-        FILE *f = fopen(path, "w");
-        fprintf(f, "bbcmd glob:'%s'\n", bb.globpats);
-        fprintf(f, "bbcmd sort:'%s'\n", bb.sort);
-        fprintf(f, "bbcmd columns:'%s'\n", bb.columns);
-        if (bb.interleave_dirs) fprintf(f, "bbcmd interleave\n");
-        fclose(f);
     }
 
     if (print_dir)
