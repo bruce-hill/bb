@@ -103,12 +103,12 @@ Left click: # Move cursor to file
         bbcmd goto:"$BBCLICKED"
     fi
 Enter,Double left click: # Open file/directory
-    if [ -d "$BBCURSOR" ]; then bbcmd cd:"$BBCURSOR";
+    if [ -d "$BBCURSOR" ]; then bbcmd cd:"$BBCURSOR"
     elif [ "$(uname)" = "Darwin" ]; then
-        if expr "$(file -bI "$BBCURSOR")" : '\(text/\|inode/empty\)' >/dev/null; then $EDITOR "$BBCURSOR";
+        if expr "$(file -bI "$BBCURSOR")" : '\(text/\|inode/empty\)' >/dev/null; then $EDITOR "$BBCURSOR"
         else open "$BBCURSOR"; fi
     else
-        if expr "$(file -bi "$BBCURSOR")" : '\(text/\|inode/x-empty\)' >/dev/null; then $EDITOR "$BBCURSOR";
+        if expr "$(file -bi "$BBCURSOR")" : '\(text/\|inode/x-empty\)' >/dev/null; then $EDITOR "$BBCURSOR"
         else xdg-open "$BBCURSOR"; fi
     fi
 e: # Edit file in $EDITOR
@@ -133,7 +133,7 @@ c: # Copy a file
     printf "\033[1mCopying the following to here:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | bbunscroll | more
     bbconfirm && printf "\033[1G\033[KCopying..." &&
         for f; do if [ "./$(basename "$f")" -ef "$f" ]; then
-            cp -ri "$f" "$f.copy" || break;
+            cp -ri "$f" "$f.copy" || break
         else cp -ri "$f" . || break; fi; done; printf 'done.' && bbcmd refresh
 Ctrl-n: # New file/directory
     case "$(printf '%s\0' File Directory | bbpick "Create new: ")" in
@@ -154,27 +154,28 @@ r,F2: # Rename files
         both) set -- "$BBCURSOR" "$@";;
     esac
     for f; do
-        newname="$(bbask "Rename $(printf "\033[33m%s\033[39m" "$(basename "$f")"): " "$(basename "$f")")" || break;
-        r="$(dirname "$f")/$newname";
-        [ "$r" = "$f" ] && continue;
+        newname="$(bbask "Rename $(printf "\033[33m%s\033[39m" "$(basename "$f")"): " "$(basename "$f")")" || break
+        r="$(dirname "$f")/$newname"
+        [ "$r" = "$f" ] && continue
         [ -e "$r" ] && printf "\033[31;1m$r already exists! It will be overwritten.\033[0m "
             && bbconfirm && { rm -rf "$r" || { bbpause; exit; }; }
         mv "$f" "$r" || { bbpause; exit; }
-        bbcmd deselect:"$f" select:"$r";
-        [ "$f" = "$BBCURSOR" ] && bbcmd goto:"$r";
-    done;
+        bbcmd deselect:"$f" select:"$r"
+        [ "$f" = "$BBCURSOR" ] && bbcmd goto:"$r"
+    done
     bbcmd refresh
-Ctrl-r: # Regex rename files
-    case "$(bbtargets "$BBCURSOR" "$@")" in
-        cursor) set -- "$BBCURSOR";;
-        both) set -- "$BBCURSOR" "$@";;
-    esac
-    command -v rename >/dev/null ||
-        { printf '\033[31;1mThe `rename` command is not installed. Please install it to use this key binding.\033[0m\n'; bbpause; exit; };
-    patt="$(bbask "Replace pattern: ") && rep="$(bbask "Replacement: ")" &&
-        printf "\033[1mRenaming:\n\033[33m$(if [ $# -gt 0 ]; then rename -nv "$patt" "$rep" "$@"; else rename -nv "$patt" "$rep" *; fi)\033[0m" | bbunscroll | more &&
-        bbconfirm || exit 1
-    if [ $# -eq 0 ]; then set -- *; ! [ -e "$1" ] && exit; fi
+~: # Regex rename files
+    if ! command -v rename >/dev/null; then
+        printf '\033[31;1mThe `rename` command is not installed. Please install it to use this key binding.\033[0m\n'
+        bbpause; exit 1
+    fi
+    if [ $# -eq 0 ]; then set -- $BBGLOB; fi
+    set -e
+    patt="$(bbask "Replace pattern: ")"
+    rep="$(bbask "Replacement: ")"
+    printf "\033[1mRenaming:\n\033[33m$(if [ $# -gt 0 ]; then rename -nv "$patt" "$rep" "$@"; else rename -nv "$patt" "$rep" *; fi)\033[0m" | bbunscroll | more
+    bbconfirm
+    if [ $# -eq 0 ]; then set -- *; [ -e "$1" ] || exit 1; fi
     rename -i "$patt" "$rep" "$@"
     bbcmd deselect refresh
 
