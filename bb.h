@@ -26,7 +26,7 @@
 #include "bterm.h"
 
 // Macros:
-#define BB_VERSION "0.22.0"
+#define BB_VERSION "0.22.1"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -41,6 +41,7 @@
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
 #define IS_SELECTED(p) (((p)->selected.atme) != NULL)
 #define IS_VIEWED(p) ((p)->index >= 0)
+#define IS_LOADED(p) ((p)->hash.atme != NULL)
 #define LOWERCASE(c) ('A' <= (c) && (c) <= 'Z' ? ((c) + 'a' - 'A') : (c))
 #define E_ISDIR(e) (S_ISDIR(S_ISLNK((e)->info.st_mode) ? (e)->linkedmode : (e)->info.st_mode))
 #define ONSCREEN (winsize.ws_row - 3)
@@ -83,7 +84,8 @@
 #define LL_REMOVE(node, name) do { \
     if (((node)->name).next) \
         ((__typeof__(node))(node)->name.next)->name.atme = ((node)->name).atme; \
-    *(((node)->name).atme) = ((node)->name).next; \
+    if (((node)->name).atme) \
+        *(((node)->name).atme) = ((node)->name).next; \
     ((node)->name).atme = NULL; \
     ((node)->name).next = NULL; \
 } while (0)

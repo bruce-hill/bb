@@ -291,16 +291,8 @@ entry_t* load_entry(bb_t *bb, const char *path)
     struct stat linkedstat, filestat;
     if (!path || !path[0]) return NULL;
     if (lstat(path, &filestat) == -1) return NULL;
-    char pbuf[PATH_MAX] = {0};
-    char *slash = strrchr(path, '/');
-    if (slash) {
-        strncpy(pbuf, path, (size_t)(slash - path));
-        normalize_path(bb->path, pbuf, pbuf);
-        strcat(pbuf, slash);
-    } else {
-        strcpy(pbuf, bb->path);
-        strcat(pbuf, path);
-    }
+    char pbuf[PATH_MAX];
+    sprintf(pbuf, "%s%s", bb->path, path);
     if (pbuf[strlen(pbuf)-1] == '/' && pbuf[1])
         pbuf[strlen(pbuf)-1] = '\0';
 
@@ -330,9 +322,7 @@ entry_t* load_entry(bb_t *bb, const char *path)
     if (strcmp(entry->fullname, "/") == 0) {
         entry->name = entry->fullname;
     } else {
-        entry->name = strrchr(entry->fullname, '/');
-        if (!entry->name) err("No slash found in '%s' from '%s'", entry->fullname, path);
-        ++entry->name;
+        entry->name = &entry->fullname[strlen(bb->path)];
     }
     if (S_ISLNK(filestat.st_mode))
         entry->linkedmode = linkedstat.st_mode;
@@ -1141,7 +1131,7 @@ void set_title(bb_t *bb)
  */
 int try_free_entry(entry_t *e)
 {
-    if (IS_SELECTED(e) || IS_VIEWED(e)) return 0;
+    if (IS_SELECTED(e) || IS_VIEWED(e) || !IS_LOADED(e)) return 0;
     LL_REMOVE(e, hash);
     free(e);
     return 1;
