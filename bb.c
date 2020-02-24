@@ -599,7 +599,6 @@ void run_bbcmd(bb_t *bb, const char *cmd)
                 return;
             }
         }
-            warn("Could not find file to deselect: \"%s\"", value);
     } else if (matches_cmd(cmd, "fg:") || matches_cmd(cmd, "fg")) { // +fg:
         int nprocs = 0;
         for (proc_t *p = running_procs; p; p = p->running.next) ++nprocs;
