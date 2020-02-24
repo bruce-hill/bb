@@ -41,6 +41,9 @@ command with the selected files in `$@`, and `|` to pipe the selected files to
 a command.  Pressing `Ctrl-c` will cause `bb` to exit with a failure status and
 without printing anything.
 
+More information about usage can also be found by running `man bb` after
+installing.
+
 ## bb's Philosophy
 
 The core idea behind `bb` is that `bb` is a file **browser**, not a file
@@ -77,7 +80,7 @@ up an easy way to repeat some custom workflow).
 state. To do this, call `bbcmd <your command>` from within `bb`. For example, by
 default, `j` is bound to `bbcmd move:+1`, which has the effect of moving `bb`'s
 cursor down one item. More details about the API can be found in [the API
-documentation](API.md).
+documentation](API.md) or by running `man bbcmd` after installing.
 
 ## FAQ
 

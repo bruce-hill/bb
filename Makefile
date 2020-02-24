@@ -69,7 +69,7 @@ install: $(NAME)
 	[ ! "$$sysconfdir" ] && sysconfdir=/etc; \
 	mkdir -pv -m 755 "$$prefix/share/man/man1" "$$prefix/bin" "$$sysconfdir/xdg/bb" \
 	&& cp -v bbstartup.sh bindings.bb "$$sysconfdir/xdg/bb/" \
-	&& cp -v $(NAME).1 "$$prefix/share/man/man1/" \
+	&& cp -v bb.1 bbcmd.1 "$$prefix/share/man/man1/" \
 	&& rm -f "$$prefix/bin/$(NAME)" \
 	&& cp -v $(NAME) "$$prefix/bin/"
 
@@ -82,6 +82,6 @@ uninstall:
 	[ ! "$$prefix" ] && prefix="/usr/local"; \
 	[ ! "$$sysconfdir" ] && sysconfdir=/etc; \
 	echo "Deleting..."; \
-	rm -rvf "$$prefix/bin/$(NAME)" "$$prefix/share/man/man1/$(NAME).1" "$$sysconfdir/xdg/bb"; \
+	rm -rvf "$$prefix/bin/$(NAME)" "$$prefix/share/man/man1/bb.1" "$$prefix/share/man/man1/bbcmd.1" "$$sysconfdir/xdg/bb"; \
 	printf "\033[1mIf you created any config files in ~/.config/bb, you may want to delete them manually.\033[0m"
 

@@ -1,6 +1,6 @@
 .\" Manpage for bb.
 .\" Contact bruce@bruce-hill.com to correct errors or typos.
-.TH man 8 "22 May 2019" "1.0" "bb manual page"
+.TH man 1 "23 Feb 2020" "1.0" "bb manual page"
 .SH NAME
 bb \- A bitty browser for command line file management
 .SH SYNOPSIS
@@ -10,8 +10,8 @@ bb \- A bitty browser for command line file management
 [\fI-0\fR]
 [\fI-v\fR|\fI--version\fR]
 [\fI-h\fR|\fI--help\fR]
-[\fI+command\fR]*
-[[--] \fIdirectory\fR]
+[+\fI<command>\fR]*
+[[--] \fI<directory>\fR | \fI<file>\fR]
 .SH DESCRIPTION
 \fBbb\fR is a tiny TUI console application for browsing and managing files.
 .SH OPTIONS
@@ -22,8 +22,8 @@ Print the current directory on exit.
 Print the selected files on exit.
 
 .B \-0
-If printing the selected files on exit, use NULL-terminated strings instead of
-newline-separated.
+If printing the selected files on exit, use \fBNULL\fR-terminated strings
+instead of newline-separated.
 
 .B \-d
 Print the current directory on exit.
@@ -34,11 +34,15 @@ Print the version and exit.
 .B \--help
 Print the usage and exit.
 
-.B +command
-As soon as \fBbb\fR has launched, run the given command.
+.B <command>
+As soon as \fBbb\fR has launched, run the given command. See \fBbbcmd\fR(1) for
+more details about \fBbb\fR commands.
 
-.B directory
+.B <directory>
 Open \fBbb\fR viewing this directory.
+
+.B <file>
+Open \fBbb\fR in the directory containing this file, with the cursor on it.
 
 .SH CONTROLS
 For full details on all key bindings, press \fB?\fR from inside \fBbb\fR to get
@@ -69,7 +73,7 @@ Begin browsing in /usr/local/
 
 .TP
 .B
-alias bcd="cd '`bb -d`'"
+alias bcd='cd "$(bb -d)"'
 Create an alias to launch \fBbb\fR and change directory to wherever it's located
 when you exit (unless you exit with Ctrl-c).
 
@@ -82,6 +86,10 @@ Select some files to add to a zip archive.
 .B
 bb +select: *.txt
 Launch \fBbb\fR with all the .txt files in the current directory selected.
+
+.SH "SEE ALSO"
+.sp
+\fBbbcmd\fR(1)
 
 .SH AUTHOR
 Bruce Hill (bruce@bruce-hill.com)

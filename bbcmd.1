@@ -1,0 +1,238 @@
+.\" Manpage for bbcmd.
+.\" Contact bruce@bruce-hill.com to correct errors or typos.
+.TH man 1 "23 Feb 2020" "1.0" "bbcmd manual page"
+
+.de TPx
+.  TP 4n
+..
+
+.SH NAME
+\fBbbcmd\fR \- Run commands in \fBbb\fR, the command line file browser
+.SH SYNOPSIS
+.B bbcmd
+(\fIcmd\fR[\fI:value\fR])* [\fIcmd\fR: \fIvalue\fR*]
+
+.SH DESCRIPTION
+\fBbbcmd\fR is a script that can be run from within \fBbb\fR (the command line
+file browser). \fBbbcmd\fR is used to manipulate \fBbb\fR's behavior and state.
+Typically, this is done through scripts that are bound to keypresses, or during
+\fBbb\fR's startup scripts.
+
+.SH TRAILING ARGUMENTS
+If a command ends with a colon and there are more arguments after it, the
+additional arguments are treated as repeated invocations of that command.
+Example: `\fBbbcmd select: one two\fR` is equivalent to `\fBbbcmd
+select:one select:two\fR`
+
+.SH PIPED VALUES
+If no arguments are given, commands are read from \fBstdin\fR, separated by
+\fBNULL\fR bytes (\fB\\0\fR). Example: `\fBprintf 'select:%s\\0' one two | bbcmd\fR`
+is equivalent to `\fBbbcmd select:one select:two\fR`.
+
+If the last argument given is a command with a trailing colon, arguments for
+that command are read from \fBstdin\fR, separated by \fBNULL\fR bytes
+(\fB\\0\fR). Example: `\fBprintf '%s\\0' one two | bbcmd select:\fR` is equivalent
+to `\fBbbcmd select:one select:two\fR`
+
+.SH COMMANDS
+Each of the following are commands that can be run with \fBbbcmd\fR from within
+\fBbb\fR, typically through keyboard-bound scripts:
+
+.RS
+.IP \fBbind\fR:\fIkeys\fR:\fIscript\fR
+Bind the given key presses to run the given script.
+
+.IP \fBcd\fR:\fIpath\fR
+Navigate \fBbb\fR to \fIpath\fR.
+
+.IP \fBcolumns\fR:\fIcolumns\fR
+Change which columns are visible, and in what order. The default setting is
+\fB*smpn\fR. The available columns are:
+.
+.
+.P
+.PD 0
+.RS
+.
+.TPx
+.B *
+Whether or not the file is selected.
+.
+.TPx
+.B n
+The name of the file
+.
+.TPx
+.B s
+The size of the file
+.
+.TPx
+.B p
+The permissions of the file
+.
+.TPx
+.B m
+The modification time of the file (relative)
+.
+.TPx
+.B M
+The modification time of the file (absolute)
+.
+.TPx
+.B c
+The creation time of the file (relative)
+.
+.TPx
+.B C
+The creation time of the file (absolute)
+.
+.TPx
+.B a
+The access time of the file (relative)
+.
+.TPx
+.B A
+The access time of the file (absolute)
+.
+.TPx
+.B r
+The random index of the file
+.
+.RE
+.PD
+
+.IP \fBdeselect\fR[:\fIfilename\fR]
+Deselect \fIfilename\fR (default: all selected files).
+
+.IP \fBfg\fR[:\fInum\fR]
+Send background process \fInum\fR to the foreground (default: the most recent
+process).
+
+.IP \fBglob\fR:\fIpattern\fR
+The glob pattern for which files to show (default: `*`). See: \fBglob\fR(7) for
+more details on globbing.
+
+.IP \fBgoto\fR:\fIfilename\fR
+Move the cursor to filename (changing directory if needed).
+
+.IP \fBhelp\fR
+Show the help menu.
+
+.IP \fBinterleave\fR[:\fI0\fR|\fI1\fR]
+Whether or not directories should be interleaved with files in the display
+(default: toggle)
+
+.IP \fBmove\fR:\fInum\fR
+Move the cursor a numeric amount. See the \fBNUMBERS\fR section below.
+
+.IP \fBquit\fR
+Quit \fBbb\fR.
+
+.IP \fBrefresh\fR
+Refresh the file listing.
+
+.IP \fBscroll\fR:\fInum\fR
+Scroll the view a numeric amount. See the \fBNUMBERS\fR section below.
+
+.IP \fBselect\fR[:\fIfilename\fR]
+Select \fIfilename\fR (default: all visible files).
+
+.IP \fBsort\fR:([\fI+\fR|\fI-\fR]\fImethod\fR)+
+Sort files according to \fImethod\fR (\fI+\fR: normal, \fI-\fR: reverse,
+default: toggle the current direction). Additional methods (if any) act as
+tiebreaker. The default setting is \fB+n\fR. The values for \fImethod\fR must
+be one or more of the following single-letter characters:
+.P
+.PD 0
+.RS
+.TPx
+.B n
+name
+.TPx
+.B s
+size
+.TPx
+.B m
+modification time
+.TPx
+.B c
+creation time
+.TPx
+.B a
+access time
+.TPx
+.B r
+random
+.TPx
+.B p
+permissions
+.RE
+.PD
+
+.IP \fBspread\fR:\fInum\fR
+Spread the selection state at the cursor. See the \fBNUMBERS\fR
+section below. 
+
+.IP \fBtoggle\fR[:\fIfilename\fR]
+Toggle the selection status of \fIfilename\fR (default: all visible files).
+
+.RE
+
+.SH NUMBERS
+In commands which take a number (\fBscroll\fR, \fBmove\fR, and \fBspread\fR),
+the number can be one of the following:
+
+.PD 0
+.RS
+.TP 8
+.B N
+An absolute number (e.g. \fB5\fR), meaning the \fBN\fRth visible file.
+.TP 8
+.B N%
+A percentage of screen height (e.g. \fB50%\fR), meaning the visible file
+\fBN%\fR of the way down the screen.
+.TP 8
+.B N%n
+A percentage of the files (e.g. \fB50%n\fR), meaning the visible file \fBN%\fR
+of the way down the list.
+.TP 8
+.B +/-num
+An offset (e.g. \fB+1\fR, \fB-1\fR, \fB+25%\fR, \fB-10%n\fR), which interprets
+the following number as relative to the current cursor position.
+.RE
+.PD
+
+.SH EXAMPLES
+.TP
+.B
+bbcmd cd:/usr/local/
+Navigate to /usr/local/
+
+.TP
+.B
+bbcmd select:"$BBCURSOR" move:+1
+Select the file under the cursor, then move the cursor down one file.
+
+.TP
+.B
+bbcmd select: *.jpg
+Select all \fB.jpg\fR files in the current directory.
+
+.TP
+.B
+for f in *.jpg; do printf 'select:%s\\0'; done | bbcmd
+Select all \fB.jpg\fR files in the current directory, using the "pipe commands
+to bbcmd" functionality.
+
+.TP
+.B
+find . -name '*.jpg' -print0 | bbcmd select:
+Select all \fB.jpg\fR files in the current directory or its subdirectories,
+using the "pipe arguments to a command" functionality.
+
+.SH "SEE ALSO"
+.sp
+\fBbb\fR(1)
+
+.SH AUTHOR
+Bruce Hill (bruce@bruce-hill.com)
