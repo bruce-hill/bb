@@ -29,33 +29,33 @@ environment variables:
 
 - `$@` (the list of arguments): the full paths of the selected files
 - `$BBCURSOR`: the full path of the file under the cursor
-- `$BBDOTFILES`: "1" if files beginning with "." are visible in bb, otherwise ""
-- `$BB_DEPTH`: the number of `bb` instances deep (in case you want to run a
+- `$BBDEPTH`: the number of `bb` instances deep (in case you want to run a
   shell and have that shell print something special in the prompt)
 - `$BBCMD`: a file to which `bb` commands can be written (used internally)
+- `$BBGLOB`: the glob pattern `bb` is using to determine which files to show
 
 ## BB Internal State Commands
 
 In order to modify bb's internal state, you can call `bbcmd <cmd>`, where "cmd"
 is one of the following commands (or a unique prefix of one):
 
-- `.:[01]`                   Whether to show "." in each directory
-- `..:[01]`                  Whether to show ".." in each directory
+- `bind:<keys>:<script>`     Bind the given key presses to run the given script
 - `cd:<path>`                Navigate to <path>
 - `columns:<columns>`        Change which columns are visible, and in what order
-- `deselect:<filename>`      Deselect <filename>
-- `dotfiles:[01]`            Whether dotfiles are visible
-- `fg:[num]`                 Send a background process to the foreground
+- `deselect[:<filename>]`    Deselect <filename> (default: all selected files)
+- `fg[:num]`                 Send a background process to the foreground (default: most recent process)
+- `glob:<glob pattern>`      The glob pattern for which files to show (default: `*`)
 - `goto:<filename>`          Move the cursor to <filename> (changing directory if needed)
-- `interleave:[01]`          Whether or not directories should be interleaved with files in the display
+- `help`                     Show the help menu
+- `interleave[:01]`          Whether or not directories should be interleaved with files in the display (default: toggle)
 - `move:<num*>`              Move the cursor a numeric amount
-- `quit`                     Quit bb
+- `quit`                     Quit `bb`
 - `refresh`                  Refresh the file listing
 - `scroll:<num*>`            Scroll the view a numeric amount
-- `select:<filename>`        Select <filename>
-- `sort:([+-]method)+`       Set sorting method (+: normal, -: reverse), additional methods act as tiebreaker
+- `select[:<filename>]`      Select <filename> (default: all visible files)
+- `sort:([+-]method)+`       Set sorting method (+: normal, -: reverse, default: toggle), additional methods act as tiebreaker
 - `spread:<num*>`            Spread the selection state at the cursor
-- `toggle:<filename>`        Toggle the selection status of <filename>
+- `toggle[:<filename>]`      Toggle the selection status of <filename> (default: all visible files)
 
 For any of these commands (e.g. `select`), an empty parameter followed by
 additional arguments (e.g. `bbcmd select: <file1> <file2> ...`) is equivalent to
@@ -67,6 +67,16 @@ absolute value or a relative value (starting with `+` or `-`), and/or a percent
 (ending with `%`). Scrolling and moving, `%` means percent of screen height,
 and `%n` means percent of number of files (e.g. `+50%` means half a screen
 height down, and `100%n` means the last file)
+
+## Globbing
+
+`bb` uses glob patterns to determine which files are visible. By default, the
+pattern is `*`, which means all files except those starting with a `.` (dot).
+`bb`'s globs are POSIX-compliant and do not support bash-style extensions like
+`**` for recursive matches. `bb` supports multiple, space-separated globs, so
+for example, you can display all files including dotfiles with the glob: `.* *`
+(by default, pressing the `.` key will toggle this behavior). The current `bb`
+glob is available in `$BBGLOB`, which can be used in scripts if left unquoted.
 
 ## Final Notes
 

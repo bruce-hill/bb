@@ -23,14 +23,14 @@ l,Right: # Enter directory
     if [ -d "$BBCURSOR" ]; then bbcmd cd:"$BBCURSOR"; fi
 Ctrl-f: # Search for file
     file="$(
-        find $BBGLOBS -mindepth 1 -printf '%P\0' | pick "Find: "
+        find $BBGLOB -mindepth 1 -printf '%P\0' | pick "Find: "
     )" && bbcmd goto:"$file"
 /: # Pick a file
-    file="$(printf "%s\0" $BBGLOBS | pick "Pick: ")" || exit
+    file="$(printf "%s\0" $BBGLOB | pick "Pick: ")" || exit
     bbcmd goto:"$file"
 *: # Set the glob
-    ask BBGLOBS "Show files matching: "
-    bbcmd glob:"$BBGLOBS"
+    ask BBGLOB "Show files matching: "
+    bbcmd glob:"$BBGLOB"
 Ctrl-g: # Go to directory
     ask goto "Go to directory: " && bbcmd cd:"$goto"
 m: # Mark this directory
@@ -66,11 +66,11 @@ Mouse wheel up: # Scroll up
 
 Section: File Selection
 v,V,Space: # Toggle selection at cursor
-    bbcmd toggle
+    bbcmd toggle:"$BBCURSOR"
 Escape: # Clear selection
     bbcmd deselect
 S: # Select pattern
-    ask patt "Select: " && eval bbcmd select: "$patt"
+    ask patt "Select: " && bbcmd select: $patt
 U: # Unselect pattern
     ask patt "Unselect: " && eval bbcmd deselect: "$patt"
 Ctrl-s: # Save the selection
@@ -197,7 +197,11 @@ s: # Sort by...
     ask columns "Set columns (*)selected (a)ccessed (c)reated (m)odified (n)ame (p)ermissions (r)andom (s)ize: " &&
         bbcmd col:"$columns"
 .: # Toggle dotfile visibility
-    bbcmd dotfiles
+    if [ "$BBGLOB" = ".* *" ]; then
+        bbcmd glob:"*"
+    else
+        bbcmd glob:".* *"
+    fi
 i: # Toggle interleaving files and directories
     bbcmd interleave
 F5,Ctrl-l: # Refresh view

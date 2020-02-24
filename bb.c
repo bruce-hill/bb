@@ -537,13 +537,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
     const char *value = strchr(cmd, ':');
     if (value) ++value;
 #define set_bool(target) do { if (!value) { target = !target; } else { target = value[0] == '1'; } } while (0)
-    if (matches_cmd(cmd, ".")) { // +.
-        set_globs(bb, ". *");
-        populate_files(bb, bb->path);
-    } else if (matches_cmd(cmd, "..")) { // +..
-        set_globs(bb, ".. *");
-        populate_files(bb, bb->path);
-    } else if (matches_cmd(cmd, "bind:")) { // +bind:<keys>:<script>
+    if (matches_cmd(cmd, "bind:")) { // +bind:<keys>:<script>
         char *value_copy = memcheck(strdup(value));
         char *keys = trim(value_copy);
         if (!keys[0]) { free(value_copy); return; }
@@ -587,7 +581,10 @@ void run_bbcmd(bb_t *bb, const char *cmd)
     } else if (matches_cmd(cmd, "columns:")) { // +columns:
         strncpy(bb->columns, value, MAX_COLS);
         dirty = 1;
-    } else if (matches_cmd(cmd, "deselect:")) { // +deselect
+    } else if (matches_cmd(cmd, "deselect")) { // +deselect
+        while (bb->selected)
+            set_selected(bb, bb->selected, 0);
+    } else if (matches_cmd(cmd, "deselect:")) { // +deselect:<file>
         char pbuf[PATH_MAX];
         normalize_path(bb->path, value, pbuf);
         entry_t *e = load_entry(bb, pbuf);
@@ -599,20 +596,10 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         for (e = bb->selected; e; e = e->selected.next) {
             if (strcmp(e->fullname, pbuf) == 0) {
                 set_selected(bb, e, 0);
-                break;
+                return;
             }
         }
-    } else if (matches_cmd(cmd, "deselect")) { // +deselect
-        while (bb->selected)
-            set_selected(bb, bb->selected, 0);
-    } else if (matches_cmd(cmd, "dotfiles:") || matches_cmd(cmd, "dotfiles")) { // +dotfiles:
-        int dotfiles = strstr(bb->globpats, ".*") != NULL;
-        set_bool(dotfiles);
-        if (dotfiles)
-            set_globs(bb, ".* *");
-        else
-            set_globs(bb, "*");
-        populate_files(bb, bb->path);
+            warn("Could not find file to deselect: \"%s\"", value);
     } else if (matches_cmd(cmd, "fg:") || matches_cmd(cmd, "fg")) { // +fg:
         int nprocs = 0;
         for (proc_t *p = running_procs; p; p = p->running.next) ++nprocs;
@@ -640,7 +627,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
     } else if (matches_cmd(cmd, "goto:")) { // +goto:
         entry_t *e = load_entry(bb, value);
         if (!e) {
-            warn("Could not find file to go to: \"%s\".", value);
+            warn("Could not find file to go to: \"%s\"", value);
             return;
         }
         if (IS_VIEWED(e)) {
@@ -700,30 +687,27 @@ void run_bbcmd(bb_t *bb, const char *cmd)
             set_scroll(bb, bb->scroll + n);
         else
             set_scroll(bb, n);
-    } else if (matches_cmd(cmd, "select:") || matches_cmd(cmd, "select")) { // +select:
-        if (!value) {
-            for (int i = 0; i < bb->nfiles; i++)
-                set_selected(bb, bb->files[i], 1);
-        } else {
-            entry_t *e = load_entry(bb, value);
-            if (e) set_selected(bb, e, 1);
-        }
+    } else if (matches_cmd(cmd, "select")) { // +select
+        for (int i = 0; i < bb->nfiles; i++)
+            set_selected(bb, bb->files[i], 1);
+    } else if (matches_cmd(cmd, "select:")) { // +select:<file>
+        entry_t *e = load_entry(bb, value);
+        if (e) set_selected(bb, e, 1);
+        else warn("Could not find file to select: \"%s\"", value);
     } else if (matches_cmd(cmd, "sort:")) { // +sort:
         set_sort(bb, value);
         sort_files(bb);
     } else if (matches_cmd(cmd, "spread:")) { // +spread:
         goto move;
-    } else if (matches_cmd(cmd, "toggle:") || matches_cmd(cmd, "toggle")) { // +toggle
-        if (!value && !bb->nfiles) return;
-        if (!value) value = bb->files[bb->cursor]->fullname;
+    } else if (matches_cmd(cmd, "toggle")) { // +toggle
+        for (int i = 0; i < bb->nfiles; i++)
+            set_selected(bb, bb->files[i], !IS_SELECTED(bb->files[i]));
+    } else if (matches_cmd(cmd, "toggle:")) { // +toggle:<file>
         entry_t *e = load_entry(bb, value);
-        if (!e) {
-            warn("Could not find file to toggle: \"%s\".", value);
-            return;
-        }
-        set_selected(bb, e, !IS_SELECTED(e));
+        if (e) set_selected(bb, e, !IS_SELECTED(e));
+        else warn("Could not find file to toggle: \"%s\"", value);
     } else {
-        warn("Invalid bb command: +%s.", cmd);
+        warn("Invalid bb command: %s", cmd);
     }
 }
 
@@ -1013,7 +997,7 @@ void set_globs(bb_t *bb, const char *globs)
 {
     free(bb->globpats);
     bb->globpats = memcheck(strdup(globs));
-    setenv("BBGLOBS", bb->globpats, 1);
+    setenv("BBGLOB", bb->globpats, 1);
 }
 
 /*
@@ -1214,11 +1198,11 @@ int main(int argc, char *argv[])
     setenv("sysconfdir", "/etc", 0);
     setenv("SHELL", "bash", 0);
     setenv("EDITOR", "nano", 0);
-    char *curdepth = getenv("BB_DEPTH");
+    char *curdepth = getenv("BBDEPTH");
     int depth = curdepth ? atoi(curdepth) : 0;
     char depthstr[16];
     sprintf(depthstr, "%d", depth + 1);
-    setenv("BB_DEPTH", depthstr, 1);
+    setenv("BBDEPTH", depthstr, 1);
     setenv("BBSHELLFUNC", bbcmdfn, 1);
     char full_initial_path[PATH_MAX];
     getcwd(full_initial_path, PATH_MAX);
