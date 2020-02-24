@@ -1187,10 +1187,29 @@ int main(int argc, char *argv[])
     sprintf(xdg_data_home, "%s/.local/share", getenv("HOME"));
     setenv("XDG_DATA_HOME", xdg_data_home, 0);
     setenv("sysconfdir", "/etc", 0);
+
     char *newpath;
-    if (asprintf(&newpath, "%s/xdg/bb/helpers:%s/bb/helpers:%s", getenv("sysconfdir"), getenv("XDG_CONFIG_HOME"), getenv("PATH")) < 0)
-        err("Could not allocate memory");
+    static char bbpath[PATH_MAX];
+    // Hacky fix to allow `bb` to be run out of its build directory:
+    if (strncmp(argv[0], "./", 2) == 0) {
+        if (realpath(argv[0], bbpath) == NULL)
+            err("Could not resolve path: %s", bbpath);
+        char *slash = strrchr(bbpath, '/');
+        if (!slash) err("No slash found in real path: %s", bbpath);
+        *slash = '\0';
+        setenv("BBPATH", bbpath, 1);
+    }
+    if (getenv("BBPATH")) {
+        if (asprintf(&newpath, "%s/helpers:%s/bb/helpers:%s",
+                     getenv("BBPATH"), getenv("XDG_CONFIG_HOME"), getenv("PATH")) < 0)
+            err("Could not allocate memory for PATH");
+    } else {
+        if (asprintf(&newpath, "%s/xdg/bb/helpers:%s/bb/helpers:%s",
+                     getenv("sysconfdir"), getenv("XDG_CONFIG_HOME"), getenv("PATH")) < 0)
+            err("Could not allocate memory for PATH");
+    }
     setenv("PATH", newpath, 1);
+
     setenv("SHELL", "bash", 0);
     setenv("EDITOR", "nano", 0);
     char *curdepth = getenv("BBDEPTH");

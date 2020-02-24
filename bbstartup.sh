@@ -5,13 +5,13 @@
 # Load key bindings
 # first check ~/.config/bb/bindings.bb, then /etc/xdg/bb/bindings.bb, then ./bindings.bb
 [ ! -d "$XDG_DATA_HOME/bb" ] && mkdir -p "$XDG_DATA_HOME/bb"
-if [ ! -e "$XDG_CONFIG_HOME/bb/bindings.bb" ] && [ ! -e "$sysconfdir/xdg/bb/bindings.bb" ]; then
-    cat "./bindings.bb" 2>/dev/null | awk '/^#/ {next} /^[^ ]/ {printf "\0bind:"} {print $0} END {printf "\0"}' >> "$BBCMD"
+
+if [ "$BBPATH" ]; then
+    cat "$BBPATH/bindings.bb" 2>/dev/null
 else
-    for path in "$sysconfdir/xdg/bb" "$XDG_CONFIG_HOME/bb"; do
-        cat "$path/bindings.bb" 2>/dev/null
-    done | awk '/^#/ {next} /^[^ ]/ {printf "\0bind:"} {print $0} END {printf "\0"}' >> "$BBCMD"
-fi
+    cat "$sysconfdir/xdg/bb/bindings.bb" "$XDG_CONFIG_HOME/bb/bindings.bb" 2>/dev/null
+fi | awk '/^#/ {next} /^[^ ]/ {printf "\0bind:"} {print $0} END {printf "\0"}' >> "$BBCMD"
+
 if [ -e "$XDG_DATA_HOME/bb/state.sh" ]; then
     . "$XDG_DATA_HOME/bb/state.sh"
 fi

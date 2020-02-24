@@ -244,11 +244,14 @@ static const char *description_str = "bb - an itty bitty console TUI file browse
 static const char *usage_str = "Usage: bb (-h/--help | -v/--version | -s | -d | -0 | +command)* [[--] directory]\n";
 
 static const char *runstartup = 
-"for path in \"$XDG_CONFIG_HOME/bb\" \"$sysconfdir/xdg/bb\" .; do\n"
-"    if [ -e \"$path/bbstartup.sh\" ]; then\n"
-"        . \"$path/bbstartup.sh\";\n"
-"        break;\n"
-"    fi;\n"
-"done\n";
+"if [ \"$BBPATH\" ]; then\n"
+"    . \"$BBPATH/bbstartup.sh\"\n"
+"else\n"
+"    for path in \"$XDG_CONFIG_HOME/bb\" \"$sysconfdir/xdg/bb\"; do\n"
+"        [ -e \"$path/bbstartup.sh\" ] || continue\n"
+"        . \"$path/bbstartup.sh\"\n"
+"        break\n"
+"    done\n"
+"fi\n";
 
 // vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1
