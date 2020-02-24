@@ -85,6 +85,18 @@ void cleanup(void)
 }
 
 /*
+ * Returns the color of a file listing, given its mode.
+ */
+const char* color_of(mode_t mode)
+{
+    if (S_ISDIR(mode)) return DIR_COLOR;
+    else if (S_ISLNK(mode)) return LINK_COLOR;
+    else if (mode & (S_IXUSR | S_IXGRP | S_IXOTH))
+        return EXECUTABLE_COLOR;
+    else return NORMAL_COLOR;
+}
+
+/*
  * Used for sorting, this function compares files according to the sorting-related options,
  * like bb->sort
  */
@@ -143,7 +155,7 @@ int compare_files(const void *v1, const void *v2, void *v)
             case COL_MTIME: COMPARE_TIME(mtime(e1->info), mtime(e2->info)); break;
             case COL_CTIME: COMPARE_TIME(ctime(e1->info), ctime(e2->info)); break;
             case COL_ATIME: COMPARE_TIME(atime(e1->info), atime(e2->info)); break;
-            case COL_RANDOM: COMPARE(e1->shufflepos, e2->shufflepos); break;
+            case COL_RANDOM: COMPARE(e2->shufflepos, e1->shufflepos); break;
         }
     }
     return 0;
@@ -723,7 +735,6 @@ void run_bbcmd(bb_t *bb, const char *cmd)
 void render(bb_t *bb)
 {
     static int lastcursor = -1, lastscroll = -1;
-    char buf[PATH_MAX * 2];
 
     if (!dirty) {
         // Use terminal scrolling:
@@ -733,6 +744,22 @@ void render(bb_t *bb)
             fprintf(tty_out, "\033[3;%dr\033[%dS\033[1;%dr", winsize.ws_row-1, bb->scroll - lastscroll, winsize.ws_row);
         }
     }
+
+    int colwidths[MAX_COLS] = {0};
+    int space = winsize.ws_col - 1, nstretchy = 0;
+    for (int c = 0; bb->columns[c]; c++) {
+        column_t col = columns[(int)bb->columns[c]];
+        if (col.stretchy) {
+            ++nstretchy;
+        } else {
+            colwidths[c] = strlen(col.name) + 1;
+            space -= colwidths[c];
+        }
+        if (c > 0) --space;
+    }
+    for (int c = 0; bb->columns[c]; c++)
+        if (columns[(int)bb->columns[c]].stretchy)
+            colwidths[c] = space / nstretchy;
 
     if (dirty) {
         // Path
@@ -773,7 +800,7 @@ void render(bb_t *bb)
             move_cursor(tty_out, x, 1);
             fputs(indicator, tty_out);
             fputs(title, tty_out);
-            x += (int)strlen(title) + 1;
+            x += colwidths[col];
         }
         fputs(" \033[K\033[0m", tty_out);
     }
@@ -805,28 +832,27 @@ void render(bb_t *bb)
         }
 
         entry_t *entry = files[i];
-        if (i == bb->cursor) fputs(CURSOR_COLOR, tty_out);
+        const char *color = i == bb->cursor ?
+            CURSOR_COLOR : color_of(bb->files[i]->info.st_mode);
 
         int x = 0;
         for (int c = 0; bb->columns[c]; c++) {
             column_t col = columns[(int)bb->columns[c]];
-            memset(buf, 0, sizeof(buf));
-            col.render(bb, entry, buf, strlen(col.name)+1);
-
-            fprintf(tty_out, "\033[%d;%dH\033[K", y+1, x+1);
             if (col.name == NULL) continue;
+            move_cursor(tty_out, x, y);
+            fputs(color, tty_out);
             if (c > 0) {
-                if (i == bb->cursor) fputs("┃", tty_out);
-                else fputs("\033[37;2m┃\033[22m", tty_out);
-                fputs(i == bb->cursor ? CURSOR_COLOR : "\033[0m", tty_out);
+                if (i == bb->cursor) fprintf(tty_out, "\033[2m┃\033[22m");
+                else fprintf(tty_out, "\033[37;2m┃\033[22m%s", color);
                 x += 1;
             }
-            move_cursor(tty_out, x, y);
+            char buf[PATH_MAX * 2] = {0};
+            col.render(entry, color, buf, colwidths[c]);
             fputs(buf, tty_out);
-            fputs("\033[K", tty_out);
-            x += (int)strlen(col.name) + 1;
+            fprintf(tty_out, "\033[0m%s\033[K", color);
+            x += colwidths[c];
         }
-        fputs(" \033[K\033[0m", tty_out); // Reset color and attributes
+        fputs("\033[0m", tty_out);
     }
 
     // Scrollbar:

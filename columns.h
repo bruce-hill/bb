@@ -12,18 +12,6 @@ static void lpad(char *buf, int width)
     }
 }
 
-/*
- * Returns the color of a file listing, given its mode.
- */
-static const char* color_of(mode_t mode)
-{
-    if (S_ISDIR(mode)) return DIR_COLOR;
-    else if (S_ISLNK(mode)) return LINK_COLOR;
-    else if (mode & (S_IXUSR | S_IXGRP | S_IXOTH))
-        return EXECUTABLE_COLOR;
-    else return NORMAL_COLOR;
-}
-
 static char* stpcpy_escaped(char *buf, const char *str, const char *color)
 {
     static const char *escapes = "       abtnvfr             e";
@@ -36,7 +24,7 @@ static char* stpcpy_escaped(char *buf, const char *str, const char *color)
             *(buf++) = *c;
         }
     }
-    *(buf++) = '\0';
+    *buf = '\0';
     return buf;
 }
 
@@ -78,63 +66,59 @@ static void timeago(char *buf, time_t t)
         sprintf(buf, "%d years", (int)delta/YEAR);
 }
 
-void col_mreltime(bb_t *bb, entry_t *entry, char *buf, int width) {
-    (void)bb;
+void col_mreltime(entry_t *entry, const char *color, char *buf, int width) {
+    (void)color;
     timeago(buf, entry->info.st_mtime);
     lpad(buf, width);
 }
 
-void col_areltime(bb_t *bb, entry_t *entry, char *buf, int width) {
-    (void)bb;
+void col_areltime(entry_t *entry, const char *color, char *buf, int width) {
+    (void)color;
     timeago(buf, entry->info.st_atime);
     lpad(buf, width);
 }
 
-void col_creltime(bb_t *bb, entry_t *entry, char *buf, int width) {
-    (void)bb;
+void col_creltime(entry_t *entry, const char *color, char *buf, int width) {
+    (void)color;
     timeago(buf, entry->info.st_ctime);
     lpad(buf, width);
 }
 
-void col_mtime(bb_t *bb, entry_t *entry, char *buf, int width) {
-    (void)bb;
+void col_mtime(entry_t *entry, const char *color, char *buf, int width) {
+    (void)color;
     strftime(buf, (size_t)width, BB_TIME_FMT, localtime(&(entry->info.st_mtime)));
 }
 
-void col_atime(bb_t *bb, entry_t *entry, char *buf, int width) {
-    (void)bb;
+void col_atime(entry_t *entry, const char *color, char *buf, int width) {
+    (void)color;
     strftime(buf, (size_t)width, BB_TIME_FMT, localtime(&(entry->info.st_atime)));
 }
 
-void col_ctime(bb_t *bb, entry_t *entry, char *buf, int width) {
-    (void)bb;
+void col_ctime(entry_t *entry, const char *color, char *buf, int width) {
+    (void)color;
     strftime(buf, (size_t)width, BB_TIME_FMT, localtime(&(entry->info.st_ctime)));
 }
 
-void col_selected(bb_t *bb, entry_t *entry, char *buf, int width) {
-    (void)bb; (void)width;
+void col_selected(entry_t *entry, const char *color, char *buf, int width) {
+    (void)width;
     buf = stpcpy(buf, IS_SELECTED(entry) ? SELECTED_INDICATOR : NOT_SELECTED_INDICATOR);
-    buf = stpcpy(buf, entry == bb->files[bb->cursor] ?
-                 CURSOR_COLOR : color_of(entry->info.st_mode));
+    buf = stpcpy(buf, color);
 }
 
-void col_perm(bb_t *bb, entry_t *entry, char *buf, int width) {
-    (void)bb; (void)width;
+void col_perm(entry_t *entry, const char *color, char *buf, int width) {
+    (void)color; (void)width;
     sprintf(buf, " %03o", entry->info.st_mode & 0777);
 }
 
-void col_random(bb_t *bb, entry_t *entry, char *buf, int width)
+void col_random(entry_t *entry, const char *color, char *buf, int width)
 {
-    (void)width;
-    double k = (double)entry->shufflepos/(double)bb->nfiles;
-    int color = (int)(k*232 + (1.-k)*255);
-    sprintf(buf, "\033[48;5;%dm  \033[0m%s", color,
-            entry == bb->files[bb->cursor] ? CURSOR_COLOR : "\033[0m");
+    (void)color;
+    sprintf(buf, "%*d", width, entry->shufflepos);
 }
 
-void col_size(bb_t *bb, entry_t *entry, char *buf, int width)
+void col_size(entry_t *entry, const char *color, char *buf, int width)
 {
-    (void)bb; (void)width;
+    (void)color; (void)width;
     int j = 0;
     const char* units = "BKMGTPEZY";
     double bytes = (double)entry->info.st_size;
@@ -145,29 +129,17 @@ void col_size(bb_t *bb, entry_t *entry, char *buf, int width)
     sprintf(buf, " %6.*f%c ", j > 0 ? 1 : 0, bytes, units[j]);
 }
 
-void col_name(bb_t *bb, entry_t *entry, char *buf, int width)
+void col_name(entry_t *entry, const char *color, char *buf, int width)
 {
     (void)width;
-    char color[128];
-    strcpy(color, color_of(entry->info.st_mode));
-    if (entry == bb->files[bb->cursor]) strcpy(color, CURSOR_COLOR);
-    buf = stpcpy(buf, color);
-
-    int use_fullname =  strcmp(bb->path, "<selection>") == 0;
-    char *name = use_fullname ? entry->fullname : entry->name;
-    if (entry->no_esc) buf = stpcpy(buf, name);
-    else buf = stpcpy_escaped(buf, name, color);
+    if (entry->no_esc) buf = stpcpy(buf, entry->name);
+    else buf = stpcpy_escaped(buf, entry->name, color);
 
     if (E_ISDIR(entry)) buf = stpcpy(buf, "/");
 
     if (!entry->linkname) return;
 
-    if (entry != bb->files[bb->cursor])
-        buf = stpcpy(buf, "\033[37m");
     buf = stpcpy(buf, "\033[2m -> \033[3m");
-    strcpy(color, color_of(entry->linkedmode));
-    if (entry == bb->files[bb->cursor]) strcat(color, CURSOR_COLOR);
-    strcat(color, "\033[3;2m");
     buf = stpcpy(buf, color);
     if (entry->link_no_esc) buf = stpcpy(buf, entry->linkname);
     else buf = stpcpy_escaped(buf, entry->linkname, color);
@@ -180,19 +152,20 @@ void col_name(bb_t *bb, entry_t *entry, char *buf, int width)
 
 typedef struct {
     const char *name;
-    void (*render)(bb_t *, entry_t *, char *, int);
+    void (*render)(entry_t*, const char*, char*, int);
+    unsigned int stretchy : 1;
 } column_t;
 
 static column_t columns[255] = {
     ['*'] = {.name = "*", .render = col_selected},
-    ['n'] = {.name = "Name                                             ", .render = col_name},
+    ['n'] = {.name = "Name", .render = col_name, .stretchy = 1},
     ['s'] = {.name = "    Size", .render = col_size},
     ['p'] = {.name = "Perm", .render = col_perm},
     ['m'] = {.name = " Modified", .render = col_mreltime},
-    ['M'] = {.name = "    Modified     ", .render = col_mtime},
+    ['M'] = {.name = "     Modified     ", .render = col_mtime},
     ['a'] = {.name = " Accessed", .render = col_areltime},
-    ['A'] = {.name = "    Accessed     ", .render = col_atime},
+    ['A'] = {.name = "     Accessed     ", .render = col_atime},
     ['c'] = {.name = "  Created", .render = col_creltime},
-    ['C'] = {.name = "     Created     ", .render = col_ctime},
-    ['r'] = {.name = "R", .render = col_random},
+    ['C'] = {.name = "      Created     ", .render = col_ctime},
+    ['r'] = {.name = "Random", .render = col_random},
 };

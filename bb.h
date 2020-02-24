@@ -32,7 +32,7 @@
 #define PATH_MAX 4096
 #endif
 
-#define BB_TIME_FMT " %I:%M%p %D "
+#define BB_TIME_FMT " %T %D "
 #define MAX_COLS 12
 #define MAX_SORT (2*MAX_COLS)
 #define HASH_SIZE 1024
@@ -183,6 +183,7 @@ void bb_browse(bb_t *bb, const char *initial_path);
 static void check_cmdfile(bb_t *bb);
 static void cleanup(void);
 static void cleanup_and_raise(int sig);
+static const char* color_of(mode_t mode);
 #ifdef __APPLE__
 static int compare_files(void *v, const void *v1, const void *v2);
 #else
