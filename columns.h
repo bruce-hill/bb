@@ -159,7 +159,7 @@ typedef struct {
 static column_t columns[255] = {
     ['*'] = {.name = "*", .render = col_selected},
     ['n'] = {.name = "Name", .render = col_name, .stretchy = 1},
-    ['s'] = {.name = "    Size", .render = col_size},
+    ['s'] = {.name = "   Size", .render = col_size},
     ['p'] = {.name = "Perm", .render = col_perm},
     ['m'] = {.name = " Modified", .render = col_mreltime},
     ['M'] = {.name = "     Modified     ", .render = col_mtime},
