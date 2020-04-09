@@ -534,6 +534,7 @@ void print_bindings(int fd)
  */
 void run_bbcmd(bb_t *bb, const char *cmd)
 {
+    while (*cmd == ' ' || *cmd == '\n') ++cmd;
     if (strncmp(cmd, "bbcmd ", strlen("bbcmd ")) == 0) cmd = &cmd[strlen("bbcmd ")];
     const char *value = strchr(cmd, ':');
     if (value) ++value;
@@ -563,8 +564,15 @@ void run_bbcmd(bb_t *bb, const char *cmd)
             for (size_t i = 0; i < sizeof(bindings)/sizeof(bindings[0]); i++) {
                 if (bindings[i].script && (bindings[i].key != keyval || is_section))
                     continue;
-                binding_t binding = {keyval, memcheck(strdup(script)),
-                    memcheck(strdup(description))};
+                char *script2;
+                if (is_simple_bbcmd(script)) {
+                    script2 = memcheck(strdup(script));
+                } else {
+                    const char *prefix = "set -e\n";
+                    script2 = memcheck(calloc(strlen(prefix) + strlen(script) + 1, 1));
+                    sprintf(script2, "%s%s", prefix, script);
+                }
+                binding_t binding = {keyval, script2, memcheck(strdup(description))};
                 if (bindings[i].key == keyval) {
                     free(bindings[i].description);
                     free(bindings[i].script);
@@ -1194,9 +1202,9 @@ int main(int argc, char *argv[])
     struct sigaction sa_winch = {.sa_handler = &update_term_size};
     sigaction(SIGWINCH, &sa_winch, NULL);
     update_term_size(0);
-    // Wait 10ms at a time for terminal to initialize if necessary
+    // Wait 100us at a time for terminal to initialize if necessary
     while (winsize.ws_row == 0)
-        usleep(10000);
+        usleep(100);
 
     // Set up environment variables
     // Default values

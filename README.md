@@ -51,7 +51,7 @@ The core idea behind `bb` is that `bb` is a file **browser**, not a file
 to the filesystem (passing selected files as arguments), rather than
 reinventing the wheel by hard-coding operations like `rm`, `mv`, `cp`, `touch`,
 and so on.  Shell scripts can be bound to keypresses in
-`~/.config/bb/bindings.bb`. For example, `D` is bound to a script that prints a
+`~/.config/bb/bbbindkeys`. For example, `D` is bound to a script that prints a
 confirmation message, then runs `rm -rf "$@" && bbcmd deselect refresh`,
 which means selecting `file1` and `file2`, then pressing `D` will cause `bb` to
 run the shell command `rm -rf file1 file2` and then tell `bb` to deselect all
@@ -59,20 +59,18 @@ run the shell command `rm -rf file1 file2` and then tell `bb` to deselect all
 
 ## Customizing bb
 
-`bb` runs a script at startup (by default [bbstartup.sh](bbstartup.sh), installed
-to `/etc/xdg/bb/bbstartup.sh`) that sets up `bb`'s key bindings and a few other
-minor things. You can override this with your own custom startup script by creating
-a file at `~/.config/bb/bbstartup.sh`. The default startup script loads key bindings
-from (in order) `/etc/xdg/bb/bindings.bb` and `~/.config/bb/bindings.bb` (or if
-neither exists, from the local directory).
+When `bb` launches, it first updates `bb`'s `$PATH` environment variable to
+include, in order, `~/.config/bb` and `/etc/xdg/bb`. Then, `bb` will run the
+command `bbstartup` (the default implementation is found at
+[scripts/bbstartup](scripts/bbstartup), along with other default `bb` commands).
+`bbstartup` will call `bbbindkeys` and may also set up configuration options like
+which columns to display and what sort order to use. All of these behaviors can
+be customized by creating custom local versions of these files in `~/.config/bb/`.
+The default versions can be found in `/etc/xdg/bb/`.
 
-`bb` comes with a bunch of pre-defined bindings for basic actions in
-[bindings.bb](bindings.bb) (installed to `/etc/xdg/bb/bindings.bb`). It's very
-easy to add new bindings for whatever custom scripts you want to run, just
-create a file called `~/.config/bb/bindings.bb` and put your bindings there.
-You can also create bindings at runtime by hitting `Ctrl-b`, pressing the key
-you want to bind, and then entering in a script to run (in case you want to set
-up an easy way to repeat some custom workflow).
+You can also create temporary bindings at runtime by hitting `Ctrl-b`, pressing
+the key you want to bind, and then entering in a script to run (in case you
+want to set up an easy way to repeat some custom workflow).
 
 ### API
 
