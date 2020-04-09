@@ -9,9 +9,23 @@ internal state.
 
 ## Helper Functions
 
-- `bbask [-1] [prompt [initial]]`: get user input in a standardized and
+`bb` is bundled with some helper scripts for performing common tasks. These
+scripts are installed to `/etc/xdg/bb/`, which is added to `bb`'s `$PATH`
+environment variable at runtime. `~/.config/bb/` is also added to the `$PATH`
+with higher priority, so you can override any of these scripts by putting your
+own version there.
+
+- `bbstartup`: The script run when `bb` first launches. It calls `bbbindkeys` by
+  default and sets up some configuration settings like which columns to display.
+- `bbbindkeys`: The script called by `bb` to create all of `bb`'s key bindings.
+  It's currently very hacky, but it amounts to a bunch of calls to `bbcmd
+  bind:<key>:<script>`
+- `bbshutdown`: The script run when `bb` exits. The default implementation saves
+  the current configuration settings to `~/.local/share/bb/settings.sh`, which
+  is run by `bbstartup` to restore the settings at launch.
+- `bbask [-1] [prompt [initial]]`: Get user input in a standardized and
   customizable way and output it to `STDOUT`.
-- `bbcmd <cmd>*`: used for modifying `bb`'s internal state (see BB Commands).
+- `bbcmd <cmd>*`: Modify`bb`'s internal state (see BB Commands).
 - `bbconfirm [prompt]`: Display a "Is this okay? [y/N]" prompt and exit with
   failure if the user does not press 'y'.
 - `bbpause`: Display a "press any key to continue" message and wait for a keypress.
@@ -24,8 +38,7 @@ internal state.
 
 ## Environment Variables
 
-For startup commands and key bindings, the following values are provided as
-environment variables:
+When `bb` runs scripts, following values are provided as environment variables:
 
 - `$@` (the list of arguments): the full paths of the selected files
 - `$BBCURSOR`: the full path of the file under the cursor
