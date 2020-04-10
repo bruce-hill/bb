@@ -1304,7 +1304,6 @@ int main(int argc, char *argv[])
     init_term();
     bb_browse(&bb, full_initial_path);
     fputs(T_LEAVE_BBMODE, tty_out);
-    cleanup();
 
     if (bb.selected && print_selection) {
         for (entry_t *e = bb.selected; e; e = e->selected.next) {

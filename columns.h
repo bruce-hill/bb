@@ -66,57 +66,57 @@ static void timeago(char *buf, time_t t)
         sprintf(buf, "%d years", (int)delta/YEAR);
 }
 
-void col_mreltime(entry_t *entry, const char *color, char *buf, int width) {
+static void col_mreltime(entry_t *entry, const char *color, char *buf, int width) {
     (void)color;
     timeago(buf, entry->info.st_mtime);
     lpad(buf, width);
 }
 
-void col_areltime(entry_t *entry, const char *color, char *buf, int width) {
+static void col_areltime(entry_t *entry, const char *color, char *buf, int width) {
     (void)color;
     timeago(buf, entry->info.st_atime);
     lpad(buf, width);
 }
 
-void col_creltime(entry_t *entry, const char *color, char *buf, int width) {
+static void col_creltime(entry_t *entry, const char *color, char *buf, int width) {
     (void)color;
     timeago(buf, entry->info.st_ctime);
     lpad(buf, width);
 }
 
-void col_mtime(entry_t *entry, const char *color, char *buf, int width) {
+static void col_mtime(entry_t *entry, const char *color, char *buf, int width) {
     (void)color;
     strftime(buf, (size_t)width, BB_TIME_FMT, localtime(&(entry->info.st_mtime)));
 }
 
-void col_atime(entry_t *entry, const char *color, char *buf, int width) {
+static void col_atime(entry_t *entry, const char *color, char *buf, int width) {
     (void)color;
     strftime(buf, (size_t)width, BB_TIME_FMT, localtime(&(entry->info.st_atime)));
 }
 
-void col_ctime(entry_t *entry, const char *color, char *buf, int width) {
+static void col_ctime(entry_t *entry, const char *color, char *buf, int width) {
     (void)color;
     strftime(buf, (size_t)width, BB_TIME_FMT, localtime(&(entry->info.st_ctime)));
 }
 
-void col_selected(entry_t *entry, const char *color, char *buf, int width) {
+static void col_selected(entry_t *entry, const char *color, char *buf, int width) {
     (void)width;
     buf = stpcpy(buf, IS_SELECTED(entry) ? SELECTED_INDICATOR : NOT_SELECTED_INDICATOR);
     buf = stpcpy(buf, color);
 }
 
-void col_perm(entry_t *entry, const char *color, char *buf, int width) {
+static void col_perm(entry_t *entry, const char *color, char *buf, int width) {
     (void)color; (void)width;
     sprintf(buf, " %03o", entry->info.st_mode & 0777);
 }
 
-void col_random(entry_t *entry, const char *color, char *buf, int width)
+static void col_random(entry_t *entry, const char *color, char *buf, int width)
 {
     (void)color;
     sprintf(buf, "%*d", width, entry->shufflepos);
 }
 
-void col_size(entry_t *entry, const char *color, char *buf, int width)
+static void col_size(entry_t *entry, const char *color, char *buf, int width)
 {
     (void)color; (void)width;
     int j = 0;
@@ -129,7 +129,7 @@ void col_size(entry_t *entry, const char *color, char *buf, int width)
     sprintf(buf, " %6.*f%c ", j > 0 ? 1 : 0, bytes, units[j]);
 }
 
-void col_name(entry_t *entry, const char *color, char *buf, int width)
+static void col_name(entry_t *entry, const char *color, char *buf, int width)
 {
     (void)width;
     if (entry->no_esc) buf = stpcpy(buf, entry->name);

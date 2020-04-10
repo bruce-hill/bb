@@ -5,7 +5,6 @@
  *
  * This file contains definitions and customization for `bb`.
  */
-#include <dirent.h>
 #include <fcntl.h>
 #include <glob.h>
 #include <limits.h>
@@ -13,14 +12,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/dir.h>
 #include <sys/errno.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
-#include <sys/types.h>
 #include <sys/wait.h>
 #include <termios.h>
-#include <time.h>
 #include <unistd.h>
 
 #include "bterm.h"
@@ -32,11 +28,29 @@
 #define PATH_MAX 4096
 #endif
 
-#define BB_TIME_FMT " %T %D "
 #define MAX_COLS 12
 #define MAX_SORT (2*MAX_COLS)
 #define HASH_SIZE 1024
 #define HASH_MASK (HASH_SIZE - 1)
+#define MAX_BINDINGS 1024
+
+// Configurable options:
+#define BB_TIME_FMT " %T %D "
+#define SCROLLOFF   MIN(5, (winsize.ws_row-4)/2)
+#define SORT_INDICATOR  "↓"
+#define RSORT_INDICATOR "↑"
+#define SELECTED_INDICATOR " \033[31;7m \033[0m"
+#define NOT_SELECTED_INDICATOR "  "
+// Colors (using ANSI escape sequences):
+#define TITLE_COLOR      "\033[37;1m"
+#define NORMAL_COLOR     "\033[37m"
+#define CURSOR_COLOR     "\033[43;30;1m"
+#define LINK_COLOR       "\033[35m"
+#define DIR_COLOR        "\033[34m"
+#define EXECUTABLE_COLOR "\033[31m"
+#define SCROLLBAR_FG "\033[48;5;247m "
+#define SCROLLBAR_BG "\033[48;5;239m "
+
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
 #define IS_SELECTED(p) (((p)->selected.atme) != NULL)
@@ -155,24 +169,6 @@ typedef struct proc_s {
         struct proc_s *next, **atme;
     } running;
 } proc_t;
-
-// Configurable options:
-#define SCROLLOFF   MIN(5, (winsize.ws_row-4)/2)
-#define SORT_INDICATOR  "↓"
-#define RSORT_INDICATOR "↑"
-#define SELECTED_INDICATOR " \033[31;7m \033[0m"
-#define NOT_SELECTED_INDICATOR "  "
-// Colors (using ANSI escape sequences):
-#define TITLE_COLOR      "\033[37;1m"
-#define NORMAL_COLOR     "\033[37m"
-#define CURSOR_COLOR     "\033[43;30;1m"
-#define LINK_COLOR       "\033[35m"
-#define DIR_COLOR        "\033[34m"
-#define EXECUTABLE_COLOR "\033[31m"
-#define SCROLLBAR_FG "\033[48;5;247m "
-#define SCROLLBAR_BG "\033[48;5;239m "
-
-#define MAX_BINDINGS 1024
 
 static binding_t bindings[MAX_BINDINGS];
 
