@@ -245,4 +245,10 @@ static const struct termios default_termios = {
 static const char *description_str = "bb - an itty bitty console TUI file browser\n";
 static const char *usage_str = "Usage: bb (-h/--help | -v/--version | -s | -d | -0 | +command)* [[--] directory]\n";
 
+// Hack to get TinyCC (TCC) compilation to work:
+// https://lists.nongnu.org/archive/html/tinycc-devel/2018-07/msg00000.html
+#ifdef __TINYC__
+void * __dso_handle __attribute((visibility("hidden"))) = &__dso_handle;
+#endif
+
 // vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1
