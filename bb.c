@@ -800,54 +800,40 @@ void render(bb_t *bb)
         fputs(" \033[K\033[0m", tty_out);
     }
 
-    entry_t **files = bb->files;
-    for (int i = bb->scroll; i < bb->scroll + ONSCREEN; i++) {
-        if (!dirty) {
-            if (i == bb->cursor || i == lastcursor)
-                goto do_render;
-            if (i < lastscroll || i >= lastscroll + ONSCREEN)
-                goto do_render;
-            continue;
-        }
-
-        int y;
-      do_render:
-        y = i - bb->scroll + 2;
-        move_cursor(tty_out, 0, y);
-
-        if (i == bb->scroll && bb->nfiles == 0) {
-            const char *s = "...no files here...";
-            fprintf(tty_out, "\033[37;2m%s\033[0m\033[K\033[J", s);
-            break;
-        }
-
-        if (i >= bb->nfiles) {
-            fputs("\033[J", tty_out);
-            break;
-        }
-
-        entry_t *entry = files[i];
-        const char *color = i == bb->cursor ?
-            CURSOR_COLOR : color_of(bb->files[i]->info.st_mode);
-
-        int x = 0;
-        for (int c = 0; bb->columns[c]; c++) {
-            column_t col = columns[(int)bb->columns[c]];
-            if (!col.name) continue;
-            move_cursor(tty_out, x, y);
-            fputs(color, tty_out);
-            if (c > 0) {
-                if (i == bb->cursor) fprintf(tty_out, "\033[2m┃\033[22m");
-                else fprintf(tty_out, "\033[37;2m┃\033[22m%s", color);
-                x += 1;
+    if (bb->nfiles == 0) {
+        move_cursor(tty_out, 0, 2);
+        fputs("\033[37;2m ...no files here... \033[0m\033[J", tty_out);
+    } else {
+        entry_t **files = bb->files;
+        for (int i = bb->scroll; i < bb->scroll + ONSCREEN && i < bb->nfiles; i++) {
+            if (!(dirty || i == bb->cursor || i == lastcursor ||
+                  i < lastscroll || i >= lastscroll + ONSCREEN)) {
+                continue;
             }
-            char buf[PATH_MAX * 2] = {0};
-            col.render(entry, color, buf, colwidths[c]);
-            fputs(buf, tty_out);
-            fprintf(tty_out, "\033[0m%s\033[K", color);
-            x += colwidths[c];
+
+            entry_t *entry = files[i];
+            const char *color = i == bb->cursor ?
+                CURSOR_COLOR : color_of(entry->info.st_mode);
+            fputs(color, tty_out);
+            int x = 0, y = i - bb->scroll + 2;
+            for (int c = 0; bb->columns[c]; c++) {
+                column_t col = columns[(int)bb->columns[c]];
+                if (!col.name) continue;
+                move_cursor(tty_out, x, y);
+                if (c > 0) { // Separator |
+                    if (i == bb->cursor) fprintf(tty_out, "\033[2m┃\033[22m");
+                    else fprintf(tty_out, "\033[37;2m┃\033[22m%s", color);
+                    x += 1;
+                }
+                char buf[PATH_MAX * 2] = {0};
+                col.render(entry, color, buf, colwidths[c]);
+                fprintf(tty_out, "%s\033[K", buf);
+                x += colwidths[c];
+            }
+            fputs("\033[0m", tty_out);
         }
-        fputs("\033[0m", tty_out);
+        move_cursor(tty_out, 0, MIN(bb->nfiles - bb->scroll + 2, ONSCREEN) + 2);
+        fputs("\033[J", tty_out);
     }
 
     // Scrollbar:
@@ -861,6 +847,7 @@ void render(bb_t *bb)
         }
     }
 
+    // Bottom Line:
     move_cursor(tty_out, winsize.ws_col/2, winsize.ws_row - 1);
     fputs("\033[0m\033[K", tty_out);
     int x = winsize.ws_col;
