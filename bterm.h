@@ -76,6 +76,7 @@ typedef enum {
 #define T_OFF(opt) "\033[?" opt "l"
 
 #define move_cursor(f, x, y) fprintf((f), "\033[%d;%dH", (int)(y)+1, (int)(x)+1)
+#define move_cursor_col(f, x) fprintf((f), "\033[%d`", (int)(x)+1)
 
 typedef struct {
     int key;

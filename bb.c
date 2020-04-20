@@ -784,7 +784,7 @@ void render(bb_t *bb)
             if (!col.name) continue;
             const char *title = col.name;
             if (!title) title = "";
-            move_cursor(tty_out, x, 1);
+            move_cursor_col(tty_out, x);
             if (c > 0) {
                 fputs("┃\033[K", tty_out);
                 x += 1;
@@ -792,7 +792,7 @@ void render(bb_t *bb)
             const char *indicator = " ";
             if (bb->columns[c] == bb->sort[1])
                 indicator = bb->sort[0] == '-' ? RSORT_INDICATOR : SORT_INDICATOR;
-            move_cursor(tty_out, x, 1);
+            move_cursor_col(tty_out, x);
             fputs(indicator, tty_out);
             fputs(title, tty_out);
             x += colwidths[c];
@@ -816,10 +816,11 @@ void render(bb_t *bb)
                 CURSOR_COLOR : color_of(entry->info.st_mode);
             fputs(color, tty_out);
             int x = 0, y = i - bb->scroll + 2;
+            move_cursor(tty_out, x, y);
             for (int c = 0; bb->columns[c]; c++) {
                 column_t col = columns[(int)bb->columns[c]];
                 if (!col.name) continue;
-                move_cursor(tty_out, x, y);
+                move_cursor_col(tty_out, x);
                 if (c > 0) { // Separator |
                     if (i == bb->cursor) fprintf(tty_out, "\033[2m┃\033[22m");
                     else fprintf(tty_out, "\033[37;2m┃\033[22m%s", color);
