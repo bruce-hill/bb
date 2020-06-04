@@ -16,7 +16,7 @@ else
     intended='Cursor file'
 fi
 
-[ -z "$intended" ] && intended="$(printf '%s\0' 'Cursor file' 'Selected files' 'Both' | bbpick 'Which do you want to delete? ')"
+[ -z "$intended" ] && intended="$(printf '%s\0' 'Cursor file' 'Selected files' 'Both' | bbpick 'Which do you mean? ')"
 
 case "$intended" in
     Cursor*) echo cursor ;;

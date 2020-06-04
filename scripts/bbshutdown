@@ -1,3 +1,2 @@
 #!/bin/sh
 # This file gets run when `bb` shuts down.
-echo "bbcmd glob:'$BBGLOB' sort:'$BBSORT' columns:'$BBCOLUMNS' $BBINTERLEAVE" > "$XDG_DATA_HOME"/bb/settings.sh

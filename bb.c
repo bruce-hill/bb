@@ -460,12 +460,15 @@ int populate_files(bb_t *bb, const char *path)
             glob(pat, GLOB_NOSORT|GLOB_APPEND, NULL, &globbuf);
         free(tmpglob);
         for (size_t i = 0; i < globbuf.gl_pathc; i++) {
-            if ((size_t)bb->nfiles + 1 > space)
-                bb->files = memcheck(realloc(bb->files, (space += 100)*sizeof(void*)));
             // Don't normalize path so we can get "." and ".."
             entry_t *entry = load_entry(bb, globbuf.gl_pathv[i]);
-            if (!entry) err("Failed to load entry: '%s'", globbuf.gl_pathv[i]);
+            if (!entry) {
+                warn("Failed to load entry: '%s'", globbuf.gl_pathv[i]);
+                continue;
+            }
             entry->index = bb->nfiles;
+            if ((size_t)bb->nfiles + 1 > space)
+                bb->files = memcheck(realloc(bb->files, (space += 100)*sizeof(void*)));
             bb->files[bb->nfiles++] = entry;
         }
         globfree(&globbuf);
@@ -646,7 +649,13 @@ void run_bbcmd(bb_t *bb, const char *cmd)
         char *lastslash = strrchr(pbuf, '/');
         if (!lastslash) err("No slash found in filename: %s", pbuf);
         *lastslash = '\0'; // Split in two
+        try_free_entry(e);
+        // Move to dir and reselect
         populate_files(bb, pbuf);
+        e = load_entry(bb, lastslash+1);
+        if (!e) {
+            warn("Could not find file again: \"%s\"", lastslash+1);
+        }
         if (IS_VIEWED(e))
             set_cursor(bb, e->index);
         else try_free_entry(e);
@@ -833,7 +842,7 @@ void render(bb_t *bb)
             }
             fputs("\033[0m", tty_out);
         }
-        move_cursor(tty_out, 0, MIN(bb->nfiles - bb->scroll + 2, ONSCREEN) + 2);
+        move_cursor(tty_out, 0, MIN(bb->nfiles - bb->scroll, ONSCREEN) + 2);
         fputs("\033[J", tty_out);
     }
 

@@ -119,7 +119,7 @@ static keyname_t key_names[] = {
     {KEY_CTRL_2, "Ctrl-2"}, {KEY_CTRL_3, "Ctrl-3"}, {KEY_CTRL_4, "Ctrl-4"},
     {KEY_CTRL_5, "Ctrl-5"}, {KEY_CTRL_6, "Ctrl-6"}, {KEY_CTRL_7, "Ctrl-7"},
     {KEY_CTRL_5, "Ctrl-8"}, {KEY_CTRL_6, "Ctrl-9"},
-    {':', "Colon"},
+    {':', "Colon"}, {',', "Comma"},
 };
 
 int bgetkey(FILE *in, int *mouse_x, int *mouse_y);

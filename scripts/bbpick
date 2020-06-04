@@ -15,21 +15,21 @@ if [ -z "$PICKER" ]; then
 fi
 
 case "$PICKER" in
-    fzf)
+    fzf*)
         printf '\033[3A\033[?25h' >/dev/tty
         fzf --read0 --height=4 --prompt="$(printf "$1")"
         ;;
-    fzy)
+    fzy*)
         printf '\033[3A\033[?25h' >/dev/tty
         tr '\0' '\n' | fzy --lines=3 --prompt="$(printf "\033[1m$1\033[0m")"
         ;;
-    ask)
+    ask*)
         ask --read0 --prompt="$(printf "$1\033[?25h")"
         ;;
-    dmenu)
+    dmenu*)
         tr '\0' '\n' | dmenu -i -l 10 -p "$(printf "$1")"
         ;;
-    pick)
+    pick*)
 		printf '\033[?25h' >/dev/tty
         tr '\0' '\n' | pick
         ;;
