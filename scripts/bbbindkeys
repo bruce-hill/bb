@@ -122,15 +122,15 @@ echo "bbcmd glob:'$BBGLOB' sort:'$BBSORT' columns:'$BBCOLUMNS' $BBINTERLEAVE" > 
 ## Ctrl-s: Save the selection
 [ $# -gt 0 ]
 savename="$(bbask "Save selection as: ")"
+savename="${savename%.sel}.sel"
 mkdir -p "$XDG_DATA_HOME"/bb
-if ! expr "$savename" : ".*\.sel" >/dev/null; then savename="$savename.sel"; fi
-printf '%s\0' "$@" > "$XDG_DATA_HOME"/bb/"$savename"
+printf '%s\0' "$@" > "$XDG_DATA_HOME/bb/$savename"
 
 ## Ctrl-o: Open a saved selection
 [ -d "$XDG_DATA_HOME"/bb ]
 [ $# -gt 0 ] && bbconfirm "The current selection will be discarded. "
 loadpath="$(find "$XDG_DATA_HOME"/bb/ -mindepth 1 -name '*.sel' -printf '%P\0' | bbpick "Load selection: ")"
-cat "$XDG_DATA_HOME"/bb/"$loadpath" | bbcmd deselect select:
+cat "$XDG_DATA_HOME/bb/$loadpath" | bbcmd deselect select:
 
 ## J: Spread selection down
 bbcmd spread:+1
@@ -188,7 +188,7 @@ printf "\033[1G\033[KMoving..."
 mv -i "$@" .
 printf "done."
 bbcmd deselect refresh
-for f; do bbcmd sel:"$(basename "$f")"; done
+bbcmd sel: "${@##*/}"
 
 ## c: Copy a file
 [ $# -gt 0 ]
@@ -196,7 +196,7 @@ printf "\033[1mCopying the following to here:\n\033[33m$(printf '  %s\n' "$@")\0
 bbconfirm
 printf "\033[1G\033[KCopying..."
 for f; do
-    if [ "./$(basename "$f")" -ef "$f" ]; then
+    if [ "./${f##*/}" -ef "$f" ]; then
         cp -ri "$f" "$f.copy" || break
     else cp -ri "$f" . || break; fi
 done
@@ -206,7 +206,7 @@ bbcmd refresh
 ## Ctrl-n: New file/directory
 case "$(printf '%s\0' File Directory | bbpick "Create new: ")" in
     File)
-        name="$(bbask "New File: ")" && touch -- "$name"
+        name="$(bbask "New File: ")" && printf '' >"$name"
         ;;
     Directory)
         name="$(bbask "New Directory: ")" && mkdir -- "$name"
@@ -225,7 +225,7 @@ case "$(bbtargets "$BBCURSOR" "$@")" in
     both) set -- "$BBCURSOR" "$@";;
 esac
 for f; do
-    newname="$(bbask "Rename $(printf "\033[33m%s\033[39m" "$(basename "$f")"): " "$(basename "$f")")" || break
+    newname="$(bbask "Rename $(printf "\033[33m%s\033[39m" "${f##*/}"): " "${f##*/}")" || break
     r="$(dirname "$f")/$newname"
     [ "$r" = "$f" ] && continue
     [ -e "$r" ] && printf "\033[31;1m$r already exists! It will be overwritten.\033[0m "

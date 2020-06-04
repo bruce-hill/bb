@@ -17,11 +17,11 @@ fi
 case "$PICKER" in
     fzf*)
         printf '\033[3A\033[?25h' >/dev/tty
-        fzf --read0 --height=4 --prompt="$(printf "$1")"
+        fzf --read0 --height=6 --prompt="$(printf "$1")"
         ;;
     fzy*)
         printf '\033[3A\033[?25h' >/dev/tty
-        tr '\0' '\n' | fzy --lines=3 --prompt="$(printf "\033[1m$1\033[0m")"
+        tr '\0' '\n' | fzy --lines=5 --prompt="$(printf "\033[1m$1\033[0m")"
         ;;
     ask*)
         ask --read0 --prompt="$(printf "$1\033[?25h")"

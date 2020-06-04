@@ -17,9 +17,9 @@
     make
     sudo make install
 
-To run `bb`, it's expected that you have some basic unix tools:
-`basename`, `cat`, `cp`, `echo`, `find`, `kill`, `less`, `ln`, `mkdir`, `more`,
-`mv`, `printf`, `read`, `rm`, `sed`, `sh`, `touch`, `tput`, `tr`.
+To run `bb`, it's expected that you have some basic unix tools: `cat`, `cp`,
+`echo`, `find`, `kill`, `less`, `ln`, `mkdir`, `more`, `mv`, `printf`, `read`,
+`rm`, `sed`, `sh`, `tput`, `tr`.
 
 ## Usage
 

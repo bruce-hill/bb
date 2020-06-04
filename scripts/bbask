@@ -24,7 +24,7 @@ else
         if [ "$(uname)" = "Darwin" ]; then
             read -e REPLY </dev/tty >/dev/tty
         else
-            read REPLY </dev/tty >/dev/tty
+            read -r REPLY </dev/tty >/dev/tty
         fi
         echo $REPLY
     fi
