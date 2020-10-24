@@ -311,7 +311,7 @@ char *bkeyname(int key, char *buf)
 
 /*
  * Return the key with the given name, if one exists, otherwise -1.
- * (i.e. bkeyname("Space") == ' ', bkeyname("x") == 'x', bkeywithname("F1") == KEY_F1, bkeyname("???") == -1)
+ * (i.e. bkeywithname("Space") == ' ', bkeywithname("x") == 'x', bkeywithname("F1") == KEY_F1, bkeywithname("???") == -1)
  */
 int bkeywithname(const char *name)
 {
