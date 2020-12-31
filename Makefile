@@ -1,20 +1,26 @@
 NAME=bb
 PREFIX=
 CC ?= gcc
+G ?=
 O ?= -O2
-CFLAGS=-std=c99 -D_XOPEN_SOURCE=500 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L
+CFLAGS=-std=c99 -D_XOPEN_SOURCE=700 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L
 CWARN=-Wall -Wpedantic -Wextra -Wno-unknown-pragmas -Wno-missing-field-initializers\
 	  -Wno-padded -Wsign-conversion -Wno-missing-noreturn -Wno-cast-qual -Wtype-limits
 #CFLAGS += -fsanitize=address -fno-omit-frame-pointer
-G=
+
+CFILES=columns.c bterm.c
+OBJFILES=$(CFILES:.c=.o)
 
 all: $(NAME)
 
 clean:
-	rm -f $(NAME)
+	rm -f $(NAME) $(OBJFILES)
 
-$(NAME): $(NAME).c bterm.h bb.h columns.h
-	$(CC) $(NAME).c $(CFLAGS) $(CWARN) $(G) $(O) -o $@
+.c.o:
+	$(CC) -c $(CFLAGS) $(CWARN) $(G) $(O) -o $@ $<
+
+$(NAME): $(OBJFILES) $(NAME).c
+	$(CC) $(CFLAGS) $(CWARN) $(G) $(O) -o $@ $(OBJFILES) $(NAME).c
 
 install: $(NAME)
 	@prefix="$(PREFIX)"; \

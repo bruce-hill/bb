@@ -6,9 +6,107 @@
  * This file contains the main source code of `bb`.
  */
 
+#include <fcntl.h>
+#include <glob.h>
+#include <limits.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/errno.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <termios.h>
+#include <unistd.h>
+
 #include "bb.h"
+#include "columns.h"
+
+// Functions
+void bb_browse(bb_t *bb, const char *initial_path);
+static void check_cmdfile(bb_t *bb);
+static void cleanup(void);
+static void cleanup_and_raise(int sig);
+static const char* color_of(mode_t mode);
+#ifdef __APPLE__
+static int compare_files(void *v, const void *v1, const void *v2);
+#else
+static int compare_files(const void *v1, const void *v2, void *v);
+#endif
+static int fputs_escaped(FILE *f, const char *str, const char *color);
+static void handle_next_key_binding(bb_t *bb);
+static void init_term(void);
+static int is_simple_bbcmd(const char *s);
+static entry_t* load_entry(bb_t *bb, const char *path);
+static inline int matches_cmd(const char *str, const char *cmd);
+static void* memcheck(void *p);
+static char* normalize_path(const char *root, const char *path, char *pbuf);
+static int populate_files(bb_t *bb, const char *path);
+static void print_bindings(int fd);
+static void run_bbcmd(bb_t *bb, const char *cmd);
+static void render(bb_t *bb);
+static void restore_term(const struct termios *term);
+static int run_script(bb_t *bb, const char *cmd);
+static void set_columns(bb_t *bb, const char *cols);
+static void set_cursor(bb_t *bb, int i);
+static void set_globs(bb_t *bb, const char *globs);
+static void set_interleave(bb_t *bb, int interleave);
+static void set_selected(bb_t *bb, entry_t *e, int selected);
+static void set_scroll(bb_t *bb, int i);
+static void set_sort(bb_t *bb, const char *sort);
+static void set_title(bb_t *bb);
+static void sort_files(bb_t *bb);
+static char *trim(char *s);
+static int try_free_entry(entry_t *e);
+static void update_term_size(int sig);
+static int wait_for_process(proc_t **proc);
+
+// Constants
+static const char *T_ENTER_BBMODE = T_OFF(T_SHOW_CURSOR ";" T_WRAP) T_ON(T_ALT_SCREEN ";" T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
+static const char *T_LEAVE_BBMODE = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN) T_ON(T_SHOW_CURSOR ";" T_WRAP);
+static const char *T_LEAVE_BBMODE_PARTIAL = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR) T_ON(T_WRAP);
+static const struct termios default_termios = {
+    .c_iflag = ICRNL,
+    .c_oflag = OPOST | ONLCR | NL0 | CR0 | TAB0 | BS0 | VT0 | FF0,
+    .c_lflag = ISIG | ICANON | IEXTEN | ECHO | ECHOE | ECHOK | ECHOCTL | ECHOKE,
+    .c_cflag = CS8 | CREAD,
+    .c_cc[VINTR] = '',
+    .c_cc[VQUIT] = '',
+    .c_cc[VERASE] = 127,
+    .c_cc[VKILL] = '',
+    .c_cc[VEOF] = '',
+    .c_cc[VSTART] = '',
+    .c_cc[VSTOP] = '',
+    .c_cc[VSUSP] = '',
+    .c_cc[VREPRINT] = '',
+    .c_cc[VWERASE] = '',
+    .c_cc[VLNEXT] = '',
+    .c_cc[VDISCARD] = '',
+    .c_cc[VMIN] = 1,
+    .c_cc[VTIME] = 0,
+};
+
+static const char *description_str = "bb - an itty bitty console TUI file browser\n";
+static const char *usage_str = "Usage: bb (-h/--help | -v/--version | -s | -d | -0 | +command)* [[--] directory]\n";
+
+column_t columns[255] = {
+    ['*'] = {.name = "*",          .render = col_selected},
+    ['n'] = {.name = "Name",       .render = col_name, .stretchy = 1},
+    ['s'] = {.name = " Size",      .render = col_size},
+    ['p'] = {.name = "Perm",       .render = col_perm},
+    ['m'] = {.name = " Modified",  .render = col_mreltime},
+    ['M'] = {.name = " Modified ", .render = col_mtime},
+    ['a'] = {.name = " Accessed",  .render = col_areltime},
+    ['A'] = {.name = " Accessed ", .render = col_atime},
+    ['c'] = {.name = " Created",   .render = col_creltime},
+    ['C'] = {.name = " Created ",  .render = col_ctime},
+    ['r'] = {.name = "Random",     .render = col_random},
+};
+
 
 // Variables used within this file to track global state
+static binding_t bindings[MAX_BINDINGS];
 static struct termios orig_termios, bb_termios;
 static FILE *tty_out = NULL, *tty_in = NULL;
 static struct winsize winsize = {0};
@@ -36,7 +134,7 @@ void bb_browse(bb_t *bb, const char *initial_path)
  * Check the bb command file and run any and all commands that have been
  * written to it.
  */
-void check_cmdfile(bb_t *bb)
+static void check_cmdfile(bb_t *bb)
 {
     FILE *cmdfile = fopen(cmdfilename, "r");
     if (!cmdfile) return;
@@ -55,7 +153,7 @@ void check_cmdfile(bb_t *bb)
 /*
  * Clean up the terminal before going to the default signal handling behavior.
  */
-void cleanup_and_raise(int sig)
+static void cleanup_and_raise(int sig)
 {
     cleanup();
     int childsig = (sig == SIGTSTP || sig == SIGSTOP) ? sig : SIGHUP;
@@ -71,7 +169,7 @@ void cleanup_and_raise(int sig)
 /*
  * Reset the screen and delete the cmdfile
  */
-void cleanup(void)
+static void cleanup(void)
 {
     if (cmdfilename[0]) {
         unlink(cmdfilename);
@@ -87,7 +185,7 @@ void cleanup(void)
 /*
  * Returns the color of a file listing, given its mode.
  */
-const char* color_of(mode_t mode)
+static const char* color_of(mode_t mode)
 {
     if (S_ISDIR(mode)) return DIR_COLOR;
     else if (S_ISLNK(mode)) return LINK_COLOR;
@@ -101,9 +199,9 @@ const char* color_of(mode_t mode)
  * like bb->sort
  */
 #ifdef __APPLE__
-int compare_files(void *v, const void *v1, const void *v2)
+static int compare_files(void *v, const void *v1, const void *v2)
 #else
-int compare_files(const void *v1, const void *v2, void *v)
+static int compare_files(const void *v1, const void *v2, void *v)
 #endif
 {
 #define COMPARE(a, b) if ((a) != (b)) { return sign*((a) < (b) ? 1 : -1); }
@@ -168,7 +266,7 @@ int compare_files(const void *v1, const void *v2, void *v)
  * The color argument is what color to put back after the red.
  * Returns the number of bytes that were escaped.
  */
-int fputs_escaped(FILE *f, const char *str, const char *color)
+static int fputs_escaped(FILE *f, const char *str, const char *color)
 {
     static const char *escapes = "       abtnvfr             e";
     int escaped = 0;
@@ -190,7 +288,7 @@ int fputs_escaped(FILE *f, const char *str, const char *color)
  * Wait until the user has pressed a key with an associated key binding and run
  * that binding.
  */
-void handle_next_key_binding(bb_t *bb)
+static void handle_next_key_binding(bb_t *bb)
 {
     int key, mouse_x, mouse_y;
     binding_t *binding;
@@ -253,7 +351,7 @@ void handle_next_key_binding(bb_t *bb)
  * Initialize the terminal files for /dev/tty and set up some desired
  * attributes like passing Ctrl-c as a key instead of interrupting
  */
-void init_term(void)
+static void init_term(void)
 {
     if (tcsetattr(fileno(tty_out), TCSANOW, &bb_termios) == -1)
         err("Couldn't tcsetattr");
@@ -287,7 +385,7 @@ static int is_simple_bbcmd(const char *s)
  * Warning: this does not deduplicate entries, and it's best if there aren't
  * duplicate entries hanging around.
  */
-entry_t* load_entry(bb_t *bb, const char *path)
+static entry_t* load_entry(bb_t *bb, const char *path)
 {
     struct stat linkedstat, filestat;
     if (!path || !path[0]) return NULL;
@@ -353,7 +451,7 @@ static inline int matches_cmd(const char *str, const char *cmd)
  * Memory allocation failures are unrecoverable in bb, so this wrapper just
  * prints an error message and exits if that happens.
  */
-void* memcheck(void *p)
+static void* memcheck(void *p)
 {
     if (!p) err("Allocation failure");
     return p;
@@ -363,7 +461,7 @@ void* memcheck(void *p)
  * Prepend `root` to relative paths, replace "~" with $HOME.
  * The normalized path is stored in `normalized`.
  */
-char *normalize_path(const char *root, const char *path, char *normalized)
+static char *normalize_path(const char *root, const char *path, char *normalized)
 {
     char pbuf[PATH_MAX] = {0};
     if (path[0] == '~' && (path[1] == '\0' || path[1] == '/')) {
@@ -387,7 +485,7 @@ char *normalize_path(const char *root, const char *path, char *normalized)
  * Remove all the files currently stored in bb->files and if `bb->path` is
  * non-NULL, update `bb` with a listing of the files in `path`
  */
-int populate_files(bb_t *bb, const char *path)
+static int populate_files(bb_t *bb, const char *path)
 {
     int samedir = path && strcmp(bb->path, path) == 0;
     int old_scroll = bb->scroll;
@@ -501,7 +599,7 @@ int populate_files(bb_t *bb, const char *path)
 /*
  * Print the current key bindings
  */
-void print_bindings(int fd)
+static void print_bindings(int fd)
 {
     char buf[1000], buf2[1024];
     for (size_t i = 0; bindings[i].script && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
@@ -535,7 +633,7 @@ void print_bindings(int fd)
  * Run a bb internal command (e.g. "+refresh") and return an indicator of what
  * needs to happen next.
  */
-void run_bbcmd(bb_t *bb, const char *cmd)
+static void run_bbcmd(bb_t *bb, const char *cmd)
 {
     while (*cmd == ' ' || *cmd == '\n') ++cmd;
     if (strncmp(cmd, "bbcmd ", strlen("bbcmd ")) == 0) cmd = &cmd[strlen("bbcmd ")];
@@ -733,7 +831,7 @@ void run_bbcmd(bb_t *bb, const char *cmd)
  * If `dirty` is false, then use terminal scrolling to move the file listing
  * around and only update the files that have changed.
  */
-void render(bb_t *bb)
+static void render(bb_t *bb)
 {
     static int lastcursor = -1, lastscroll = -1;
 
@@ -888,7 +986,7 @@ void render(bb_t *bb)
 /*
  * Close the /dev/tty terminals and restore some of the attributes.
  */
-void restore_term(const struct termios *term)
+static void restore_term(const struct termios *term)
 {
     tcsetattr(fileno(tty_out), TCSANOW, term);
     fputs(T_LEAVE_BBMODE_PARTIAL, tty_out);
@@ -900,7 +998,7 @@ void restore_term(const struct termios *term)
  * the script (or pass the cursor file if none are selected).
  * Return the exit status of the script.
  */
-int run_script(bb_t *bb, const char *cmd)
+static int run_script(bb_t *bb, const char *cmd)
 {
     proc_t *proc = memcheck(calloc(1, sizeof(proc_t)));
     signal(SIGTTOU, SIG_IGN);
@@ -943,7 +1041,7 @@ int run_script(bb_t *bb, const char *cmd)
 /*
  * Set the columns displayed by bb.
  */
-void set_columns(bb_t *bb, const char *cols)
+static void set_columns(bb_t *bb, const char *cols)
 {
     strncpy(bb->columns, cols, MAX_COLS);
     setenv("BBCOLUMNS", bb->columns, 1);
@@ -952,7 +1050,7 @@ void set_columns(bb_t *bb, const char *cols)
 /*
  * Set bb's file cursor to the given index (and adjust the scroll as necessary)
  */
-void set_cursor(bb_t *bb, int newcur)
+static void set_cursor(bb_t *bb, int newcur)
 {
     int oldcur = bb->cursor;
     if (newcur > bb->nfiles - 1) newcur = bb->nfiles - 1;
@@ -981,7 +1079,7 @@ void set_cursor(bb_t *bb, int newcur)
 /*
  * Set the glob pattern(s) used by bb. Patterns are ' ' delimited
  */
-void set_globs(bb_t *bb, const char *globs)
+static void set_globs(bb_t *bb, const char *globs)
 {
     free(bb->globpats);
     bb->globpats = memcheck(strdup(globs));
@@ -992,7 +1090,7 @@ void set_globs(bb_t *bb, const char *globs)
 /*
  * Set whether or not bb should interleave directories and files.
  */
-void set_interleave(bb_t *bb, int interleave)
+static void set_interleave(bb_t *bb, int interleave)
 {
     bb->interleave_dirs = interleave;
     if (interleave) setenv("BBINTERLEAVE", "interleave", 1);
@@ -1003,7 +1101,7 @@ void set_interleave(bb_t *bb, int interleave)
 /*
  * Set bb's scroll to the given index (and adjust the cursor as necessary)
  */
-void set_scroll(bb_t *bb, int newscroll)
+static void set_scroll(bb_t *bb, int newscroll)
 {
     int delta = newscroll - bb->scroll;
     if (bb->nfiles <= ONSCREEN) {
@@ -1023,7 +1121,7 @@ void set_scroll(bb_t *bb, int newscroll)
 /*
  * Select or deselect a file.
  */
-void set_selected(bb_t *bb, entry_t *e, int selected)
+static void set_selected(bb_t *bb, entry_t *e, int selected)
 {
     if (IS_SELECTED(e) == selected) return;
 
@@ -1043,7 +1141,7 @@ void set_selected(bb_t *bb, entry_t *e, int selected)
 /*
  * Set the sorting method used by bb to display files.
  */
-void set_sort(bb_t *bb, const char *sort)
+static void set_sort(bb_t *bb, const char *sort)
 {
     char sortbuf[strlen(sort)+1];
     strcpy(sortbuf, sort);
@@ -1065,7 +1163,7 @@ void set_sort(bb_t *bb, const char *sort)
 /*
  * Set the xwindow title property to: bb - current path
  */
-void set_title(bb_t *bb)
+static void set_title(bb_t *bb)
 {
     char *home = getenv("HOME");
     if (home && strncmp(bb->path, home, strlen(home)) == 0)
@@ -1078,7 +1176,7 @@ void set_title(bb_t *bb)
  * If the given entry is not viewed or selected, remove it from the
  * hash, free it, and return 1.
  */
-int try_free_entry(entry_t *e)
+static int try_free_entry(entry_t *e)
 {
     if (IS_SELECTED(e) || IS_VIEWED(e) || !IS_LOADED(e)) return 0;
     LL_REMOVE(e, hash);
@@ -1089,7 +1187,7 @@ int try_free_entry(entry_t *e)
 /*
  * Sort the files in bb according to bb's settings.
  */
-void sort_files(bb_t *bb)
+static void sort_files(bb_t *bb)
 {
 #ifdef __APPLE__
     qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), bb, compare_files);
@@ -1118,7 +1216,7 @@ static char *trim(char *s)
 /*
  * Hanlder for SIGWINCH events
  */
-void update_term_size(int sig)
+static void update_term_size(int sig)
 {
     (void)sig;
     struct winsize oldsize = winsize;
@@ -1129,7 +1227,7 @@ void update_term_size(int sig)
 /*
  * Wait for a process to either suspend or exit and return the status.
  */
-int wait_for_process(proc_t **proc)
+static int wait_for_process(proc_t **proc)
 {
     tcsetpgrp(fileno(tty_out), (*proc)->pid);
     int status;
