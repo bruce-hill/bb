@@ -10,7 +10,6 @@
 
 #include "bterm.h"
 #include "entry.h"
-#include "columns.h"
 
 // Macros:
 #define BB_VERSION "0.27.0"
@@ -27,8 +26,6 @@
 
 // Configurable options:
 #define SCROLLOFF   MIN(5, (winsize.ws_row-4)/2)
-#define SORT_INDICATOR  "↓"
-#define RSORT_INDICATOR "↑"
 // Colors (using ANSI escape sequences):
 #define TITLE_COLOR      "\033[37;1m"
 #define NORMAL_COLOR     "\033[37m"
@@ -70,7 +67,7 @@
     fputs(" Press any key to continue...\033[0m  ", tty_out); \
     fflush(tty_out); \
     while (bgetkey(tty_in, NULL, NULL) == -1) usleep(100); \
-    dirty = 1; \
+    bb->dirty = 1; \
 } while (0)
 
 #define LL_PREPEND(head, node, name) do { \
@@ -96,6 +93,14 @@ typedef struct {
     char *description;
 } binding_t;
 
+// For keeping track of child processes
+typedef struct proc_s {
+    pid_t pid;
+    struct {
+        struct proc_s *next, **atme;
+    } running;
+} proc_t;
+
 typedef struct bb_s {
     entry_t *hash[HASH_SIZE];
     entry_t **files;
@@ -110,15 +115,9 @@ typedef struct bb_s {
     char columns[MAX_COLS+1];
     unsigned int interleave_dirs : 1;
     unsigned int should_quit : 1;
+    unsigned int dirty : 1;
+    proc_t *running_procs;
 } bb_t;
-
-// For keeping track of child processes
-typedef struct proc_s {
-    pid_t pid;
-    struct {
-        struct proc_s *next, **atme;
-    } running;
-} proc_t;
 
 // Hack to get TinyCC (TCC) compilation to work:
 // https://lists.nongnu.org/archive/html/tinycc-devel/2018-07/msg00000.html

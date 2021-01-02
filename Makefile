@@ -8,7 +8,7 @@ CWARN=-Wall -Wpedantic -Wextra -Wno-unknown-pragmas -Wno-missing-field-initializ
 	  -Wno-padded -Wsign-conversion -Wno-missing-noreturn -Wno-cast-qual -Wtype-limits
 #CFLAGS += -fsanitize=address -fno-omit-frame-pointer
 
-CFILES=columns.c bterm.c
+CFILES=draw.c bterm.c
 OBJFILES=$(CFILES:.c=.o)
 
 all: $(NAME)

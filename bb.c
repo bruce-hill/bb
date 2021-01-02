@@ -21,20 +21,18 @@
 #include <unistd.h>
 
 #include "bb.h"
-#include "columns.h"
+#include "draw.h"
 
 // Functions
 void bb_browse(bb_t *bb, const char *initial_path);
 static void check_cmdfile(bb_t *bb);
 static void cleanup(void);
 static void cleanup_and_raise(int sig);
-static const char* color_of(mode_t mode);
 #ifdef __APPLE__
 static int compare_files(void *v, const void *v1, const void *v2);
 #else
 static int compare_files(const void *v1, const void *v2, void *v);
 #endif
-static int fputs_escaped(FILE *f, const char *str, const char *color);
 static void handle_next_key_binding(bb_t *bb);
 static void init_term(void);
 static int is_simple_bbcmd(const char *s);
@@ -45,7 +43,6 @@ static char* normalize_path(const char *root, const char *path, char *pbuf);
 static int populate_files(bb_t *bb, const char *path);
 static void print_bindings(int fd);
 static void run_bbcmd(bb_t *bb, const char *cmd);
-static void render(bb_t *bb);
 static void restore_term(const struct termios *term);
 static int run_script(bb_t *bb, const char *cmd);
 static void set_columns(bb_t *bb, const char *cols);
@@ -90,20 +87,6 @@ static const struct termios default_termios = {
 static const char *description_str = "bb - an itty bitty console TUI file browser\n";
 static const char *usage_str = "Usage: bb (-h/--help | -v/--version | -s | -d | -0 | +command)* [[--] directory]\n";
 
-column_t columns[255] = {
-    ['*'] = {.name = "*",          .render = col_selected},
-    ['n'] = {.name = "Name",       .render = col_name, .stretchy = 1},
-    ['s'] = {.name = " Size",      .render = col_size},
-    ['p'] = {.name = "Perm",       .render = col_perm},
-    ['m'] = {.name = " Modified",  .render = col_mreltime},
-    ['M'] = {.name = " Modified ", .render = col_mtime},
-    ['a'] = {.name = " Accessed",  .render = col_areltime},
-    ['A'] = {.name = " Accessed ", .render = col_atime},
-    ['c'] = {.name = " Created",   .render = col_creltime},
-    ['C'] = {.name = " Created ",  .render = col_ctime},
-    ['r'] = {.name = "Random",     .render = col_random},
-};
-
 
 // Variables used within this file to track global state
 static binding_t bindings[MAX_BINDINGS];
@@ -111,8 +94,7 @@ static struct termios orig_termios, bb_termios;
 static FILE *tty_out = NULL, *tty_in = NULL;
 static struct winsize winsize = {0};
 static char cmdfilename[PATH_MAX] = {0};
-static proc_t *running_procs = NULL;
-static int dirty = 1;
+static bb_t *current_bb = NULL;
 
 /*
  * Use bb to browse the filesystem.
@@ -124,7 +106,7 @@ void bb_browse(bb_t *bb, const char *initial_path)
     run_script(bb, "bbstartup");
     check_cmdfile(bb);
     while (!bb->should_quit) {
-        render(bb);
+        render(tty_out, bb);
         handle_next_key_binding(bb);
     }
     run_script(bb, "bbshutdown");
@@ -157,8 +139,12 @@ static void cleanup_and_raise(int sig)
 {
     cleanup();
     int childsig = (sig == SIGTSTP || sig == SIGSTOP) ? sig : SIGHUP;
-    for (proc_t *p = running_procs; p; p = p->running.next)
-        kill(p->pid, childsig);
+    if (current_bb) {
+        for (proc_t *p = current_bb->running_procs; p; p = p->running.next) {
+            kill(p->pid, childsig);
+            LL_REMOVE(p, running);
+        }
+    }
     raise(sig);
     // This code will only ever be run if sig is SIGTSTP/SIGSTOP, otherwise, raise() won't return:
     init_term();
@@ -180,18 +166,6 @@ static void cleanup(void)
         fflush(tty_out);
         tcsetattr(fileno(tty_out), TCSANOW, &orig_termios);
     }
-}
-
-/*
- * Returns the color of a file listing, given its mode.
- */
-static const char* color_of(mode_t mode)
-{
-    if (S_ISDIR(mode)) return DIR_COLOR;
-    else if (S_ISLNK(mode)) return LINK_COLOR;
-    else if (mode & (S_IXUSR | S_IXGRP | S_IXOTH))
-        return EXECUTABLE_COLOR;
-    else return NORMAL_COLOR;
 }
 
 /*
@@ -262,29 +236,6 @@ static int compare_files(const void *v1, const void *v2, void *v)
 }
 
 /*
- * Print a string, but replacing bytes like '\n' with a red-colored "\n".
- * The color argument is what color to put back after the red.
- * Returns the number of bytes that were escaped.
- */
-static int fputs_escaped(FILE *f, const char *str, const char *color)
-{
-    static const char *escapes = "       abtnvfr             e";
-    int escaped = 0;
-    for (const char *c = str; *c; ++c) {
-        if (*c > 0 && *c <= '\x1b' && escapes[(int)*c] != ' ') { // "\n", etc.
-            fprintf(f, "\033[31m\\%c%s", escapes[(int)*c], color);
-            ++escaped;
-        } else if (*c >= 0 && !(' ' <= *c && *c <= '~')) { // "\x02", etc.
-            fprintf(f, "\033[31m\\x%02X%s", *c, color);
-            ++escaped;
-        } else {
-            fputc(*c, f);
-        }
-    }
-    return escaped;
-}
-
-/*
  * Wait until the user has pressed a key with an associated key binding and run
  * that binding.
  */
@@ -295,7 +246,7 @@ static void handle_next_key_binding(bb_t *bb)
     do {
         do {
             key = bgetkey(tty_in, &mouse_x, &mouse_y);
-            if (key == -1 && dirty) return;
+            if (key == -1 && bb->dirty) return;
         } while (key == -1);
 
         binding = NULL;
@@ -309,10 +260,10 @@ static void handle_next_key_binding(bb_t *bb)
 
     char bbmousecol[2] = {0, 0}, bbclicked[PATH_MAX];
     if (mouse_x != -1 && mouse_y != -1) {
+        int *colwidths = get_column_widths(bb->columns, winsize.ws_col-1);
         // Get bb column:
         for (int col = 0, x = 0; bb->columns[col]; col++, x++) {
-            if (!columns[(int)bb->columns[col]].name) continue;
-            x += (int)strlen(columns[(int)bb->columns[col]].name);
+            x += colwidths[col];
             if (x >= mouse_x) {
                 bbmousecol[0] = bb->columns[col];
                 break;
@@ -522,7 +473,7 @@ static int populate_files(bb_t *bb, const char *path)
         setenv("BBPREVPATH", bb->prev_path, 1);
     }
 
-    dirty = 1;
+    bb->dirty = 1;
     strcpy(bb->path, pbuf);
     set_title(bb);
 
@@ -710,10 +661,10 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
         }
     } else if (matches_cmd(cmd, "fg:") || matches_cmd(cmd, "fg")) { // +fg:
         int nprocs = 0;
-        for (proc_t *p = running_procs; p; p = p->running.next) ++nprocs;
+        for (proc_t *p = bb->running_procs; p; p = p->running.next) ++nprocs;
         int fg = value ? nprocs - (int)strtol(value, NULL, 10) : 0;
         proc_t *child = NULL;
-        for (proc_t *p = running_procs; p && !child; p = p->running.next) {
+        for (proc_t *p = bb->running_procs; p && !child; p = p->running.next) {
             if (fg-- == 0) child = p;
         }
         if (!child) return;
@@ -728,7 +679,7 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
         signal(SIGTTOU, SIG_DFL);
         init_term();
         set_title(bb);
-        dirty = 1;
+        bb->dirty = 1;
     } else if (matches_cmd(cmd, "glob:")) { // +glob:
         set_globs(bb, value[0] ? value : "*");
         populate_files(bb, bb->path);
@@ -827,163 +778,6 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
 }
 
 /*
- * Draw everything to the screen.
- * If `dirty` is false, then use terminal scrolling to move the file listing
- * around and only update the files that have changed.
- */
-static void render(bb_t *bb)
-{
-    static int lastcursor = -1, lastscroll = -1;
-
-    if (!dirty) {
-        // Use terminal scrolling:
-        if (lastscroll > bb->scroll) {
-            fprintf(tty_out, "\033[3;%dr\033[%dT\033[1;%dr", winsize.ws_row-1, lastscroll - bb->scroll, winsize.ws_row);
-        } else if (lastscroll < bb->scroll) {
-            fprintf(tty_out, "\033[3;%dr\033[%dS\033[1;%dr", winsize.ws_row-1, bb->scroll - lastscroll, winsize.ws_row);
-        }
-    }
-
-    int colwidths[MAX_COLS] = {0};
-    int space = winsize.ws_col - 1, nstretchy = 0;
-    for (int c = 0; bb->columns[c]; c++) {
-        column_t col = columns[(int)bb->columns[c]];
-        if (!col.name) continue;
-        if (col.stretchy) {
-            ++nstretchy;
-        } else {
-            colwidths[c] = strlen(col.name) + 1;
-            space -= colwidths[c];
-        }
-        if (c > 0) --space;
-    }
-    for (int c = 0; bb->columns[c]; c++)
-        if (columns[(int)bb->columns[c]].stretchy)
-            colwidths[c] = space / nstretchy;
-
-    if (dirty) {
-        // Path
-        move_cursor(tty_out, 0, 0);
-        const char *color = TITLE_COLOR;
-        fputs(color, tty_out);
-
-        char *home = getenv("HOME");
-        if (home && strncmp(bb->path, home, strlen(home)) == 0) {
-            fputs("~", tty_out);
-            fputs_escaped(tty_out, bb->path + strlen(home), color);
-        } else {
-            fputs_escaped(tty_out, bb->path, color);
-        }
-        fprintf(tty_out, "\033[0;2m[%s]", bb->globpats);
-        fputs(" \033[K\033[0m", tty_out);
-
-        static const char *help = "Press '?' to see key bindings ";
-        move_cursor(tty_out, MAX(0, winsize.ws_col - (int)strlen(help)), 0);
-        fputs(help, tty_out);
-        fputs("\033[K\033[0m", tty_out);
-
-        // Columns
-        move_cursor(tty_out, 0, 1);
-        fputs("\033[0;44;30m\033[K", tty_out);
-        int x = 0;
-        for (int c = 0; bb->columns[c]; c++) {
-            column_t col = columns[(int)bb->columns[c]];
-            if (!col.name) continue;
-            const char *title = col.name;
-            if (!title) title = "";
-            move_cursor_col(tty_out, x);
-            if (c > 0) {
-                fputs("┃\033[K", tty_out);
-                x += 1;
-            }
-            const char *indicator = " ";
-            if (bb->columns[c] == bb->sort[1])
-                indicator = bb->sort[0] == '-' ? RSORT_INDICATOR : SORT_INDICATOR;
-            move_cursor_col(tty_out, x);
-            fputs(indicator, tty_out);
-            fputs(title, tty_out);
-            x += colwidths[c];
-        }
-        fputs(" \033[K\033[0m", tty_out);
-    }
-
-    if (bb->nfiles == 0) {
-        move_cursor(tty_out, 0, 2);
-        fputs("\033[37;2m ...no files here... \033[0m\033[J", tty_out);
-    } else {
-        entry_t **files = bb->files;
-        for (int i = bb->scroll; i < bb->scroll + ONSCREEN && i < bb->nfiles; i++) {
-            if (!(dirty || i == bb->cursor || i == lastcursor ||
-                  i < lastscroll || i >= lastscroll + ONSCREEN)) {
-                continue;
-            }
-
-            entry_t *entry = files[i];
-            const char *color = i == bb->cursor ?
-                CURSOR_COLOR : color_of(entry->info.st_mode);
-            fputs(color, tty_out);
-            int x = 0, y = i - bb->scroll + 2;
-            move_cursor(tty_out, x, y);
-            for (int c = 0; bb->columns[c]; c++) {
-                column_t col = columns[(int)bb->columns[c]];
-                if (!col.name) continue;
-                move_cursor_col(tty_out, x);
-                if (c > 0) { // Separator |
-                    if (i == bb->cursor) fprintf(tty_out, "\033[2m┃\033[22m");
-                    else fprintf(tty_out, "\033[37;2m┃\033[22m%s", color);
-                    x += 1;
-                }
-                char buf[PATH_MAX * 2] = {0};
-                col.render(entry, color, buf, colwidths[c]);
-                fprintf(tty_out, "%s\033[K", buf);
-                x += colwidths[c];
-            }
-            fputs("\033[0m", tty_out);
-        }
-        move_cursor(tty_out, 0, MIN(bb->nfiles - bb->scroll, ONSCREEN) + 2);
-        fputs("\033[J", tty_out);
-    }
-
-    // Scrollbar:
-    if (bb->nfiles > ONSCREEN) {
-        int height = (ONSCREEN*ONSCREEN + (bb->nfiles-1))/bb->nfiles;
-        int start = 2 + (bb->scroll*ONSCREEN)/bb->nfiles;
-        for (int i = 2; i < 2 + ONSCREEN; i++) {
-            move_cursor(tty_out, winsize.ws_col-1, i);
-            fprintf(tty_out, "%s\033[0m",
-                (i >= start && i < start + height) ?  SCROLLBAR_FG : SCROLLBAR_BG);
-        }
-    }
-
-    // Bottom Line:
-    move_cursor(tty_out, winsize.ws_col/2, winsize.ws_row - 1);
-    fputs("\033[0m\033[K", tty_out);
-    int x = winsize.ws_col;
-    if (bb->selected) { // Number of selected files
-        int n = 0;
-        for (entry_t *s = bb->selected; s; s = s->selected.next) ++n;
-        x -= 14;
-        for (int k = n; k; k /= 10) x--;
-        move_cursor(tty_out, MAX(0, x), winsize.ws_row - 1);
-        fprintf(tty_out, "\033[41;30m %d Selected \033[0m", n);
-    }
-    int nprocs = 0;
-    for (proc_t *p = running_procs; p; p = p->running.next) ++nprocs;
-    if (nprocs > 0) { // Number of suspended processes
-        x -= 13;
-        for (int k = nprocs; k; k /= 10) x--;
-        move_cursor(tty_out, MAX(0, x), winsize.ws_row - 1);
-        fprintf(tty_out, "\033[44;30m %d Suspended \033[0m", nprocs);
-    }
-    move_cursor(tty_out, winsize.ws_col/2, winsize.ws_row - 1);
-
-    lastcursor = bb->cursor;
-    lastscroll = bb->scroll;
-    fflush(tty_out);
-    dirty = 0;
-}
-
-/*
  * Close the /dev/tty terminals and restore some of the attributes.
  */
 static void restore_term(const struct termios *term)
@@ -1032,9 +826,9 @@ static int run_script(bb_t *bb, const char *cmd)
         err("Failed to fork");
 
     (void)setpgid(proc->pid, proc->pid);
-    LL_PREPEND(running_procs, proc, running);
+    LL_PREPEND(bb->running_procs, proc, running);
     int status = wait_for_process(&proc);
-    dirty = 1;
+    bb->dirty = 1;
     return status;
 }
 
@@ -1095,7 +889,7 @@ static void set_interleave(bb_t *bb, int interleave)
     bb->interleave_dirs = interleave;
     if (interleave) setenv("BBINTERLEAVE", "interleave", 1);
     else unsetenv("BBINTERLEAVE");
-    dirty = 1;
+    bb->dirty = 1;
 }
 
 /*
@@ -1126,7 +920,7 @@ static void set_selected(bb_t *bb, entry_t *e, int selected)
     if (IS_SELECTED(e) == selected) return;
 
     if (bb->nfiles > 0 && e != bb->files[bb->cursor])
-        dirty = 1;
+        bb->dirty = 1;
 
     if (selected) {
         LL_PREPEND(bb->selected, e, selected);
@@ -1196,7 +990,7 @@ static void sort_files(bb_t *bb)
 #endif
     for (int i = 0; i < bb->nfiles; i++)
         bb->files[i]->index = i;
-    dirty = 1;
+    bb->dirty = 1;
 }
 
 /*
@@ -1219,9 +1013,7 @@ static char *trim(char *s)
 static void update_term_size(int sig)
 {
     (void)sig;
-    struct winsize oldsize = winsize;
     ioctl(STDIN_FILENO, TIOCGWINSZ, &winsize);
-    dirty |= (oldsize.ws_col != winsize.ws_col || oldsize.ws_row != winsize.ws_row);
 }
 
 /*
@@ -1395,6 +1187,7 @@ int main(int argc, char *argv[])
         .columns = "*smpn",
         .sort = "+n",
     };
+    current_bb = &bb;
     set_globs(&bb, "*");
     init_term();
     bb_browse(&bb, full_initial_path);
