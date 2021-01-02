@@ -1,11 +1,10 @@
 NAME=bb
 PREFIX=
-CC ?= gcc
-G ?=
-O ?= -O2
+CC=cc
+G=
+O=-O2
 CFLAGS=-std=c99 -D_XOPEN_SOURCE=700 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L
-CWARN=-Wall -Wpedantic -Wextra -Wno-unknown-pragmas -Wno-missing-field-initializers\
-	  -Wno-padded -Wsign-conversion -Wno-missing-noreturn -Wno-cast-qual -Wtype-limits
+CWARN=-Wall -Wpedantic -Wextra -Wsign-conversion -Wtype-limits -Wunused-result
 #CFLAGS += -fsanitize=address -fno-omit-frame-pointer
 
 CFILES=draw.c bterm.c
