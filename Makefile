@@ -3,7 +3,7 @@ PREFIX=
 CC=cc
 G=
 O=-O2
-CFLAGS=-std=c99 -D_XOPEN_SOURCE=700 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L
+CFLAGS=-std=c99 -Werror -D_XOPEN_SOURCE=700 -D_GNU_SOURCE -D_POSIX_C_SOURCE=200809L
 CWARN=-Wall -Wpedantic -Wextra -Wsign-conversion -Wtype-limits -Wunused-result
 #CFLAGS += -fsanitize=address -fno-omit-frame-pointer
 
