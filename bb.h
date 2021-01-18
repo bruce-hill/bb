@@ -119,11 +119,5 @@ typedef struct bb_s {
     proc_t *running_procs;
 } bb_t;
 
-// Hack to get TinyCC (TCC) compilation to work:
-// https://lists.nongnu.org/archive/html/tinycc-devel/2018-07/msg00000.html
-#ifdef __TINYC__
-void * __dso_handle __attribute((visibility("hidden"))) = &__dso_handle;
-#endif
-
 #endif
 // vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1
