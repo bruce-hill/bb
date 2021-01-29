@@ -1,10 +1,10 @@
-/*
- * Bitty Browser (bb)
- * Copyright 2019 Bruce Hill
- * Released under the MIT license
- *
- * This file contains the main source code of `bb`.
- */
+//
+//  Bitty Browser (bb)
+//  Copyright 2019 Bruce Hill
+//  Released under the MIT license
+//
+//  This file contains the main source code of `bb`.
+//
 
 #include <ctype.h>
 #include <fcntl.h>
@@ -107,9 +107,9 @@ static struct winsize winsize = {0};
 static char cmdfilename[PATH_MAX] = {0};
 static bb_t *current_bb = NULL;
 
-/*
- * Use bb to browse the filesystem.
- */
+//
+// Use bb to browse the filesystem.
+//
 void bb_browse(bb_t *bb, const char *initial_path)
 {
     if (populate_files(bb, initial_path))
@@ -123,10 +123,10 @@ void bb_browse(bb_t *bb, const char *initial_path)
     run_script(bb, "bbshutdown");
 }
 
-/*
- * Check the bb command file and run any and all commands that have been
- * written to it.
- */
+//
+// Check the bb command file and run any and all commands that have been
+// written to it.
+//
 static void check_cmdfile(bb_t *bb)
 {
     FILE *cmdfile = fopen(cmdfilename, "r");
@@ -143,9 +143,9 @@ static void check_cmdfile(bb_t *bb)
     unlink(cmdfilename);
 }
 
-/*
- * Clean up the terminal before going to the default signal handling behavior.
- */
+//
+// Clean up the terminal before going to the default signal handling behavior.
+//
 static void cleanup_and_raise(int sig)
 {
     cleanup();
@@ -163,9 +163,9 @@ static void cleanup_and_raise(int sig)
     sigaction(sig, &sa, NULL);
 }
 
-/*
- * Reset the screen and delete the cmdfile
- */
+//
+// Reset the screen and delete the cmdfile
+//
 static void cleanup(void)
 {
     if (cmdfilename[0]) {
@@ -179,10 +179,10 @@ static void cleanup(void)
     }
 }
 
-/*
- * Used for sorting, this function compares files according to the sorting-related options,
- * like bb->sort
- */
+//
+// Used for sorting, this function compares files according to the sorting-related options,
+// like bb->sort
+//
 #ifdef __APPLE__
 static int compare_files(void *v, const void *v1, const void *v2)
 #else
@@ -204,14 +204,13 @@ static int compare_files(const void *v1, const void *v2, void *v)
         switch (*sort) {
             case COL_SELECTED: COMPARE(IS_SELECTED(e1), IS_SELECTED(e2)); break;
             case COL_NAME: {
-                /* This sorting method is not identical to strverscmp(). Notably, bb's sort
-                 * will order: [0, 1, 9, 00, 01, 09, 10, 000, 010] instead of strverscmp()'s
-                 * order: [000, 00, 01, 010, 09, 0, 1, 9, 10]. I believe bb's sort is consistent
-                 * with how people want their files grouped: all files padded to n digits
-                 * will be grouped together, and files with the same padding will be sorted
-                 * ordinally. This version also does case-insensitivity by lowercasing words,
-                 * so the following characters come before all letters: [\]^_`
-                 */
+                // This sorting method is not identical to strverscmp(). Notably, bb's sort
+                // will order: [0, 1, 9, 00, 01, 09, 10, 000, 010] instead of strverscmp()'s
+                // order: [000, 00, 01, 010, 09, 0, 1, 9, 10]. I believe bb's sort is consistent
+                // with how people want their files grouped: all files padded to n digits
+                // will be grouped together, and files with the same padding will be sorted
+                // ordinally. This version also does case-insensitivity by lowercasing words,
+                // so the following characters come before all letters: [\]^_`
                 const char *n1 = e1->name, *n2 = e2->name;
                 while (*n1 && *n2) {
                     char c1 = tolower(*n1), c2 = tolower(*n2);
@@ -246,10 +245,10 @@ static int compare_files(const void *v1, const void *v2, void *v)
 #undef COMPARE_TIME
 }
 
-/*
- * Wait until the user has pressed a key with an associated key binding and run
- * that binding.
- */
+//
+// Wait until the user has pressed a key with an associated key binding and run
+// that binding.
+//
 static void handle_next_key_binding(bb_t *bb)
 {
     int key, mouse_x, mouse_y;
@@ -309,10 +308,10 @@ static void handle_next_key_binding(bb_t *bb)
     }
 }
 
-/*
- * Initialize the terminal files for /dev/tty and set up some desired
- * attributes like passing Ctrl-c as a key instead of interrupting
- */
+//
+// Initialize the terminal files for /dev/tty and set up some desired
+// attributes like passing Ctrl-c as a key instead of interrupting
+//
 static void init_term(void)
 {
     if (tcsetattr(fileno(tty_out), TCSANOW, &bb_termios) == -1)
@@ -323,10 +322,10 @@ static void init_term(void)
     fflush(tty_out);
 }
 
-/* 
- * Return whether or not 's' is a simple bb command that doesn't need
- * a full shell instance (e.g. "bbcmd cd:.." or "bbcmd move:+1").
- */
+//
+// Return whether or not 's' is a simple bb command that doesn't need
+// a full shell instance (e.g. "bbcmd cd:.." or "bbcmd move:+1").
+//
 static int is_simple_bbcmd(const char *s)
 {
     if (!s) return 0;
@@ -341,12 +340,12 @@ static int is_simple_bbcmd(const char *s)
     return 1;
 }
 
-/*
- * Load a file's info into an entry_t and return it (if found).
- * The returned entry must be free()ed by the caller.
- * Warning: this does not deduplicate entries, and it's best if there aren't
- * duplicate entries hanging around.
- */
+//
+// Load a file's info into an entry_t and return it (if found).
+// The returned entry must be free()ed by the caller.
+// Warning: this does not deduplicate entries, and it's best if there aren't
+// duplicate entries hanging around.
+//
 static entry_t* load_entry(bb_t *bb, const char *path)
 {
     struct stat linkedstat, filestat;
@@ -397,10 +396,10 @@ static entry_t* load_entry(bb_t *bb, const char *path)
     return entry;
 }
 
-/*
- * Return whether a string matches a command
- * e.g. matches_cmd("sel:x", "select:") == 1, matches_cmd("q", "quit") == 1
- */
+//
+// Return whether a string matches a command
+// e.g. matches_cmd("sel:x", "select:") == 1, matches_cmd("q", "quit") == 1
+//
 static inline int matches_cmd(const char *str, const char *cmd)
 {
     if ((strchr(cmd, ':') == NULL) != (strchr(str, ':') == NULL))
@@ -409,20 +408,20 @@ static inline int matches_cmd(const char *str, const char *cmd)
     return *str == '\0' || *str == ':';
 }
 
-/*
- * Memory allocation failures are unrecoverable in bb, so this wrapper just
- * prints an error message and exits if that happens.
- */
+//
+// Memory allocation failures are unrecoverable in bb, so this wrapper just
+// prints an error message and exits if that happens.
+//
 static void* memcheck(void *p)
 {
     if (!p) err("Allocation failure");
     return p;
 }
 
-/*
- * Prepend `root` to relative paths, replace "~" with $HOME.
- * The normalized path is stored in `normalized`.
- */
+//
+// Prepend `root` to relative paths, replace "~" with $HOME.
+// The normalized path is stored in `normalized`.
+//
 static char *normalize_path(const char *root, const char *path, char *normalized)
 {
     char pbuf[PATH_MAX] = {0};
@@ -443,10 +442,10 @@ static char *normalize_path(const char *root, const char *path, char *normalized
     return normalized;
 }
 
-/*
- * Remove all the files currently stored in bb->files and if `bb->path` is
- * non-NULL, update `bb` with a listing of the files in `path`
- */
+//
+// Remove all the files currently stored in bb->files and if `bb->path` is
+// non-NULL, update `bb` with a listing of the files in `path`
+//
 static int populate_files(bb_t *bb, const char *path)
 {
     int samedir = path && strcmp(bb->path, path) == 0;
@@ -558,9 +557,9 @@ static int populate_files(bb_t *bb, const char *path)
     return 0;
 }
 
-/*
- * Print the current key bindings
- */
+//
+// Print the current key bindings
+//
 static void print_bindings(int fd)
 {
     char buf[1000], buf2[1024];
@@ -591,10 +590,10 @@ static void print_bindings(int fd)
     write(fd, "\n", 1);
 }
 
-/*
- * Run a bb internal command (e.g. "+refresh") and return an indicator of what
- * needs to happen next.
- */
+//
+// Run a bb internal command (e.g. "+refresh") and return an indicator of what
+// needs to happen next.
+//
 static void run_bbcmd(bb_t *bb, const char *cmd)
 {
     while (*cmd == ' ' || *cmd == '\n') ++cmd;
@@ -788,9 +787,9 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
     }
 }
 
-/*
- * Close the /dev/tty terminals and restore some of the attributes.
- */
+//
+// Close the /dev/tty terminals and restore some of the attributes.
+//
 static void restore_term(const struct termios *term)
 {
     tcsetattr(fileno(tty_out), TCSANOW, term);
@@ -798,11 +797,11 @@ static void restore_term(const struct termios *term)
     fflush(tty_out);
 }
 
-/*
- * Run a shell script with the selected files passed as sequential arguments to
- * the script (or pass the cursor file if none are selected).
- * Return the exit status of the script.
- */
+//
+// Run a shell script with the selected files passed as sequential arguments to
+// the script (or pass the cursor file if none are selected).
+// Return the exit status of the script.
+//
 static int run_script(bb_t *bb, const char *cmd)
 {
     proc_t *proc = memcheck(calloc(1, sizeof(proc_t)));
@@ -843,18 +842,18 @@ static int run_script(bb_t *bb, const char *cmd)
     return status;
 }
 
-/*
- * Set the columns displayed by bb.
- */
+//
+// Set the columns displayed by bb.
+//
 static void set_columns(bb_t *bb, const char *cols)
 {
     strncpy(bb->columns, cols, MAX_COLS);
     setenv("BBCOLUMNS", bb->columns, 1);
 }
 
-/*
- * Set bb's file cursor to the given index (and adjust the scroll as necessary)
- */
+//
+// Set bb's file cursor to the given index (and adjust the scroll as necessary)
+//
 static void set_cursor(bb_t *bb, int newcur)
 {
     int oldcur = bb->cursor;
@@ -881,9 +880,9 @@ static void set_cursor(bb_t *bb, int newcur)
     }
 }
 
-/*
- * Set the glob pattern(s) used by bb. Patterns are ' ' delimited
- */
+//
+// Set the glob pattern(s) used by bb. Patterns are ' ' delimited
+//
 static void set_globs(bb_t *bb, const char *globs)
 {
     free(bb->globpats);
@@ -892,9 +891,9 @@ static void set_globs(bb_t *bb, const char *globs)
 }
 
 
-/*
- * Set whether or not bb should interleave directories and files.
- */
+//
+// Set whether or not bb should interleave directories and files.
+//
 static void set_interleave(bb_t *bb, int interleave)
 {
     bb->interleave_dirs = interleave;
@@ -903,9 +902,9 @@ static void set_interleave(bb_t *bb, int interleave)
     bb->dirty = 1;
 }
 
-/*
- * Set bb's scroll to the given index (and adjust the cursor as necessary)
- */
+//
+// Set bb's scroll to the given index (and adjust the cursor as necessary)
+//
 static void set_scroll(bb_t *bb, int newscroll)
 {
     int delta = newscroll - bb->scroll;
@@ -923,9 +922,9 @@ static void set_scroll(bb_t *bb, int newscroll)
     if (bb->cursor < 0) bb->cursor = 0;
 }
 
-/*
- * Select or deselect a file.
- */
+//
+// Select or deselect a file.
+//
 static void set_selected(bb_t *bb, entry_t *e, int selected)
 {
     if (IS_SELECTED(e) == selected) return;
@@ -943,9 +942,9 @@ static void set_selected(bb_t *bb, entry_t *e, int selected)
     }
 }
 
-/*
- * Set the sorting method used by bb to display files.
- */
+//
+// Set the sorting method used by bb to display files.
+//
 static void set_sort(bb_t *bb, const char *sort)
 {
     char sortbuf[strlen(sort)+1];
@@ -965,9 +964,9 @@ static void set_sort(bb_t *bb, const char *sort)
     setenv("BBSORT", bb->sort, 1);
 }
 
-/*
- * Set the xwindow title property to: bb - current path
- */
+//
+// Set the xwindow title property to: bb - current path
+//
 static void set_title(bb_t *bb)
 {
     char *home = getenv("HOME");
@@ -977,10 +976,10 @@ static void set_title(bb_t *bb)
         fprintf(tty_out, "\033]2;"BB_NAME": %s\007", bb->path);
 }
 
-/*
- * If the given entry is not viewed or selected, remove it from the
- * hash, free it, and return 1.
- */
+//
+// If the given entry is not viewed or selected, remove it from the
+// hash, free it, and return 1.
+//
 static int try_free_entry(entry_t *e)
 {
     if (IS_SELECTED(e) || IS_VIEWED(e) || !IS_LOADED(e)) return 0;
@@ -989,9 +988,9 @@ static int try_free_entry(entry_t *e)
     return 1;
 }
 
-/*
- * Sort the files in bb according to bb's settings.
- */
+//
+// Sort the files in bb according to bb's settings.
+//
 static void sort_files(bb_t *bb)
 {
 #ifdef __APPLE__
@@ -1004,10 +1003,10 @@ static void sort_files(bb_t *bb)
     bb->dirty = 1;
 }
 
-/*
- * Trim trailing whitespace by inserting '\0' and return a pointer to after the
- * first non-whitespace char
- */
+//
+// Trim trailing whitespace by inserting '\0' and return a pointer to after the
+// first non-whitespace char
+//
 static char *trim(char *s)
 {
     if (!s) return NULL;
@@ -1018,18 +1017,18 @@ static char *trim(char *s)
     return s;
 }
 
-/*
- * Hanlder for SIGWINCH events
- */
+//
+// Hanlder for SIGWINCH events
+//
 static void update_term_size(int sig)
 {
     (void)sig;
     ioctl(STDIN_FILENO, TIOCGWINSZ, &winsize);
 }
 
-/*
- * Wait for a process to either suspend or exit and return the status.
- */
+//
+// Wait for a process to either suspend or exit and return the status.
+//
 static int wait_for_process(proc_t **proc)
 {
     tcsetpgrp(fileno(tty_out), (*proc)->pid);

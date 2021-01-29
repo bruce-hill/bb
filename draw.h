@@ -1,6 +1,6 @@
-/*
- * draw.h - This file contains definitions for bb column-drawing code.
- */
+//
+// draw.h - This file contains definitions for bb column-drawing code.
+//
 
 #ifndef FILE_COLUMNS__H
 #define FILE_COLUMNS__H

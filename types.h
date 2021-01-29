@@ -1,10 +1,10 @@
-/*
- * types.h
- * Copyright 2019 Bruce Hill
- * Released under the MIT license
- *
- * This file contains definitions of different types.
- */
+//
+//  types.h
+//  Copyright 2019 Bruce Hill
+//  Released under the MIT license
+//
+//  This file contains definitions of different types.
+//
 #ifndef FILE_TYPES__H
 #define FILE_TYPES__H
 
@@ -20,13 +20,14 @@
 #define HASH_SIZE 1024
 #define HASH_MASK (HASH_SIZE - 1)
 
-/* Datastructure for file/directory entries.
- * entry_t uses intrusive linked lists.  This means entries can only belong to
- * one list at a time, in this case the list of selected entries. 'atme' is an
- * indirect pointer to either the 'next' field of the previous list member, or
- * the variable that points to the first list member. In other words,
- * item->next->atme == &item->next and firstitem->atme == &firstitem.
- */
+//
+// Datastructure for file/directory entries.
+// entry_t uses intrusive linked lists.  This means entries can only belong to
+// one list at a time, in this case the list of selected entries. 'atme' is an
+// indirect pointer to either the 'next' field of the previous list member, or
+// the variable that points to the first list member. In other words,
+// item->next->atme == &item->next and firstitem->atme == &firstitem.
+//
 typedef struct entry_s {
     struct {
         struct entry_s *next, **atme;

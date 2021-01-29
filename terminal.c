@@ -1,11 +1,11 @@
-/*
- * terminal.c
- * Copyright 2019 Bruce Hill
- * Released under the MIT License
- *
- * Implementations of some basic terminal stuff, like reading keys and some
- * terminal escape sequences.
- */
+//
+//  terminal.c
+//  Copyright 2019 Bruce Hill
+//  Released under the MIT License
+//
+//  Implementations of some basic terminal stuff, like reading keys and some
+//  terminal escape sequences.
+//
 
 #include <stdio.h>
 #include <string.h>
@@ -71,11 +71,11 @@ static inline int nextnum(int fd, int c, int *n)
     return c;
 }
 
-/*
- * Get one key of input from the given file. Returns -1 on failure.
- * If mouse_x or mouse_y are non-null and a mouse event occurs, they will be
- * set to the position of the mouse (0-indexed).
- */
+//
+// Get one key of input from the given file. Returns -1 on failure.
+// If mouse_x or mouse_y are non-null and a mouse event occurs, they will be
+// set to the position of the mouse (0-indexed).
+//
 int bgetkey(FILE *in, int *mouse_x, int *mouse_y)
 {
     if (mouse_x) *mouse_x = -1;
@@ -220,9 +220,9 @@ int bgetkey(FILE *in, int *mouse_x, int *mouse_y)
     return -1;
 }
 
-/*
- * Populate `buf` with the name of a key.
- */
+//
+// Populate `buf` with the name of a key.
+//
 char *bkeyname(int key, char *buf)
 {
     if (key & MOD_META) buf = stpcpy(buf, "Super-");
@@ -241,10 +241,10 @@ char *bkeyname(int key, char *buf)
         return buf + sprintf(buf, "\\x%02X", key);
 }
 
-/*
- * Return the key with the given name, if one exists, otherwise -1.
- * (i.e. bkeywithname("Space") == ' ', bkeywithname("x") == 'x', bkeywithname("F1") == KEY_F1, bkeywithname("???") == -1)
- */
+//
+// Return the key with the given name, if one exists, otherwise -1.
+// (i.e. bkeywithname("Space") == ' ', bkeywithname("x") == 'x', bkeywithname("F1") == KEY_F1, bkeywithname("???") == -1)
+//
 int bkeywithname(const char *name)
 {
     int modifiers = 0;

@@ -1,6 +1,6 @@
-/*
- * draw.c - This file contains logic for drawing columns.
- */
+//
+// draw.c - This file contains logic for drawing columns.
+//
 
 #include <limits.h>
 #include <stdio.h>
@@ -55,11 +55,11 @@ static char* stpcpy_escaped(char *buf, const char *str, const char *color)
     return buf;
 }
 
-/*
- * Print a string, but replacing bytes like '\n' with a red-colored "\n".
- * The color argument is what color to put back after the red.
- * Returns the number of bytes that were escaped.
- */
+//
+// Print a string, but replacing bytes like '\n' with a red-colored "\n".
+// The color argument is what color to put back after the red.
+// Returns the number of bytes that were escaped.
+//
 static int fputs_escaped(FILE *f, const char *str, const char *color)
 {
     static const char *escapes = "       abtnvfr             e";
@@ -78,9 +78,9 @@ static int fputs_escaped(FILE *f, const char *str, const char *color)
     return escaped;
 }
 
-/*
- * Returns the color of a file listing, given its mode.
- */
+//
+// Returns the color of a file listing, given its mode.
+//
 static const char* color_of(mode_t mode)
 {
     if (S_ISDIR(mode)) return DIR_COLOR;
@@ -280,11 +280,11 @@ void draw_row(FILE *out, char columns[], entry_t *entry, const char *color, int 
     fputs("\033[0m", out);
 }
 
-/*
- * Draw everything to the screen.
- * If `dirty` is false, then use terminal scrolling to move the file listing
- * around and only update the files that have changed.
- */
+//
+// Draw everything to the screen.
+// If `dirty` is false, then use terminal scrolling to move the file listing
+// around and only update the files that have changed.
+//
 void render(FILE *out, bb_t *bb)
 {
     static int lastcursor = -1, lastscroll = -1;
