@@ -1,7 +1,7 @@
 //
 // draw.h
 // Copyright 2020 Bruce Hill
-// Released under the MIT license
+// Released under the MIT license with the Commons Clause
 //
 // This file contains definitions for bb column-drawing code.
 //

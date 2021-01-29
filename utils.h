@@ -1,7 +1,7 @@
 //
 // utils.h
 // Copyright 2020 Bruce Hill
-// Released under the MIT license
+// Released under the MIT license with the Commons Clause
 //
 // This file contains some definitions of some utility macros.
 //

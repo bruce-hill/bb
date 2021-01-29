@@ -115,4 +115,8 @@ For fish, put this in your `~/.config/fish/functions/fish_user_key_bindings.fish
 
 ## License
 
-`bb` is released under the MIT license. See the `LICENSE` file for full details.
+`bb` is provided under the MIT license with the [Commons Clause](https://commonsclause.com/)
+(you can't sell this software without the developer's permission, but you're
+otherwise free to use, modify, and redistribute it free of charge).
+See [LICENSE](LICENSE) for details.
+
