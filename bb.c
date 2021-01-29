@@ -30,7 +30,7 @@
 #define BB_NAME "bb"
 #endif
 
-#define BB_VERSION "0.27.0"
+#define BB_VERSION "0.28.0"
 #define MAX_BINDINGS 1024
 #define SCROLLOFF MIN(5, (winsize.ws_row-4)/2)
 
