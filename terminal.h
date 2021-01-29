@@ -55,7 +55,7 @@ typedef enum {
 #define KEY_ENTER            0x0D // clash with ^M
 #define KEY_ESC              0x1B // clash with ^[
 #define KEY_CTRL_3           0x1B // clash with ^[
-#define KEY_CTRL_4           0x1C // clash with ^\
+#define KEY_CTRL_4           0x1C // clash with ^\ (backslash)
 #define KEY_CTRL_5           0x1D // clash with ^]
 #define KEY_CTRL_TILDE       0x1E // clash with ^^
 #define KEY_CTRL_6           0x1E // clash with ^^
