@@ -15,9 +15,9 @@ environment variable at runtime. `~/.config/bb/` is also added to the `$PATH`
 with higher priority, so you can override any of these scripts by putting your
 own version there.
 
-- `bbstartup`: The script run when `bb` first launches. It calls `bbbindkeys` by
+- `bbstartup`: The script run when `bb` first launches. It calls `bbkeys` by
   default and sets up some configuration settings like which columns to display.
-- `bbbindkeys`: The script called by `bb` to create all of `bb`'s key bindings.
+- `bbkeys`: The script called by `bb` to create all of `bb`'s key bindings.
   It's currently very hacky, but it amounts to a bunch of calls to `bbcmd
   bind:<key>:<script>`
 - `bbshutdown`: The script run when `bb` exits. The default implementation saves

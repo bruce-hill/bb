@@ -10,7 +10,7 @@ mv "$BBCMD" "$tmpfile"
 [ ! -d "$XDG_DATA_HOME/bb" ] && mkdir -p "$XDG_DATA_HOME/bb"
 
 # Load key bindings
-bbbindkeys
+bbkeys
 
 # Reload settings
 [ -e "$XDG_DATA_HOME/bb/settings.sh" ] && . "$XDG_DATA_HOME/bb/settings.sh"

@@ -51,7 +51,7 @@ The core idea behind `bb` is that `bb` is a file **browser**, not a file
 to the filesystem (passing selected files as arguments), rather than
 reinventing the wheel by hard-coding operations like `rm`, `mv`, `cp`, `touch`,
 and so on.  Shell scripts can be bound to keypresses in
-`~/.config/bb/bbbindkeys`. For example, `D` is bound to a script that prints a
+`~/.config/bb/bbkeys`. For example, `D` is bound to a script that prints a
 confirmation message, then runs `rm -rf "$@" && bbcmd deselect refresh`,
 which means selecting `file1` and `file2`, then pressing `D` will cause `bb` to
 run the shell command `rm -rf file1 file2` and then tell `bb` to deselect all
@@ -63,7 +63,7 @@ When `bb` launches, it first updates `bb`'s `$PATH` environment variable to
 include, in order, `~/.config/bb` and `/etc/xdg/bb`. Then, `bb` will run the
 command `bbstartup` (the default implementation is found at
 [scripts/bbstartup](scripts/bbstartup), along with other default `bb` commands).
-`bbstartup` will call `bbbindkeys` and may also set up configuration options like
+`bbstartup` will call `bbkeys` and may also set up configuration options like
 which columns to display and what sort order to use. All of these behaviors can
 be customized by creating custom local versions of these files in `~/.config/bb/`.
 The default versions can be found in `/etc/xdg/bb/`.
