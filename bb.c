@@ -23,6 +23,10 @@
 #include "bb.h"
 #include "draw.h"
 
+#ifndef BB_NAME
+#define BB_NAME "bb"
+#endif
+
 // Functions
 void bb_browse(bb_t *bb, const char *initial_path);
 static void check_cmdfile(bb_t *bb);
@@ -84,8 +88,8 @@ static const struct termios default_termios = {
     .c_cc[VTIME] = 0,
 };
 
-static const char *description_str = "bb - an itty bitty console TUI file browser\n";
-static const char *usage_str = "Usage: bb (-h/--help | -v/--version | -s | -d | -0 | +command)* [[--] directory]\n";
+static const char *description_str = BB_NAME" - an itty bitty console TUI file browser\n";
+static const char *usage_str = "Usage: "BB_NAME" (-h/--help | -v/--version | -s | -d | -0 | +command)* [[--] directory]\n";
 
 
 // Variables used within this file to track global state
@@ -961,9 +965,9 @@ static void set_title(bb_t *bb)
 {
     char *home = getenv("HOME");
     if (home && strncmp(bb->path, home, strlen(home)) == 0)
-        fprintf(tty_out, "\033]2;bb: ~%s\007", bb->path + strlen(home));
+        fprintf(tty_out, "\033]2;"BB_NAME": ~%s\007", bb->path + strlen(home));
     else
-        fprintf(tty_out, "\033]2;bb: %s\007", bb->path);
+        fprintf(tty_out, "\033]2;"BB_NAME": %s\007", bb->path);
 }
 
 /*
@@ -1066,7 +1070,7 @@ int main(int argc, char *argv[])
             return 0;
         } else if (strcmp(argv[i], "--version") == 0) {
           version:
-            printf("bb " BB_VERSION "\n");
+            printf(BB_NAME" "BB_VERSION"\n");
             return 0;
         } else if (argv[i][0] == '-' && argv[i][1] != '-') {
             for (char *c = &argv[i][1]; *c; c++) {
@@ -1096,10 +1100,10 @@ int main(int argc, char *argv[])
     // Set up environment variables
     // Default values
     setenv("TMPDIR", "/tmp", 0);
-    sprintf(cmdfilename, "%s/bb.XXXXXX", getenv("TMPDIR"));
+    sprintf(cmdfilename, "%s/"BB_NAME".XXXXXX", getenv("TMPDIR"));
     int cmdfd;
     if ((cmdfd = mkostemp(cmdfilename, O_APPEND)) == -1)
-        err("Couldn't create bb command file: '%s'", cmdfilename);
+        err("Couldn't create "BB_NAME" command file: '%s'", cmdfilename);
     setenv("BBCMD", cmdfilename, 1);
     char xdg_config_home[PATH_MAX], xdg_data_home[PATH_MAX];
     sprintf(xdg_config_home, "%s/.config", getenv("HOME"));
@@ -1120,11 +1124,11 @@ int main(int argc, char *argv[])
         setenv("BBPATH", bbpath, 1);
     }
     if (getenv("BBPATH")) {
-        if (asprintf(&newpath, "%s/bb:%s/scripts:%s",
+        if (asprintf(&newpath, "%s/"BB_NAME":%s/scripts:%s",
                      getenv("XDG_CONFIG_HOME"), getenv("BBPATH"), getenv("PATH")) < 0)
             err("Could not allocate memory for PATH");
     } else {
-        if (asprintf(&newpath, "%s/bb:%s/xdg/bb:%s",
+        if (asprintf(&newpath, "%s/"BB_NAME":%s/xdg/"BB_NAME":%s",
                      getenv("XDG_CONFIG_HOME"), getenv("sysconfdir"), getenv("PATH")) < 0)
             err("Could not allocate memory for PATH");
     }
