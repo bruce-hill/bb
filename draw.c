@@ -11,10 +11,9 @@
 #include <time.h>
 
 #include "draw.h"
-#include "entry.h"
 #include "terminal.h"
-
-#define E_ISDIR(e) (S_ISDIR(S_ISLNK((e)->info.st_mode) ? (e)->linkedmode : (e)->info.st_mode))
+#include "types.h"
+#include "utils.h"
 
 column_t column_info[255] = {
     ['*'] = {.name = "*",          .render = col_selected},

@@ -16,7 +16,7 @@ all: $(NAME)
 clean:
 	rm -f $(NAME) $(OBJFILES)
 
-.c.o:
+%.o: %.c %.h types.h utils.h
 	$(CC) -c $(CFLAGS) $(CWARN) $(G) $(O) -o $@ $<
 
 $(NAME): $(OBJFILES) bb.c

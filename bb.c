@@ -6,6 +6,7 @@
  * This file contains the main source code of `bb`.
  */
 
+#include <ctype.h>
 #include <fcntl.h>
 #include <glob.h>
 #include <limits.h>
@@ -20,13 +21,18 @@
 #include <termios.h>
 #include <unistd.h>
 
-#include "bb.h"
 #include "draw.h"
 #include "terminal.h"
+#include "types.h"
+#include "utils.h"
 
 #ifndef BB_NAME
 #define BB_NAME "bb"
 #endif
+
+#define BB_VERSION "0.27.0"
+#define MAX_BINDINGS 1024
+#define SCROLLOFF MIN(5, (winsize.ws_row-4)/2)
 
 // Functions
 void bb_browse(bb_t *bb, const char *initial_path);
@@ -208,7 +214,7 @@ static int compare_files(const void *v1, const void *v2, void *v)
                  */
                 const char *n1 = e1->name, *n2 = e2->name;
                 while (*n1 && *n2) {
-                    char c1 = LOWERCASE(*n1), c2 = LOWERCASE(*n2);
+                    char c1 = tolower(*n1), c2 = tolower(*n2);
                     if ('0' <= c1 && c1 <= '9' && '0' <= c2 && c2 <= '9') {
                         long i1 = strtol(n1, (char**)&n1, 10);
                         long i2 = strtol(n2, (char**)&n2, 10);
@@ -224,7 +230,7 @@ static int compare_files(const void *v1, const void *v2, void *v)
                         ++n1; ++n2;
                     }
                 }
-                COMPARE(LOWERCASE(*n2), LOWERCASE(*n1));
+                COMPARE(tolower(*n2), tolower(*n1));
                 break;
             }
             case COL_PERM: COMPARE((e1->info.st_mode & 0x3FF), (e2->info.st_mode & 0x3FF)); break;

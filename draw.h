@@ -7,8 +7,17 @@
 
 #include <stdio.h>
 
-#include "bb.h"
-#include "entry.h"
+#include "types.h"
+
+// Colors (using ANSI escape sequences):
+#define TITLE_COLOR      "\033[37;1m"
+#define NORMAL_COLOR     "\033[37m"
+#define CURSOR_COLOR     "\033[43;30;1m"
+#define LINK_COLOR       "\033[35m"
+#define DIR_COLOR        "\033[34m"
+#define EXECUTABLE_COLOR "\033[31m"
+#define SCROLLBAR_FG "\033[48;5;247m "
+#define SCROLLBAR_BG "\033[48;5;239m "
 
 #define TIME_FMT " %T %D "
 #define SELECTED_INDICATOR " \033[31;7m \033[0m"
