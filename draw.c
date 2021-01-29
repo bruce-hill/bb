@@ -10,9 +10,9 @@
 #include <sys/stat.h>
 #include <time.h>
 
-#include "bterm.h"
 #include "draw.h"
 #include "entry.h"
+#include "terminal.h"
 
 #define E_ISDIR(e) (S_ISDIR(S_ISLNK((e)->info.st_mode) ? (e)->linkedmode : (e)->info.st_mode))
 

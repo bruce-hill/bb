@@ -22,6 +22,7 @@
 
 #include "bb.h"
 #include "draw.h"
+#include "terminal.h"
 
 #ifndef BB_NAME
 #define BB_NAME "bb"

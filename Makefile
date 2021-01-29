@@ -8,7 +8,7 @@ CWARN=-Wall -Wpedantic -Wextra -Wsign-conversion -Wtype-limits -Wunused-result
 #CFLAGS += -fsanitize=address -fno-omit-frame-pointer
 CFLAGS += '-DBB_NAME="$(NAME)"'
 
-CFILES=draw.c bterm.c
+CFILES=draw.c terminal.c
 OBJFILES=$(CFILES:.c=.o)
 
 all: $(NAME)

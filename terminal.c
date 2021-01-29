@@ -1,5 +1,5 @@
 /*
- * bterm.h
+ * terminal.c
  * Copyright 2019 Bruce Hill
  * Released under the MIT License
  *
@@ -12,7 +12,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "bterm.h"
+#include "terminal.h"
 
 typedef struct {
     int key;

@@ -1,5 +1,5 @@
 /*
- * bterm.h
+ * terminal.h
  * Copyright 2019 Bruce Hill
  * Released under the MIT License
  *
@@ -7,8 +7,8 @@
  * terminal escape sequences.
  */
 
-#ifndef FILE__BTERM_H
-#define FILE__BTERM_H
+#ifndef FILE__TERMINAL_H
+#define FILE__TERMINAL_H
 
 #include <stdio.h>
 #include <time.h>
@@ -16,7 +16,6 @@
 
 // Maximum time in milliseconds between double clicks
 #define DOUBLECLICK_THRESHOLD 200
-
 
 typedef enum {
     // ASCII chars:

@@ -8,7 +8,9 @@
 #ifndef FILE_BB__H
 #define FILE_BB__H
 
-#include "bterm.h"
+#include <limits.h>
+
+#include "terminal.h"
 #include "entry.h"
 
 // Macros:
