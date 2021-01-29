@@ -36,7 +36,7 @@ bbcmd move:-1
 bbcmd cd:..
 
 ## l,Right: Enter directory
-if [ -d "$BBCURSOR" ]; then bbcmd cd:"$BBCURSOR"; fi
+if [ -d "$BB" ]; then bbcmd cd:"$BB"; fi
 
 ## Ctrl-f: Search for file
 file="$(find . -mindepth 1 -printf '%P\0' | bbpick "Find: ")"
@@ -102,7 +102,7 @@ bbcmd scroll:-3
 
 ## Section: File Selection
 ## v,V,Space: Toggle selection at cursor
-bbcmd toggle:"$BBCURSOR"
+bbcmd toggle:"$BB"
 
 ## Escape: Clear selection
 bbcmd deselect
@@ -159,22 +159,22 @@ elif [ "$BBCLICKED" ]; then
 fi
 
 ## Enter,Double left click: Open file/directory
-if [ -d "$BBCURSOR" ]; then bbcmd cd:"$BBCURSOR"
+if [ -d "$BB" ]; then bbcmd cd:"$BB"
 elif [ "$(uname)" = "Darwin" ]; then
-    if expr "$(file -bI "$BBCURSOR")" : '\(text/\|inode/empty\)' >/dev/null; then $EDITOR "$BBCURSOR"
-    else open "$BBCURSOR"; fi
+    if expr "$(file -bI "$BB")" : '\(text/\|inode/empty\)' >/dev/null; then $EDITOR "$BB"
+    else open "$BB"; fi
 else
-    if expr "$(file -bi "$BBCURSOR")" : '\(text/\|inode/x-empty\)' >/dev/null; then $EDITOR "$BBCURSOR"
-    else xdg-open "$BBCURSOR"; fi
+    if expr "$(file -bi "$BB")" : '\(text/\|inode/x-empty\)' >/dev/null; then $EDITOR "$BB"
+    else xdg-open "$BB"; fi
 fi
 
 ## e: Edit file in $EDITOR
-$EDITOR "$BBCURSOR"
+$EDITOR "$BB"
 
 ## d,Delete: Delete
-case "$(bbtargets "$BBCURSOR" "$@")" in
-    cursor) set -- "$BBCURSOR" ;;
-    both) set -- "$BBCURSOR" "$@" ;;
+case "$(bbtargets "$BB" "$@")" in
+    cursor) set -- "$BB" ;;
+    both) set -- "$BB" "$@" ;;
 esac
 printf "\033[1mDeleting the following:\n\033[33m$(printf '  %s\n' "$@")\033[0m" | bbunscroll | more
 bbconfirm
@@ -217,12 +217,12 @@ esac
 bbcmd goto:"$name" refresh
 
 ## p: Page through a file with `less`
-less -XK "$BBCURSOR"
+less -XK "$BB"
 
 ## r,F2: Rename files
-case "$(bbtargets "$BBCURSOR" "$@")" in
-    cursor) set -- "$BBCURSOR";;
-    both) set -- "$BBCURSOR" "$@";;
+case "$(bbtargets "$BB" "$@")" in
+    cursor) set -- "$BB";;
+    both) set -- "$BB" "$@";;
 esac
 for f; do
     newname="$(bbask "Rename $(printf "\033[33m%s\033[39m" "${f##*/}"): " "${f##*/}")" || break
@@ -232,7 +232,7 @@ for f; do
         && bbconfirm && { rm -rf "$r" || { bbpause; exit; }; }
     mv "$f" "$r" || { bbpause; exit; }
     bbcmd deselect:"$f" select:"$r"
-    [ "$f" = "$BBCURSOR" ] && bbcmd goto:"$r"
+    [ "$f" = "$BB" ] && bbcmd goto:"$r"
 done
 bbcmd refresh
 
@@ -259,21 +259,21 @@ bbcmd refresh
 
 ## |: Pipe selected files to a command
 cmd="$(bbask '|')"
-if [ $# -eq 0 ]; then set -- "$BBCURSOR"; fi
+if [ $# -eq 0 ]; then set -- "$BB"; fi
 printf '%s\n' "$@" | sh -c "$cmd" || true
 bbpause
 bbcmd refresh
 
 ## @: Pass selected files as args to a command
 cmd="$(bbask '@')"
-if [ $# -eq 0 ]; then set -- "$BBCURSOR"; fi
+if [ $# -eq 0 ]; then set -- "$BB"; fi
 sh -c "$cmd \"\$@\"" -- "$@" || true
 bbpause
 bbcmd refresh
 
 ## $: Pass the cursor as an argument to a command
 cmd="$(bbask '$')"
-sh -c "$cmd \"\$1\"" -- "$BBCURSOR" || true
+sh -c "$cmd \"\$1\"" -- "$BB" || true
 bbpause
 bbcmd refresh
 

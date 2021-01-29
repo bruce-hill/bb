@@ -2,7 +2,7 @@
 # If the user is doing something ambiguous, like selecting a bunch of files,
 # moving the cursor off of those files, then doing an action, this will ask
 # what they mean to target, then output either 'cursor' or 'selected'.
-#     Usage: targets "$BBCURSOR" "$@"
+#     Usage: targets "$BB" "$@"
 cursor="$1"
 shift
 if [ $# -gt 0 ]; then

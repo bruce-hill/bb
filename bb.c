@@ -824,7 +824,7 @@ static int run_script(bb_t *bb, const char *cmd)
         for (entry_t *e = bb->selected; e; e = e->selected.next)
             args[--i] = e->fullname;
 
-        setenv("BBCURSOR", bb->nfiles ? bb->files[bb->cursor]->fullname : "", 1);
+        setenv("BB", bb->nfiles ? bb->files[bb->cursor]->fullname : "", 1);
 
         dup2(fileno(tty_out), STDOUT_FILENO);
         dup2(fileno(tty_in), STDIN_FILENO);

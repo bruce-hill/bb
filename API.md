@@ -30,7 +30,7 @@ own version there.
   failure if the user does not press 'y'.
 - `bbpause`: Display a "press any key to continue" message and wait for a keypress.
 - `bbpick [prompt]`: Select one of `NULL`-delimited multiple inputs and print it.
-- `bbtargets "$BBCMD" "$@"`: If `$BBCURSOR` is not currently among `$@` (the
+- `bbtargets "$BBCMD" "$@"`: If `$BB` is not currently among `$@` (the
   selected files), this script prompts the user to ask whether they want to
   perform an action on the selected files, or on the cursor. The result is
   printed as `cursor` or `selected`.
@@ -41,7 +41,7 @@ own version there.
 When `bb` runs scripts, following values are provided as environment variables:
 
 - `$@` (the list of arguments): the full paths of the selected files
-- `$BBCURSOR`: the full path of the file under the cursor
+- `$BB`: the full path of the file under the cursor
 - `$BBDEPTH`: the number of `bb` instances deep (in case you want to run a
   shell and have that shell print something special in the prompt)
 - `$BBCMD`: a file to which `bb` commands can be written (used internally)
