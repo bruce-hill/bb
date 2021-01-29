@@ -130,7 +130,7 @@ printf '%s\0' "$@" > "$XDG_DATA_HOME/bb/$savename"
 [ -d "$XDG_DATA_HOME"/bb ]
 [ $# -gt 0 ] && bbconfirm "The current selection will be discarded. "
 loadpath="$(find "$XDG_DATA_HOME"/bb/ -mindepth 1 -name '*.sel' -printf '%P\0' | bbpick "Load selection: ")"
-cat "$XDG_DATA_HOME/bb/$loadpath" | bbcmd deselect select:
+bbcmd deselect select: <"$XDG_DATA_HOME/bb/$loadpath"
 
 ## J: Spread selection down
 bbcmd spread:+1
