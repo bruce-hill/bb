@@ -1,9 +1,9 @@
 //
-//  Bitty Browser (bb)
-//  Copyright 2019 Bruce Hill
-//  Released under the MIT license
+// bb.c
+// Copyright 2020 Bruce Hill
+// Released under the MIT license
 //
-//  This file contains the main source code of `bb`.
+// This file contains the main source code of `bb` the Bitty Browser.
 //
 
 #include <ctype.h>

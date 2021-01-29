@@ -1,10 +1,10 @@
 //
-//  terminal.h
-//  Copyright 2019 Bruce Hill
-//  Released under the MIT License
+// terminal.h
+// Copyright 2020 Bruce Hill
+// Released under the MIT License
 //
-//  Definitions of some basic terminal stuff, like reading keys and some
-//  terminal escape sequences.
+// Definitions of some basic terminal stuff, like reading keys and some
+// terminal escape sequences.
 //
 
 #ifndef FILE__TERMINAL_H

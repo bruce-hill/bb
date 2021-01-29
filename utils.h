@@ -1,9 +1,9 @@
 //
-//  utils.h
-//  Copyright 2020 Bruce Hill
-//  Released under the MIT license
+// utils.h
+// Copyright 2020 Bruce Hill
+// Released under the MIT license
 //
-//  This file contains some definitions of some utility macros.
+// This file contains some definitions of some utility macros.
 //
 
 #ifndef FILE_UTILS__H

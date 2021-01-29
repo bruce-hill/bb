@@ -1,10 +1,10 @@
 //
-//  terminal.c
-//  Copyright 2019 Bruce Hill
-//  Released under the MIT License
+// terminal.c
+// Copyright 2020 Bruce Hill
+// Released under the MIT License
 //
-//  Implementations of some basic terminal stuff, like reading keys and some
-//  terminal escape sequences.
+// Implementations of some basic terminal stuff, like reading keys and some
+// terminal escape sequences.
 //
 
 #include <stdio.h>

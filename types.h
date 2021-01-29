@@ -1,9 +1,9 @@
 //
-//  types.h
-//  Copyright 2019 Bruce Hill
-//  Released under the MIT license
+// types.h
+// Copyright 2020 Bruce Hill
+// Released under the MIT license
 //
-//  This file contains definitions of different types.
+// This file contains definitions of different types.
 //
 #ifndef FILE_TYPES__H
 #define FILE_TYPES__H

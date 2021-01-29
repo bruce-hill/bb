@@ -1,5 +1,9 @@
 //
-// draw.h - This file contains definitions for bb column-drawing code.
+// draw.h
+// Copyright 2020 Bruce Hill
+// Released under the MIT license
+//
+// This file contains definitions for bb column-drawing code.
 //
 
 #ifndef FILE_COLUMNS__H
