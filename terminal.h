@@ -48,22 +48,22 @@ typedef enum {
 #define MOD_SHIFT  (1 << (MOD_BITSHIFT + 3))
 
 // Overlapping key codes:
-#define KEY_CTRL_BACKTICK    0x00 // clash with ^@
-#define KEY_CTRL_2           0x00 // clash with ^@
-#define KEY_BACKSPACE        0x08 // clash with ^H
-#define KEY_TAB              0x09 // clash with ^I
-#define KEY_ENTER            0x0D // clash with ^M
-#define KEY_ESC              0x1B // clash with ^[
-#define KEY_CTRL_3           0x1B // clash with ^[
-#define KEY_CTRL_4           0x1C // clash with ^\ (backslash)
-#define KEY_CTRL_5           0x1D // clash with ^]
-#define KEY_CTRL_TILDE       0x1E // clash with ^^
-#define KEY_CTRL_6           0x1E // clash with ^^
-#define KEY_CTRL_7           0x1F // clash with ^_
-#define KEY_CTRL_SLASH       0x1F // clash with ^_
+#define KEY_CTRL_BACKTICK    0x00 /* clash with ^@ */
+#define KEY_CTRL_2           0x00 /* clash with ^@ */
+#define KEY_BACKSPACE        0x08 /* clash with ^H */
+#define KEY_TAB              0x09 /* clash with ^I */
+#define KEY_ENTER            0x0D /* clash with ^M */
+#define KEY_ESC              0x1B /* clash with ^[ */
+#define KEY_CTRL_3           0x1B /* clash with ^[ */
+#define KEY_CTRL_4           0x1C /* clash with ^\ */
+#define KEY_CTRL_5           0x1D /* clash with ^] */
+#define KEY_CTRL_TILDE       0x1E /* clash with ^^ */
+#define KEY_CTRL_6           0x1E /* clash with ^^ */
+#define KEY_CTRL_7           0x1F /* clash with ^_ */
+#define KEY_CTRL_SLASH       0x1F /* clash with ^_ */
 #define KEY_SPACE            0x20
 #define KEY_BACKSPACE2       0x7F
-#define KEY_CTRL_8           0x7F // clash with 'BACKSPACE2'
+#define KEY_CTRL_8           0x7F /* clash with 'BACKSPACE2' */
 
 // Terminal escape sequences:
 #define T_WRAP        "7"
