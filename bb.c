@@ -533,8 +533,14 @@ static int populate_files(bb_t *bb, const char *path)
         globfree(&globbuf);
     }
 
+    // RNG is seeded with a hash of all the inodes in the current dir
+    // This hash algorithm is based on Python's frozenset hashing
+    unsigned long seed = (unsigned long)bb->nfiles * 1927868237UL;
+    for (int i = 0; i < bb->nfiles; i++)
+        seed ^= ((bb->files[i]->info.st_ino ^ 89869747UL) ^ (bb->files[i]->info.st_ino << 16)) * 3644798167UL;
+    srand((unsigned int)seed);
     for (int i = 0; i < bb->nfiles; i++) {
-        int j = rand() / (RAND_MAX / (i + 1)); // This is not optimal, but doesn't need to be
+        int j = rand() % (i+1); // This introduces some RNG bias, but it's not important here
         bb->files[i]->shufflepos = bb->files[j]->shufflepos;
         bb->files[j]->shufflepos = i;
     }
