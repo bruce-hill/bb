@@ -21,11 +21,11 @@ column_t column_info[255] = {
     ['s'] = {.name = " Size",      .render = col_size},
     ['p'] = {.name = "Perm",       .render = col_perm},
     ['m'] = {.name = " Modified",  .render = col_mreltime},
-    ['M'] = {.name = " Modified ", .render = col_mtime},
+    ['M'] = {.name = "     Modified     ", .render = col_mtime},
     ['a'] = {.name = " Accessed",  .render = col_areltime},
-    ['A'] = {.name = " Accessed ", .render = col_atime},
+    ['A'] = {.name = "     Accessed     ", .render = col_atime},
     ['c'] = {.name = " Created",   .render = col_creltime},
-    ['C'] = {.name = " Created ",  .render = col_ctime},
+    ['C'] = {.name = "     Created      ",  .render = col_ctime},
     ['r'] = {.name = "Random",     .render = col_random},
 };
 
