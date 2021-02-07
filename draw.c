@@ -184,13 +184,9 @@ void col_size(entry_t *entry, const char *color, char *buf, int width)
     int mag = 0;
     const char* units = "BKMGTPEZY";
     double bytes = (double)entry->info.st_size;
-    while (bytes > 1024) {
+    while (bytes > 1024 && units[mag+1]) {
         bytes /= 1024;
         mag++;
-        if (!units[mag]) {
-            sprintf(buf, "  ???");
-            return;
-        }
     }
     // Add 1 extra digit of precision if it would be nonzero:
     sprintf(buf, "%5.*f%c ", ((int)(bytes*10.0 + 0.5)%10 >= 1) ? 1 : 0, bytes, units[mag]);
