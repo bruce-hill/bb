@@ -181,14 +181,19 @@ void col_random(entry_t *entry, const char *color, char *buf, int width)
 void col_size(entry_t *entry, const char *color, char *buf, int width)
 {
     (void)color; (void)width;
-    int j = 0;
+    int mag = 0;
     const char* units = "BKMGTPEZY";
     double bytes = (double)entry->info.st_size;
     while (bytes > 1024) {
         bytes /= 1024;
-        j++;
+        mag++;
+        if (!units[mag]) {
+            sprintf(buf, "  ???");
+            return;
+        }
     }
-    sprintf(buf, " %6.*f%c ", j > 0 ? 1 : 0, bytes, units[j]);
+    // Add 1 extra digit of precision if it would be nonzero:
+    sprintf(buf, "%5.*f%c ", ((int)(bytes*10.0 + 0.5)%10 >= 1) ? 1 : 0, bytes, units[mag]);
 }
 
 void col_name(entry_t *entry, const char *color, char *buf, int width)
