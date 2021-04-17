@@ -30,7 +30,7 @@
 #define BB_NAME "bb"
 #endif
 
-#define BB_VERSION "0.28.1"
+#define BB_VERSION "0.29.0"
 #define MAX_BINDINGS 1024
 #define SCROLLOFF MIN(5, (winsize.ws_row-4)/2)
 
@@ -456,18 +456,7 @@ static int populate_files(bb_t *bb, const char *path)
 
     char pbuf[PATH_MAX] = {0}, prev[PATH_MAX] = {0};
     strcpy(prev, bb->path);
-    if (path == NULL) {
-        pbuf[0] = '\0';
-    } else if (strcmp(path, "<selection>") == 0) {
-        strcpy(pbuf, path);
-    } else if (strcmp(path, "..") == 0 && strcmp(bb->path, "<selection>") == 0) {
-        if (!bb->prev_path[0]) return -1;
-        strcpy(pbuf, bb->prev_path);
-        if (chdir(pbuf)) {
-            warn("Could not cd to: \"%s\"", pbuf);
-            return -1;
-        }
-    } else {
+    if (path != NULL) {
         if (!normalize_path(bb->path, path, pbuf))
             warn("Could not normalize path: \"%s\"", path);
         if (pbuf[strlen(pbuf)-1] != '/')
@@ -478,10 +467,8 @@ static int populate_files(bb_t *bb, const char *path)
         }
     }
 
-    if (strcmp(bb->path, "<selection>") != 0) {
-        strcpy(bb->prev_path, prev);
-        setenv("BBPREVPATH", bb->prev_path, 1);
-    }
+    strcpy(bb->prev_path, prev);
+    setenv("BBPREVPATH", bb->prev_path, 1);
 
     bb->dirty = 1;
     strcpy(bb->path, pbuf);
@@ -505,33 +492,24 @@ static int populate_files(bb_t *bb, const char *path)
         return 0;
 
     size_t space = 0;
-    if (strcmp(bb->path, "<selection>") == 0) {
-        for (entry_t *e = bb->selected; e; e = e->selected.next) {
-            if ((size_t)bb->nfiles + 1 > space)
-                bb->files = memcheck(realloc(bb->files, (space += 100)*sizeof(void*)));
-            e->index = bb->nfiles;
-            bb->files[bb->nfiles++] = e;
+    glob_t globbuf = {0};
+    char *pat, *tmpglob = memcheck(strdup(bb->globpats));
+    while ((pat = strsep(&tmpglob, " ")) != NULL)
+        glob(pat, GLOB_NOSORT|GLOB_APPEND, NULL, &globbuf);
+    free(tmpglob);
+    for (size_t i = 0; i < globbuf.gl_pathc; i++) {
+        // Don't normalize path so we can get "." and ".."
+        entry_t *entry = load_entry(bb, globbuf.gl_pathv[i]);
+        if (!entry) {
+            warn("Failed to load entry: '%s'", globbuf.gl_pathv[i]);
+            continue;
         }
-    } else {
-        glob_t globbuf = {0};
-        char *pat, *tmpglob = memcheck(strdup(bb->globpats));
-        while ((pat = strsep(&tmpglob, " ")) != NULL)
-            glob(pat, GLOB_NOSORT|GLOB_APPEND, NULL, &globbuf);
-        free(tmpglob);
-        for (size_t i = 0; i < globbuf.gl_pathc; i++) {
-            // Don't normalize path so we can get "." and ".."
-            entry_t *entry = load_entry(bb, globbuf.gl_pathv[i]);
-            if (!entry) {
-                warn("Failed to load entry: '%s'", globbuf.gl_pathv[i]);
-                continue;
-            }
-            entry->index = bb->nfiles;
-            if ((size_t)bb->nfiles + 1 > space)
-                bb->files = memcheck(realloc(bb->files, (space += 100)*sizeof(void*)));
-            bb->files[bb->nfiles++] = entry;
-        }
-        globfree(&globbuf);
+        entry->index = bb->nfiles;
+        if ((size_t)bb->nfiles + 1 > space)
+            bb->files = memcheck(realloc(bb->files, (space += 100)*sizeof(void*)));
+        bb->files[bb->nfiles++] = entry;
     }
+    globfree(&globbuf);
 
     // RNG is seeded with a hash of all the inodes in the current dir
     // This hash algorithm is based on Python's frozenset hashing
@@ -699,14 +677,11 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
     } else if (matches_cmd(cmd, "glob:")) { // +glob:
         set_globs(bb, value[0] ? value : "*");
         populate_files(bb, bb->path);
-    } else if (matches_cmd(cmd, "goto:")) { // +goto:
-        entry_t *e = load_entry(bb, value);
+    } else if (matches_cmd(cmd, "goto:") || matches_cmd(cmd, "goto")) { // +goto:
+        if (!value && !bb->selected) return;
+        entry_t *e = load_entry(bb, value ? value : bb->selected->fullname);
         if (!e) {
             warn("Could not find file to go to: \"%s\"", value);
-            return;
-        }
-        if (IS_VIEWED(e)) {
-            set_cursor(bb, e->index);
             return;
         }
         char pbuf[PATH_MAX];

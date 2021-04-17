@@ -36,7 +36,8 @@ bbcmd move:-1
 bbcmd cd:..
 
 ## l,Right: Enter directory
-if [ -d "$BB" ]; then bbcmd cd:"$BB"; fi
+if [ -d "$BB" ]; then bbcmd cd:"$BB";
+elif [ -L "$BB" ]; then bbcmd goto:"$(readlink -f "$BB")"; fi
 
 ## Ctrl-f: Search for file
 file="$(find . -mindepth 1 -printf '%P\0' | bbpick "Find: ")"
@@ -70,7 +71,7 @@ bbcmd cd:"$mark"
 [ "$BBPREVPATH" ] && bbcmd cd:"$BBPREVPATH"
 
 ## ;: Show selected files
-bbcmd cd:'<selection>'
+printf '%s\n' "$@" | less
 
 ## 0: Go to intitial directory
 bbcmd cd:"$BBINITIALPATH"
@@ -120,17 +121,21 @@ bbconfirm "Save the current settings? "
 echo "bbcmd glob:'$BBGLOB' sort:'$BBSORT' columns:'$BBCOLUMNS' $BBINTERLEAVE" > "$XDG_DATA_HOME"/bb/settings.sh
 
 ## Ctrl-s: Save the selection
-[ $# -gt 0 ]
 savename="$(bbask "Save selection as: ")"
-savename="${savename%.sel}.sel"
-mkdir -p "$XDG_DATA_HOME"/bb
-printf '%s\0' "$@" > "$XDG_DATA_HOME/bb/$savename"
+savedir="$XDG_DATA_HOME/bb/${savename%.sel}.sel"
+! [ -d "$savedir" ] || bbconfirm "Do you want to overwrite the existing save? "
+rm -rf "$savedir"
+[ $# -gt 0 ] && mkdir -p "$savedir"
+for f; do ln -sT "$f" "$savedir/${f##*/}" || exit 1; done
+echo "Saved."
+bbpause
 
 ## Ctrl-o: Open a saved selection
 [ -d "$XDG_DATA_HOME"/bb ]
 [ $# -gt 0 ] && bbconfirm "The current selection will be discarded. "
-loadpath="$(find "$XDG_DATA_HOME"/bb/ -mindepth 1 -name '*.sel' -printf '%P\0' | bbpick "Load selection: ")"
-bbcmd deselect select: <"$XDG_DATA_HOME/bb/$loadpath"
+loadpath="$(find "$XDG_DATA_HOME"/bb/ -mindepth 1 -maxdepth 1 -name '*.sel' -printf '%P\0' | bbpick "Load selection: ")"
+find "$XDG_DATA_HOME/bb/$loadpath" -mindepth 1 -maxdepth 1 -printf '%l\0' | bbcmd deselect select:
+bbcmd goto
 
 ## J: Spread selection down
 bbcmd spread:+1
