@@ -138,7 +138,7 @@ bbpause
 [ $# -gt 0 ] && bbconfirm "The current selection will be discarded. "
 loadpath="$(find "$XDG_DATA_HOME"/bb/ -mindepth 1 -maxdepth 1 -name '*.sel' -printf '%P\0' | bbpick "Load selection: ")"
 find "$XDG_DATA_HOME/bb/$loadpath" -mindepth 1 -maxdepth 1 -printf '%l\0' | bbcmd deselect select:
-bbcmd goto
+bbcmd goto sort:'+*' interleave
 
 ## J: Spread selection down
 bbcmd spread:+1
