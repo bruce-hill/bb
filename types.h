@@ -53,13 +53,19 @@ typedef struct proc_s {
     } running;
 } proc_t;
 
+// History of paths
+typedef struct bb_history_s {
+    char path[PATH_MAX];
+    struct bb_history_s *prev, *next;
+} bb_history_t;
+
 // Structure for bb program state:
 typedef struct bb_s {
     entry_t *hash[HASH_SIZE];
     entry_t **files;
     entry_t *selected;
     char path[PATH_MAX];
-    char prev_path[PATH_MAX];
+    bb_history_t *history;
     int nfiles, nselected;
     int scroll, cursor;
 

@@ -30,7 +30,7 @@
 #define BB_NAME "bb"
 #endif
 
-#define BB_VERSION "0.29.0"
+#define BB_VERSION "0.30.0"
 #define MAX_BINDINGS 1024
 #define SCROLLOFF MIN(5, (winsize.ws_row-4)/2)
 
@@ -363,7 +363,7 @@ static entry_t* load_entry(bb_t *bb, const char *path)
     for (entry_t *e = bb->hash[(int)filestat.st_ino & HASH_MASK]; e; e = e->hash.next) {
         if (e->info.st_ino == filestat.st_ino && e->info.st_dev == filestat.st_dev
             // Need to check filename in case of hard links
-            && strcmp(pbuf, e->fullname) == 0)
+            && streq(pbuf, e->fullname))
             return e;
     }
 
@@ -382,7 +382,7 @@ static entry_t* load_entry(bb_t *bb, const char *path)
     char *end = stpcpy(entry->fullname, pbuf);
     if (linkpathlen >= 0)
         entry->linkname = strcpy(end + 1, linkbuf);
-    if (strcmp(entry->fullname, "/") == 0) {
+    if (streq(entry->fullname, "/")) {
         entry->name = entry->fullname;
     } else {
         entry->name = strrchr(entry->fullname, '/') + 1; // Last path component
@@ -448,7 +448,21 @@ static char *normalize_path(const char *root, const char *path, char *normalized
 //
 static int populate_files(bb_t *bb, const char *path)
 {
-    int samedir = path && strcmp(bb->path, path) == 0;
+    int clear_future_history = 0;
+    if (path == NULL)
+        ;
+    else if (streq(path, "-")) {
+        if (bb->history->prev)
+            bb->history = bb->history->prev;
+        path = bb->history->path;
+    } else if (streq(path, "+")) {
+        if (bb->history->next)
+            bb->history = bb->history->next;
+        path = bb->history->path;
+    } else
+        clear_future_history = 1;
+
+    int samedir = path && streq(bb->path, path);
     int old_scroll = bb->scroll;
     int old_cursor = bb->cursor;
     char old_selected[PATH_MAX] = "";
@@ -467,8 +481,18 @@ static int populate_files(bb_t *bb, const char *path)
         }
     }
 
-    strcpy(bb->prev_path, prev);
-    setenv("BBPREVPATH", bb->prev_path, 1);
+    if (clear_future_history && !samedir) {
+        for (bb_history_t *next, *h = bb->history->next; h; h = next) {
+            next = h->next;
+            free(h);
+        }
+
+        bb_history_t *h = calloc(1, sizeof(bb_history_t));
+        strcpy(h->path, pbuf);
+        h->prev = bb->history;
+        bb->history->next = h;
+        bb->history = h;
+    }
 
     bb->dirty = 1;
     strcpy(bb->path, pbuf);
@@ -556,7 +580,7 @@ static void print_bindings(int fd)
         }
         size_t shared = 0;
         char *p = buf;
-        for (size_t j = i; bindings[j].script && strcmp(bindings[j].description, bindings[i].description) == 0; j++) {
+        for (size_t j = i; bindings[j].script && streq(bindings[j].description, bindings[i].description); j++) {
             if (j > i) p = stpcpy(p, ", ");
             ++shared;
             int key = bindings[j].key;
@@ -604,7 +628,7 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
             else script = trim(script);
         } else description = script;
         for (char *key; (key = strsep(&keys, ",")); ) {
-            int is_section = strcmp(key, "Section") == 0;
+            int is_section = streq(key, "Section");
             int keyval = bkeywithname(key);
             if (keyval == -1 && !is_section) continue;
             for (size_t i = 0; i < sizeof(bindings)/sizeof(bindings[0]); i++) {
@@ -648,7 +672,7 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
         }
         // Filename may no longer exist:
         for (e = bb->selected; e; e = e->selected.next) {
-            if (strcmp(e->fullname, pbuf) == 0) {
+            if (streq(e->fullname, pbuf)) {
                 set_selected(bb, e, 0);
                 return;
             }
@@ -1033,7 +1057,7 @@ static int wait_for_process(proc_t **proc)
 int main(int argc, char *argv[])
 {
     char *initial_path;
-    if (argc >= 3 && strcmp(argv[argc-2], "--") == 0) {
+    if (argc >= 3 && streq(argv[argc-2], "--")) {
         initial_path = argv[argc-1];
         argc -= 2;
     } else if (argc >= 2 && argv[argc-1][0] != '-' && argv[argc-1][0] != '+') {
@@ -1051,11 +1075,11 @@ int main(int argc, char *argv[])
             char *colon = strchr(argv[i], ':');
             if (colon && !colon[1])
                 break;
-        } else if (strcmp(argv[i], "--help") == 0) {
+        } else if (streq(argv[i], "--help")) {
           help:
             printf("%s%s", description_str, usage_str);
             return 0;
-        } else if (strcmp(argv[i], "--version") == 0) {
+        } else if (streq(argv[i], "--version")) {
           version:
             printf(BB_NAME" "BB_VERSION"\n");
             return 0;
@@ -1135,7 +1159,7 @@ int main(int argc, char *argv[])
     if (stat(full_initial_path, &path_stat) != 0)
         err("Could not find initial path: \"%s\"", initial_path);
     if (S_ISDIR(path_stat.st_mode)) {
-        if (strcmp(full_initial_path, "/") != 0) strcat(full_initial_path, "/");
+        if (!streq(full_initial_path, "/")) strcat(full_initial_path, "/");
     } else {
         write(cmdfd, "goto:", 5);
         write(cmdfd, full_initial_path, strlen(full_initial_path) + 1); // Include null byte
@@ -1174,9 +1198,12 @@ int main(int argc, char *argv[])
     for (size_t i = 0; i < sizeof(signals)/sizeof(signals[0]); i++)
         sigaction(signals[i], &sa, NULL);
 
+    bb_history_t *history = calloc(1, sizeof(bb_history_t));
+    strcpy(history->path, full_initial_path);
     bb_t bb = {
         .columns = "*smpn",
         .sort = "+n",
+        .history = history,
     };
     current_bb = &bb;
     set_globs(&bb, "*");
@@ -1200,6 +1227,10 @@ int main(int argc, char *argv[])
     while (bb.selected)
         set_selected(&bb, bb.selected, 0);
     free(bb.globpats);
+    for (bb_history_t *next; bb.history; bb.history = next) {
+        next = bb.history->next;
+        free(bb.history);
+    }
     return 0;
 }
 

@@ -10,6 +10,11 @@
 #define FILE_UTILS__H
 
 #include <stdio.h>
+#include <string.h>
+
+#ifndef streq
+#define streq(a,b) (strcmp(a,b)==0)
+#endif
 
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
 #define MIN(a,b) ((a) > (b) ? (b) : (a))

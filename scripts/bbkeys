@@ -68,7 +68,10 @@ mark="$(readlink -f "$XDG_CONFIG_HOME"/bb/marks/"$mark")"
 bbcmd cd:"$mark"
 
 ## -,Backspace: Go to previous directory
-[ "$BBPREVPATH" ] && bbcmd cd:"$BBPREVPATH"
+bbcmd cd:-
+
+## +,=: Go to next directory
+bbcmd cd:+
 
 ## ;: Show selected files
 printf '%s\n' "$@" | less
@@ -310,7 +313,7 @@ fi
 ## i: Toggle interleaving files and directories
 bbcmd interleave
 
-## F5,Ctrl-l: Refresh view
+## F5,Ctrl-l,Ctrl-r: Refresh view
 bbcmd refresh
 
 ## Ctrl-b: Bind a key to a script
