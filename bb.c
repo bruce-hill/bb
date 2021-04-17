@@ -30,7 +30,7 @@
 #define BB_NAME "bb"
 #endif
 
-#define BB_VERSION "0.28.0"
+#define BB_VERSION "0.28.1"
 #define MAX_BINDINGS 1024
 #define SCROLLOFF MIN(5, (winsize.ws_row-4)/2)
 
@@ -385,7 +385,7 @@ static entry_t* load_entry(bb_t *bb, const char *path)
     if (strcmp(entry->fullname, "/") == 0) {
         entry->name = entry->fullname;
     } else {
-        entry->name = &entry->fullname[strlen(bb->path)];
+        entry->name = strrchr(entry->fullname, '/') + 1; // Last path component
     }
     if (S_ISLNK(filestat.st_mode))
         entry->linkedmode = linkedstat.st_mode;
