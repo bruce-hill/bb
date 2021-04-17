@@ -628,11 +628,11 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
             else script = trim(script);
         } else description = script;
         for (char *key; (key = strsep(&keys, ",")); ) {
-            int is_section = streq(key, "Section");
+            if (streq(key, "Section")) continue;
             int keyval = bkeywithname(key);
-            if (keyval == -1 && !is_section) continue;
+            if (keyval == -1) continue;
             for (size_t i = 0; i < sizeof(bindings)/sizeof(bindings[0]); i++) {
-                if (bindings[i].script && (bindings[i].key != keyval || is_section))
+                if (bindings[i].script && bindings[i].key != keyval)
                     continue;
                 char *script2;
                 if (is_simple_bbcmd(script)) {
