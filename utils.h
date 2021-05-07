@@ -9,12 +9,18 @@
 #ifndef FILE_UTILS__H
 #define FILE_UTILS__H
 
+#include <err.h>
 #include <stdio.h>
 #include <string.h>
 
 #ifndef streq
 #define streq(a,b) (strcmp(a,b)==0)
 #endif
+
+#define new(t) memcheck(calloc(1, sizeof(t)))
+#define xcalloc(a,b) memcheck(calloc(a,b))
+#define xrealloc(a,b) memcheck(realloc(a,b))
+#define clean_err(...) do { cleanup(); err(1, __VA_ARGS__); } while (0)
 
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
@@ -31,25 +37,6 @@
 #define atime(s) (s).st_atim
 #define ctime(s) (s).st_ctim
 #endif
-
-// Error reporting macros:
-#define err(...) do { \
-    cleanup(); \
-    fprintf(stderr, __VA_ARGS__); \
-    if (errno) fprintf(stderr, "\n%s", strerror(errno)); \
-    fprintf(stderr, "\n"); \
-    exit(EXIT_FAILURE); \
-} while (0)
-
-#define warn(...) do { \
-    move_cursor(tty_out, 0, winsize.ws_row-1); \
-    fputs("\033[41;33;1m", tty_out); \
-    fprintf(tty_out, __VA_ARGS__); \
-    fputs(" Press any key to continue...\033[0m  ", tty_out); \
-    fflush(tty_out); \
-    while (bgetkey(tty_in, NULL, NULL) == -1) usleep(100); \
-    bb->dirty = 1; \
-} while (0)
 
 // Entry macros
 #define IS_SELECTED(e) (((e)->selected.atme) != NULL)
