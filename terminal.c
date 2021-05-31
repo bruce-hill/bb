@@ -58,13 +58,13 @@ static keyname_t key_names[] = {
     {':', "Colon"}, {',', "Comma"},
 };
 
-static inline int nextchar(int fd)
+static int nextchar(int fd)
 {
     char c;
     return read(fd, &c, 1) == 1 ? c : -1;
 }
 
-static inline int nextnum(int fd, int c, int *n)
+static int nextnum(int fd, int c, int *n)
 {
     for (*n = 0; '0' <= c && c <= '9'; c = nextchar(fd))
         *n = 10*(*n) + (c - '0');
@@ -143,6 +143,7 @@ int bgetkey(FILE *in, int *mouse_x, int *mouse_y)
                 case 21: return modifiers | KEY_F10;
                 case 23: return modifiers | KEY_F11;
                 case 24: return modifiers | KEY_F12;
+                default: break;
             }
             return -1;
         case '<': { // Mouse clicks
@@ -185,6 +186,7 @@ int bgetkey(FILE *in, int *mouse_x, int *mouse_y)
                             case MOUSE_LEFT_RELEASE: key = MOUSE_LEFT_DOUBLE; break;
                             case MOUSE_RIGHT_RELEASE: key = MOUSE_RIGHT_DOUBLE; break;
                             case MOUSE_MIDDLE_RELEASE: key = MOUSE_MIDDLE_DOUBLE; break;
+                            default: break;
                         }
                     }
                 }
@@ -238,7 +240,7 @@ char *bkeyname(int key, char *buf)
     if (' ' < key && key <= '~')
         return buf + sprintf(buf, "%c", key);
     else
-        return buf + sprintf(buf, "\\x%02X", key);
+        return buf + sprintf(buf, "\\x%02X", (unsigned int)key);
 }
 
 //

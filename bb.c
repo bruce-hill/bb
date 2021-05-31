@@ -45,12 +45,13 @@ static int compare_files(void *v, const void *v1, const void *v2);
 #else
 static int compare_files(const void *v1, const void *v2, void *v);
 #endif
+__attribute__((format(printf,2,3)))
 void flash_warn(bb_t *bb, const char *fmt, ...);
 static void handle_next_key_binding(bb_t *bb);
 static void init_term(void);
 static int is_simple_bbcmd(const char *s);
 static entry_t* load_entry(bb_t *bb, const char *path);
-static inline int matches_cmd(const char *str, const char *cmd);
+static int matches_cmd(const char *str, const char *cmd);
 static void* memcheck(void *p);
 static char* normalize_path(const char *root, const char *path, char *pbuf);
 static int populate_files(bb_t *bb, const char *path);
@@ -240,6 +241,7 @@ static int compare_files(const void *v1, const void *v2, void *v)
             case COL_CTIME: COMPARE_TIME(ctime(e1->info), ctime(e2->info)); break;
             case COL_ATIME: COMPARE_TIME(atime(e1->info), atime(e2->info)); break;
             case COL_RANDOM: COMPARE(e2->shufflepos, e1->shufflepos); break;
+            default: break;
         }
     }
     return 0;
@@ -418,7 +420,7 @@ static entry_t* load_entry(bb_t *bb, const char *path)
 // Return whether a string matches a command
 // e.g. matches_cmd("sel:x", "select:") == 1, matches_cmd("q", "quit") == 1
 //
-static inline int matches_cmd(const char *str, const char *cmd)
+static int matches_cmd(const char *str, const char *cmd)
 {
     if ((strchr(cmd, ':') == NULL) != (strchr(str, ':') == NULL))
         return 0;
@@ -642,7 +644,7 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
         char *description;
         if (script[0] == '#') {
             description = trim(strsep(&script, "\n") + 1);
-            if (!script) script = "";
+            if (!script) script = (char*)"";
             else script = trim(script);
         } else description = script;
         for (char *key; (key = strsep(&keys, ",")); ) {
@@ -834,7 +836,7 @@ static int run_script(bb_t *bb, const char *cmd)
         (void)setpgid(0, pgrp);
         if (tcsetpgrp(STDIN_FILENO, pgrp))
             clean_err("Couldn't set pgrp");
-        char **args = xcalloc(4 + (size_t)bb->nselected + 1, sizeof(char*));
+        const char **args = xcalloc(4 + (size_t)bb->nselected + 1, sizeof(char*));
         int i = 0;
         args[i++] = "sh";
         args[i++] = "-c";
@@ -850,7 +852,7 @@ static int run_script(bb_t *bb, const char *cmd)
 
         dup2(fileno(tty_out), STDOUT_FILENO);
         dup2(fileno(tty_in), STDIN_FILENO);
-        execvp(args[0], args);
+        execvp(args[0], (char**)args);
         clean_err("Failed to execute command: '%s'", cmd);
         return -1;
     }
@@ -970,8 +972,8 @@ static void set_selected(bb_t *bb, entry_t *e, int selected)
 //
 static void set_sort(bb_t *bb, const char *sort)
 {
-    char sortbuf[strlen(sort)+1];
-    strcpy(sortbuf, sort);
+    char sortbuf[MAX_SORT+1];
+    strncpy(sortbuf, sort, MAX_SORT);
     for (char *s = sortbuf; s[0] && s[1]; s += 2) {
         char *found;
         if ((found = strchr(bb->sort, s[1]))) {
@@ -1074,7 +1076,7 @@ static int wait_for_process(proc_t **proc)
 
 int main(int argc, char *argv[])
 {
-    char *initial_path;
+    const char *initial_path;
     if (argc >= 3 && streq(argv[argc-2], "--")) {
         initial_path = argv[argc-1];
         argc -= 2;

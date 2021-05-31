@@ -46,7 +46,7 @@ static char* stpcpy_escaped(char *buf, const char *str, const char *color)
         if (*c > 0 && *c <= '\x1b' && escapes[(int)*c] != ' ') { // "\n", etc.
             buf += sprintf(buf, "\033[31m\\%c%s", escapes[(int)*c], color);
         } else if (*c >= 0 && !(' ' <= *c && *c <= '~')) { // "\x02", etc.
-            buf += sprintf(buf, "\033[31m\\x%02X%s", *c, color);
+            buf += sprintf(buf, "\033[31m\\x%02X%s", (unsigned int)*c, color);
         } else {
             *(buf++) = *c;
         }
@@ -69,7 +69,7 @@ static int fputs_escaped(FILE *f, const char *str, const char *color)
             fprintf(f, "\033[31m\\%c%s", escapes[(int)*c], color);
             ++escaped;
         } else if (*c >= 0 && !(' ' <= *c && *c <= '~')) { // "\x02", etc.
-            fprintf(f, "\033[31m\\x%02X%s", *c, color);
+            fprintf(f, "\033[31m\\x%02X%s", (unsigned int)*c, color);
             ++escaped;
         } else {
             fputc(*c, f);
