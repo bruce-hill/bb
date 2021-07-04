@@ -63,13 +63,13 @@ run the shell command `rm -rf file1 file2` and then tell `bb` to deselect all
 ## Customizing bb
 
 When `bb` launches, it first updates `bb`'s `$PATH` environment variable to
-include, in order, `~/.config/bb` and `/etc/xdg/bb`. Then, `bb` will run the
+include, in order, `~/.config/bb/` and `/etc/bb/`. Then, `bb` will run the
 command `bbstartup` (the default implementation is found at
 [scripts/bbstartup](scripts/bbstartup), along with other default `bb` commands).
 `bbstartup` will call `bbkeys` and may also set up configuration options like
 which columns to display and what sort order to use. All of these behaviors can
 be customized by creating custom local versions of these files in `~/.config/bb/`.
-The default versions can be found in `/etc/xdg/bb/`.
+The default versions can be found in `/etc/bb/`.
 
 You can also create temporary bindings at runtime by hitting `Ctrl-b`, pressing
 the key you want to bind, and then entering in a script to run (in case you

@@ -10,7 +10,7 @@ internal state.
 ## Helper Functions
 
 `bb` is bundled with some helper scripts for performing common tasks. These
-scripts are installed to `/etc/xdg/bb/`, which is added to `bb`'s `$PATH`
+scripts are installed to `/etc/bb/`, which is added to `bb`'s `$PATH`
 environment variable at runtime. `~/.config/bb/` is also added to the `$PATH`
 with higher priority, so you can override any of these scripts by putting your
 own version there.

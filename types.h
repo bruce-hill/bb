@@ -81,8 +81,8 @@ typedef struct bb_s {
 // Key bindings:
 typedef struct {
     int key;
-    char *script;
-    char *description;
+    const char *script;
+    const char *description;
 } binding_t;
 
 #endif

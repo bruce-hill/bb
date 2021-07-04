@@ -117,6 +117,10 @@ void bb_browse(bb_t *bb, const char *initial_path)
 {
     if (populate_files(bb, initial_path))
         clean_err("Could not find initial path: \"%s\"", initial_path);
+    // Emergency fallback:
+    bindings[0].key = KEY_CTRL_C;
+    bindings[0].script = strdup("kill -INT $PPID");
+    bindings[0].description = strdup("Kill the bb process");
     run_script(bb, "bbstartup");
     check_cmdfile(bb);
     while (!bb->should_quit) {
@@ -664,8 +668,8 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
                 }
                 binding_t binding = {keyval, script2, memcheck(strdup(description))};
                 if (bindings[i].key == keyval) {
-                    free(bindings[i].description);
-                    free(bindings[i].script);
+                    free((char*)bindings[i].description);
+                    free((char*)bindings[i].script);
                     for (; i + 1 < sizeof(bindings)/sizeof(bindings[0]) && bindings[i+1].key; i++)
                         bindings[i] = bindings[i+1];
                 }
@@ -1159,7 +1163,7 @@ int main(int argc, char *argv[])
                      getenv("XDG_CONFIG_HOME"), getenv("BBPATH"), getenv("PATH")) < 0)
             clean_err("Could not allocate memory for PATH");
     } else {
-        if (asprintf(&newpath, "%s/"BB_NAME":%s/xdg/"BB_NAME":%s",
+        if (asprintf(&newpath, "%s/"BB_NAME":%s/"BB_NAME":%s",
                      getenv("XDG_CONFIG_HOME"), getenv("sysconfdir"), getenv("PATH")) < 0)
             clean_err("Could not allocate memory for PATH");
     }

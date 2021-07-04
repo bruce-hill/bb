@@ -42,8 +42,8 @@ install: $(NAME)
 	fi; \
 	[ ! "$$prefix" ] && prefix="/usr/local"; \
 	[ ! "$$sysconfdir" ] && sysconfdir=/etc; \
-	mkdir -pv -m 755 "$$prefix/man/man1" "$$prefix/bin" "$$sysconfdir/xdg/$(NAME)" \
-	&& cp -rv scripts/* "$$sysconfdir/xdg/$(NAME)/" \
+	mkdir -pv -m 755 "$$prefix/man/man1" "$$prefix/bin" "$$sysconfdir/$(NAME)" \
+	&& cp -rv scripts/* "$$sysconfdir/$(NAME)/" \
 	&& cp -v bb.1 "$$prefix/man/man1/$(NAME).1" \
 	&& cp -v bbcmd.1 "$$prefix/man/man1/bbcmd.1" \
 	&& rm -f "$$prefix/bin/$(NAME)" \
@@ -58,7 +58,7 @@ uninstall:
 	[ ! "$$prefix" ] && prefix="/usr/local"; \
 	[ ! "$$sysconfdir" ] && sysconfdir=/etc; \
 	echo "Deleting..."; \
-	rm -rvf "$$prefix/bin/$(NAME)" "$$prefix/man/man1/$(NAME).1" "$$prefix/man/man1/bbcmd.1" "$$sysconfdir/xdg/$(NAME)"; \
+	rm -rvf "$$prefix/bin/$(NAME)" "$$prefix/man/man1/$(NAME).1" "$$prefix/man/man1/bbcmd.1" "$$sysconfdir/$(NAME)"; \
 	printf "\033[1mIf you created any config files in ~/.config/$(NAME), you may want to delete them manually.\033[0m\n"
 
 .PHONY: all, clean, install, uninstall
