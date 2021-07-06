@@ -7,7 +7,7 @@
 # The format is: ## <key>(,<key>)*:[ ]+<description>(\n script)+
 #
 # May God have mercy on my soul for creating this abomination:
-sed '1,'$LINENO'd; /^$/d; s/^## \(.*\): \(.*\)/\x00bind:\1:# \2/; $a\\x00' "$0" | bbcmd; exit
+sed '1,'$LINENO'd; /^$/d; s/^## \(.*\): \(.*\)/'"$(printf '\003')"':\1:# \2/' "$0" | tr '\003' '\000' | bbcmd; exit
 
 ## Section: BB Commands
 ## ?,F1: Show Help menu
