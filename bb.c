@@ -40,11 +40,7 @@ void bb_browse(bb_t *bb, const char *initial_path);
 static void check_cmdfile(bb_t *bb);
 static void cleanup(void);
 static void cleanup_and_raise(int sig);
-#ifdef __APPLE__
-static int compare_files(void *v, const void *v1, const void *v2);
-#else
-static int compare_files(const void *v1, const void *v2, void *v);
-#endif
+static int compare_files(const void *v1, const void *v2);
 __attribute__((format(printf,2,3)))
 void flash_warn(bb_t *bb, const char *fmt, ...);
 static void handle_next_key_binding(bb_t *bb);
@@ -77,27 +73,6 @@ static int wait_for_process(proc_t **proc);
 static const char *T_ENTER_BBMODE = T_OFF(T_SHOW_CURSOR ";" T_WRAP) T_ON(T_ALT_SCREEN ";" T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR);
 static const char *T_LEAVE_BBMODE = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR ";" T_ALT_SCREEN) T_ON(T_SHOW_CURSOR ";" T_WRAP);
 static const char *T_LEAVE_BBMODE_PARTIAL = T_OFF(T_MOUSE_XY ";" T_MOUSE_CELL ";" T_MOUSE_SGR) T_ON(T_WRAP);
-static const struct termios default_termios = {
-    .c_iflag = ICRNL,
-    .c_oflag = OPOST | ONLCR | NL0 | CR0 | TAB0 | BS0 | VT0 | FF0,
-    .c_lflag = ISIG | ICANON | IEXTEN | ECHO | ECHOE | ECHOK | ECHOCTL | ECHOKE,
-    .c_cflag = CS8 | CREAD,
-    .c_cc[VINTR] = '',
-    .c_cc[VQUIT] = '',
-    .c_cc[VERASE] = 127,
-    .c_cc[VKILL] = '',
-    .c_cc[VEOF] = '',
-    .c_cc[VSTART] = '',
-    .c_cc[VSTOP] = '',
-    .c_cc[VSUSP] = '',
-    .c_cc[VREPRINT] = '',
-    .c_cc[VWERASE] = '',
-    .c_cc[VLNEXT] = '',
-    .c_cc[VDISCARD] = '',
-    .c_cc[VMIN] = 1,
-    .c_cc[VTIME] = 0,
-};
-
 static const char *description_str = BB_NAME" - an itty bitty console TUI file browser\n";
 static const char *usage_str = "Usage: "BB_NAME" (-h/--help | -v/--version | -s | -d | -0 | +command)* [[--] directory]\n";
 
@@ -190,15 +165,11 @@ static void cleanup(void)
 // Used for sorting, this function compares files according to the sorting-related options,
 // like bb->sort
 //
-#ifdef __APPLE__
-static int compare_files(void *v, const void *v1, const void *v2)
-#else
-static int compare_files(const void *v1, const void *v2, void *v)
-#endif
+static int compare_files(const void *v1, const void *v2)
 {
 #define COMPARE(a, b) if ((a) != (b)) { return sign*((a) < (b) ? 1 : -1); }
 #define COMPARE_TIME(t1, t2) COMPARE((t1).tv_sec, (t2).tv_sec) COMPARE((t1).tv_nsec, (t2).tv_nsec)
-    bb_t *bb = (bb_t*)v;
+    bb_t *bb = current_bb;
     const entry_t *e1 = *((const entry_t**)v1), *e2 = *((const entry_t**)v2);
 
     int sign = 1;
@@ -320,7 +291,7 @@ static void handle_next_key_binding(bb_t *bb)
     } else {
         move_cursor(tty_out, 0, winsize.ws_row-1);
         fputs("\033[K", tty_out);
-        restore_term(&default_termios);
+        restore_term(&orig_termios);
         run_script(bb, binding->script);
         init_term();
         set_title(bb);
@@ -712,7 +683,7 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
         if (!child) return;
         move_cursor(tty_out, 0, winsize.ws_row-1);
         fputs("\033[K", tty_out);
-        restore_term(&default_termios);
+        restore_term(&orig_termios);
         signal(SIGTTOU, SIG_IGN);
         if (tcsetpgrp(fileno(tty_out), child->pid))
             clean_err("Couldn't set pgrp");
@@ -1022,11 +993,7 @@ static int try_free_entry(entry_t *e)
 //
 static void sort_files(bb_t *bb)
 {
-#ifdef __APPLE__
-    qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), bb, compare_files);
-#else
-    qsort_r(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), compare_files, bb);
-#endif
+    qsort(bb->files, (size_t)bb->nfiles, sizeof(entry_t*), compare_files);
     for (int i = 0; i < bb->nfiles; i++)
         bb->files[i]->index = i;
     bb->dirty = 1;
