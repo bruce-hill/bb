@@ -864,7 +864,7 @@ static int run_script(bb_t *bb, const char *cmd)
     if (proc->pid == -1)
         clean_err("Failed to fork");
 
-    (void)setpgid(proc->pid, proc->pid);
+    (void)setpgid(getpid(), getpid());
     LL_PREPEND(bb->running_procs, proc, running);
     int status = wait_for_process(&proc);
     bb->dirty = 1;
@@ -1210,8 +1210,11 @@ int main(int argc, char *argv[])
     close(cmdfd); cmdfd = -1;
 
     tty_in = fopen("/dev/tty", "r");
+    if (!tty_in) clean_err("Couldn't open /dev/tty file for reading");
     tty_out = fopen("/dev/tty", "w");
-    tcgetattr(fileno(tty_out), &orig_termios);
+    if (!tty_out) clean_err("Couldn't open /dev/tty file for writing");
+    if (tcgetattr(fileno(tty_out), &orig_termios))
+        clean_err("Couldn't tcgetattr");
     memcpy(&bb_termios, &orig_termios, sizeof(bb_termios));
     cfmakeraw(&bb_termios);
     bb_termios.c_cc[VMIN] = 0;
@@ -1233,14 +1236,13 @@ int main(int argc, char *argv[])
     set_globs(&bb, "*");
     init_term();
     bb_browse(&bb, full_initial_path);
-    fputs(T_LEAVE_BBMODE, tty_out);
+    cleanup();
 
     if (bb.selected && print_selection) {
         for (entry_t *e = bb.selected; e; e = e->selected.next) {
             write(STDOUT_FILENO, e->fullname, strlen(e->fullname));
             write(STDOUT_FILENO, &sep, 1);
         }
-        fflush(stdout);
     }
 
     if (print_dir)
