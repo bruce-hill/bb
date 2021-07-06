@@ -131,7 +131,11 @@ bind '"\C-b":"bcd\n"'
 For zsh, instead put this in your `~/.zshrc`:
 
 ```zsh
-bcd() { cd "$(bb -d "$@" <$TTY)"; }
+bcd() { # Change directory with bb
+  cd "$(bb -d "$@" <$TTY)"
+  precmd >/dev/null 2>/dev/null # If precmd sets your $PS1, you may need to re-run it
+  zle reset-prompt
+}
 zle -N bcd
 bindkey '^B' bcd
 ```
