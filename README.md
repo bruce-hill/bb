@@ -93,12 +93,17 @@ documentation](API.md) or by running `man bbcmd` after installing.
 
 Applications cannot change the shell's working directory on their own, but you
 can define a shell function that uses the shell's builtin `cd` function on the
-output of `bb -d` (print directory on exit). For bash (or sh, zsh, etc.), you can
-put the following function in your `~/.profile` (or `~/.bashrc`, `~/.zshrc`,
-etc.):
+output of `bb -d` (print directory on exit). For bash or sh, you can put the
+following function in your `~/.bashrc`:
 
 ```bash
-function bcd() { cd "$(bb -d "$@" <$TTY)"; }
+function bcd() { cd "$(bb -d "$@")"; }
+```
+
+Zsh is slightly different and requires the following in your `~/.zshrc`:
+
+```zsh
+bcd() { cd "$(bb -d "$@" <$TTY)"; }
 ```
 
 For [fish](https://fishshell.com/) (v3.0.0+), you can put this in your
@@ -119,7 +124,7 @@ handled by your shell. Here are some examples for binding `Ctrl-b` to launch
 above). For sh and bash, put this in your `~/.profile`:
 
 ```bash
-function bcd() { cd "$(bb -d "$@" <$TTY)"; }
+function bcd() { cd "$(bb -d "$@")"; }
 bind '"\C-b":"bcd\n"'
 ```
 
