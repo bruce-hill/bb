@@ -15,8 +15,10 @@
 
 `bb` has no build dependencies besides `make` and a C compiler, just:
 
-    make
-    sudo make install
+```shell
+make
+sudo make install
+```
 
 To run `bb`, it's expected that you have some basic unix tools: `cat`, `cp`,
 `echo`, `find`, `kill`, `less`, `ln`, `mkdir`, `more`, `mv`, `printf`, `read`,
@@ -27,7 +29,8 @@ To run `bb`, it's expected that you have some basic unix tools: `cat`, `cp`,
 
 Run `bb` to launch the file browser. `bb` also has the flags:
 
-- `-d`: when `bb` exits successfully, print the directory `bb` was browsing.
+- `-d`: when `bb` exits successfully, print the directory `bb` was browsing
+  (see the section on "Changing Directories with bb" in the FAQ below).
 - `-s`: when `bb` exits successfully, print the files that were selected.
 - `-0`: use NULL-terminated strings instead of newline-separated strings with
   the `-s` flag.
@@ -84,6 +87,56 @@ default, `j` is bound to `bbcmd move:+1`, which has the effect of moving `bb`'s
 cursor down one item. More details about the API can be found in [the API
 documentation](API.md) or by running `man bbcmd` after installing.
 
+## FAQ
+
+### Using bb to Change Directory
+
+Applications cannot change the shell's working directory on their own, but you
+can define a shell function that uses the shell's builtin `cd` function on the
+output of `bb -d` (print directory on exit). For bash (or sh, zsh, etc.), you can
+put the following function in your `~/.profile` (or `~/.bashrc`, `~/.zshrc`,
+etc.):
+
+```bash
+function bcd() { cd "$(bb -d "$@" <$TTY)"; }
+```
+
+For [fish](https://fishshell.com/) (v3.0.0+), you can put this in your
+`~/.config/fish/functions/`:
+
+```fish
+function bcd; cd (bb -d $argv); end
+```
+
+In both versions, the directory will not change if `bb` exits with failure
+(e.g. by pressing `Ctrl-c`).
+
+### Launching bb with a Keyboard Shortcut
+
+Using a keyboard shortcut to launch `bb` from the shell is something that is
+handled by your shell. Here are some examples for binding `Ctrl-b` to launch
+`bb` and change directory to `bb`'s directory (using the `bcd` function defined
+above). For sh and bash, put this in your `~/.profile`:
+
+```bash
+function bcd() { cd "$(bb -d "$@" <$TTY)"; }
+bind '"\C-b":"bcd\n"'
+```
+
+For zsh, instead put this in your `~/.zshrc`:
+
+```zsh
+bcd() { cd "$(bb -d "$@" <$TTY)"; }
+zle -N bcd
+bindkey '^B' bcd
+```
+
+For fish, put this in your `~/.config/fish/functions/fish_user_key_bindings.fish`:
+
+```fish
+function bcd; cd (bb -d $argv <$TTY); end
+bind \cB 'bcd; commandline -f repaint'
+```
 
 ## License
 
