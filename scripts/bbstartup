@@ -1,11 +1,6 @@
 #!/bin/sh
 # This file contains the script that is run when bb launches
 
-# Delay running command-line commands (bb +<cmd>) until after startup:
-tmpfile="$(mktemp "${TMPDIR-/tmp}/bb-cmdline-XXXXXX")"
-trap 'cat "$tmpfile" >> "$BBCMD"; rm -f "$tmpfile"' EXIT
-mv "$BBCMD" "$tmpfile"
-
 # Create bb data dir:
 [ ! -d "$XDG_DATA_HOME/bb" ] && mkdir -p "$XDG_DATA_HOME/bb"
 

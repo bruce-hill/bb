@@ -36,7 +36,7 @@
 #define SCROLLOFF MIN(5, (winsize.ws_row-4)/2)
 
 // Functions
-void bb_browse(bb_t *bb, const char *initial_path);
+void bb_browse(bb_t *bb, int argc, char *argv[]);
 static void check_cmdfile(bb_t *bb);
 static void cleanup(void);
 static void cleanup_and_raise(int sig);
@@ -49,7 +49,7 @@ static int is_simple_bbcmd(const char *s);
 static entry_t* load_entry(bb_t *bb, const char *path);
 static int matches_cmd(const char *str, const char *cmd);
 static void* memcheck(void *p);
-static char* normalize_path(const char *root, const char *path, char *pbuf);
+static char* normalize_path(const char *path, char *pbuf);
 static int populate_files(bb_t *bb, const char *path);
 static void print_bindings(int fd);
 static void run_bbcmd(bb_t *bb, const char *cmd);
@@ -88,21 +88,65 @@ static bb_t *current_bb = NULL;
 //
 // Use bb to browse the filesystem.
 //
-void bb_browse(bb_t *bb, const char *initial_path)
+void bb_browse(bb_t *bb, int argc, char *argv[])
 {
-    if (populate_files(bb, initial_path))
+    const char *initial_path;
+    if (argc >= 3 && streq(argv[argc-2], "--")) {
+        initial_path = argv[argc-1];
+        argc -= 2;
+    } else if (argc >= 2 && argv[argc-1][0] != '-' && argv[argc-1][0] != '+') {
+        initial_path = argv[argc-1];
+        argc -= 1;
+    } else {
+        initial_path = ".";
+    }
+
+    char full_initial_path[PATH_MAX];
+    normalize_path(initial_path, full_initial_path);
+
+    struct stat path_stat;
+    const char *goto_file = NULL;
+    if (stat(full_initial_path, &path_stat) != 0)
         clean_err("Could not find initial path: \"%s\"", initial_path);
+    if (!S_ISDIR(path_stat.st_mode)) {
+        char *slash = strrchr(full_initial_path, '/');
+        *slash = '\0';
+        goto_file = slash+1;
+    }
+
+    if (populate_files(bb, full_initial_path))
+        clean_err("Could not find initial path: \"%s\"", full_initial_path);
+
     // Emergency fallback:
     bindings[0].key = KEY_CTRL_C;
     bindings[0].script = strdup("kill -INT $PPID");
     bindings[0].description = strdup("Kill the bb process");
     run_script(bb, "bbstartup");
+
+    FILE *cmdfile = fopen(cmdfilename, "a");
+    if (goto_file)
+        fprintf(cmdfile, "%cgoto:%s", '\0', goto_file);
+    for (int i = 0; i < argc; i++) {
+        if (argv[i][0] == '+') {
+            char *cmd = argv[i] + 1;
+            char *colon = strchr(cmd, ':');
+            if (colon && !colon[1]) {
+                for (++i; i < argc; i++)
+                    fprintf(cmdfile, "%c%s%s", '\0', cmd, argv[i]);
+            } else {
+                fprintf(cmdfile, "%c%s", '\0', cmd);
+            }
+        }
+    }
+    fclose(cmdfile);
+
     check_cmdfile(bb);
     while (!bb->should_quit) {
         render(tty_out, bb);
         handle_next_key_binding(bb);
     }
     run_script(bb, "bbshutdown");
+    check_cmdfile(bb);
 }
 
 //
@@ -414,10 +458,10 @@ static void* memcheck(void *p)
 }
 
 //
-// Prepend `root` to relative paths, replace "~" with $HOME.
+// Prepend `./` to relative paths, replace "~" with $HOME.
 // The normalized path is stored in `normalized`.
 //
-static char *normalize_path(const char *root, const char *path, char *normalized)
+static char *normalize_path(const char *path, char *normalized)
 {
     char pbuf[PATH_MAX] = {0};
     if (path[0] == '~' && (path[1] == '\0' || path[1] == '/')) {
@@ -426,8 +470,7 @@ static char *normalize_path(const char *root, const char *path, char *normalized
         strcpy(pbuf, home);
         ++path;
     } else if (path[0] != '/') {
-        strcpy(pbuf, root);
-        if (root[strlen(root)-1] != '/') strcat(pbuf, "/");
+        strcpy(pbuf, "./");
     }
     strcat(pbuf, path);
     if (realpath(pbuf, normalized) == NULL) {
@@ -447,10 +490,14 @@ static int populate_files(bb_t *bb, const char *path)
     if (path == NULL)
         ;
     else if (streq(path, "-")) {
+        if (!bb->history)
+            return -1;
         if (bb->history->prev)
             bb->history = bb->history->prev;
         path = bb->history->path;
     } else if (streq(path, "+")) {
+        if (!bb->history)
+            return -1;
         if (bb->history->next)
             bb->history = bb->history->next;
         path = bb->history->path;
@@ -466,7 +513,7 @@ static int populate_files(bb_t *bb, const char *path)
     char pbuf[PATH_MAX] = {0}, prev[PATH_MAX] = {0};
     strcpy(prev, bb->path);
     if (path != NULL) {
-        if (!normalize_path(bb->path, path, pbuf))
+        if (!normalize_path(path, pbuf))
             flash_warn(bb, "Could not normalize path: \"%s\"", path);
         if (pbuf[strlen(pbuf)-1] != '/')
             strcat(pbuf, "/");
@@ -477,7 +524,7 @@ static int populate_files(bb_t *bb, const char *path)
     }
 
     if (clear_future_history && !samedir) {
-        for (bb_history_t *next, *h = bb->history->next; h; h = next) {
+        for (bb_history_t *next, *h = bb->history ? bb->history->next : NULL; h; h = next) {
             next = h->next;
             free(h);
         }
@@ -485,7 +532,7 @@ static int populate_files(bb_t *bb, const char *path)
         bb_history_t *h = new(bb_history_t);
         strcpy(h->path, pbuf);
         h->prev = bb->history;
-        bb->history->next = h;
+        if (bb->history) bb->history->next = h;
         bb->history = h;
     }
 
@@ -659,7 +706,7 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
             set_selected(bb, bb->selected, 0);
     } else if (matches_cmd(cmd, "deselect:")) { // +deselect:<file>
         char pbuf[PATH_MAX];
-        normalize_path(bb->path, value, pbuf);
+        normalize_path(value, pbuf);
         entry_t *e = load_entry(bb, pbuf);
         if (e) {
             set_selected(bb, e, 0);
@@ -1047,17 +1094,6 @@ static int wait_for_process(proc_t **proc)
 
 int main(int argc, char *argv[])
 {
-    const char *initial_path;
-    if (argc >= 3 && streq(argv[argc-2], "--")) {
-        initial_path = argv[argc-1];
-        argc -= 2;
-    } else if (argc >= 2 && argv[argc-1][0] != '-' && argv[argc-1][0] != '+') {
-        initial_path = argv[argc-1];
-        argc -= 1;
-    } else {
-        initial_path = ".";
-    }
-
     char sep = '\n';
     int print_dir = 0, print_selection = 0;
     for (int i = 1; i < argc; i++) {
@@ -1066,6 +1102,8 @@ int main(int argc, char *argv[])
             char *colon = strchr(argv[i], ':');
             if (colon && !colon[1])
                 break;
+        } else if (streq(argv[i], "--")) {
+            break;
         } else if (streq(argv[i], "--help")) {
           help:
             printf("%s%s", description_str, usage_str);
@@ -1086,7 +1124,7 @@ int main(int argc, char *argv[])
                              return 1;
                 }
             }
-        } else {
+        } else if (i < argc-1) {
             printf("Unknown command line argument: \"%s\"\n%s", argv[i], usage_str);
             return 1;
         }
@@ -1106,6 +1144,7 @@ int main(int argc, char *argv[])
     int cmdfd;
     if ((cmdfd = mkostemp(cmdfilename, O_APPEND)) == -1)
         clean_err("Couldn't create "BB_NAME" command file: '%s'", cmdfilename);
+    close(cmdfd);
     setenv("BBCMD", cmdfilename, 1);
     char xdg_config_home[PATH_MAX], xdg_data_home[PATH_MAX];
     sprintf(xdg_config_home, "%s/.config", getenv("HOME"));
@@ -1143,38 +1182,6 @@ int main(int argc, char *argv[])
     char depthstr[16];
     sprintf(depthstr, "%d", depth + 1);
     setenv("BBDEPTH", depthstr, 1);
-    char full_initial_path[PATH_MAX];
-    getcwd(full_initial_path, PATH_MAX);
-    normalize_path(full_initial_path, initial_path, full_initial_path);
-    struct stat path_stat;
-    if (stat(full_initial_path, &path_stat) != 0)
-        clean_err("Could not find initial path: \"%s\"", initial_path);
-    if (S_ISDIR(path_stat.st_mode)) {
-        if (!streq(full_initial_path, "/")) strcat(full_initial_path, "/");
-    } else {
-        write(cmdfd, "goto:", 5);
-        write(cmdfd, full_initial_path, strlen(full_initial_path) + 1); // Include null byte
-        char *slash = strrchr(full_initial_path, '/');
-        *slash = '\0';
-    }
-    setenv("BBINITIALPATH", full_initial_path, 1);
-
-    write(cmdfd, "\0", 1);
-    for (int i = 0; i < argc; i++) {
-        if (argv[i][0] == '+') {
-            char *cmd = argv[i] + 1;
-            char *colon = strchr(cmd, ':');
-            if (colon && !colon[1]) {
-                for (++i; i < argc; i++) {
-                    write(cmdfd, cmd, strlen(cmd));
-                    write(cmdfd, argv[i], strlen(argv[i])+1); // Include null byte
-                }
-            } else {
-                write(cmdfd, cmd, strlen(cmd)+1); // Include null byte
-            }
-        }
-    }
-    close(cmdfd); cmdfd = -1;
 
     tty_in = fopen("/dev/tty", "r");
     if (!tty_in) clean_err("Couldn't open /dev/tty file for reading");
@@ -1192,17 +1199,16 @@ int main(int argc, char *argv[])
     for (size_t i = 0; i < sizeof(signals)/sizeof(signals[0]); i++)
         sigaction(signals[i], &sa, NULL);
 
-    bb_history_t *history = new(bb_history_t);
-    strcpy(history->path, full_initial_path);
     bb_t bb = {
         .columns = "*smpn",
         .sort = "+n",
-        .history = history,
+        .history = NULL,
+        .path = ".",
     };
     current_bb = &bb;
     set_globs(&bb, "*");
     init_term();
-    bb_browse(&bb, full_initial_path);
+    bb_browse(&bb, argc, argv);
     cleanup();
 
     if (bb.selected && print_selection) {

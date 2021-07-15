@@ -76,9 +76,6 @@ bbcmd cd:+
 ## ;: Show selected files
 printf '%s\n' "$@" | less
 
-## 0: Go to intitial directory
-bbcmd cd:"$BBINITIALPATH"
-
 ## g,Home: Go to first file
 bbcmd move:0
 
