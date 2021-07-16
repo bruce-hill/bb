@@ -650,7 +650,6 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
     if (strncmp(cmd, "bbcmd ", strlen("bbcmd ")) == 0) cmd = &cmd[strlen("bbcmd ")];
     const char *value = strchr(cmd, ':');
     if (value) ++value;
-#define set_bool(target) do { if (!value) { target = !target; } else { target = value[0] == '1'; } } while (0)
     if (matches_cmd(cmd, "bind:")) { // +bind:<keys>:<script>
         char *value_copy = memcheck(strdup(value));
         char *keys = trim(value_copy);
@@ -777,7 +776,7 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
         run_script(bb, script);
         if (unlink(filename) == -1) clean_err("Couldn't delete temporary help file: '%s'", filename);
     } else if (matches_cmd(cmd, "interleave:") || matches_cmd(cmd, "interleave")) { // +interleave
-        set_bool(bb->interleave_dirs);
+        bb->interleave_dirs = value ? (value[0] == '1') : !bb->interleave_dirs;
         set_interleave(bb, bb->interleave_dirs);
         sort_files(bb);
     } else if (matches_cmd(cmd, "move:")) { // +move:
