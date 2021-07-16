@@ -1208,7 +1208,6 @@ int main(int argc, char *argv[])
         .columns = "*smpn",
         .sort = "+n",
         .history = NULL,
-        .path = ".",
     };
     current_bb = &bb;
     set_globs(&bb, "*");
