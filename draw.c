@@ -29,6 +29,9 @@ column_t column_info[255] = {
     ['r'] = {.name = "Random",     .render = col_random},
 };
 
+//
+// Left-pad a string with spaces.
+//
 static void lpad(char *buf, int width)
 {
     int len = strlen(buf);
@@ -39,6 +42,9 @@ static void lpad(char *buf, int width)
     }
 }
 
+//
+// Append a string to an existing string, but with escape sequences made explicit.
+//
 static char* stpcpy_escaped(char *buf, const char *str, const char *color)
 {
     static const char *escapes = "       abtnvfr             e";
@@ -79,17 +85,8 @@ static int fputs_escaped(FILE *f, const char *str, const char *color)
 }
 
 //
-// Returns the color of a file listing, given its mode.
+// Return a human-readable string representing how long ago a time was.
 //
-static const char* color_of(mode_t mode)
-{
-    if (S_ISDIR(mode)) return DIR_COLOR;
-    else if (S_ISLNK(mode)) return LINK_COLOR;
-    else if (mode & (S_IXUSR | S_IXGRP | S_IXOTH))
-        return EXECUTABLE_COLOR;
-    else return NORMAL_COLOR;
-}
-
 static void timeago(char *buf, time_t t)
 {
     const int SECOND = 1;
@@ -213,6 +210,9 @@ void col_name(entry_t *entry, const char *color, char *buf, int width)
     buf = stpcpy(buf, "\033[22;23m");
 }
 
+//
+// Calculate the column widths.
+//
 int *get_column_widths(char columns[], int width)
 {
     // TODO: maybe memoize
@@ -235,6 +235,9 @@ int *get_column_widths(char columns[], int width)
     return colwidths;
 }
 
+//
+// Draw the column header labels.
+//
 void draw_column_labels(FILE *out, char columns[], char *sort, int width)
 {
     int *colwidths = get_column_widths(columns, width);
@@ -260,6 +263,9 @@ void draw_column_labels(FILE *out, char columns[], char *sort, int width)
     fputs(" \033[K\033[0m", out);
 }
 
+//
+// Draw a row (one file).
+//
 void draw_row(FILE *out, char columns[], entry_t *entry, const char *color, int width)
 {
     int *colwidths = get_column_widths(columns, width);
@@ -283,8 +289,8 @@ void draw_row(FILE *out, char columns[], entry_t *entry, const char *color, int 
 
 //
 // Draw everything to the screen.
-// If `dirty` is false, then use terminal scrolling to move the file listing
-// around and only update the files that have changed.
+// If `bb->dirty` is false, then use terminal scrolling to move the file
+// listing around and only update the files that have changed.
 //
 void render(FILE *out, bb_t *bb)
 {
@@ -345,8 +351,13 @@ void render(FILE *out, bb_t *bb)
             }
 
             entry_t *entry = files[i];
-            const char *color = i == bb->cursor ?
-                CURSOR_COLOR : color_of(entry->info.st_mode);
+            const char *color = NORMAL_COLOR;
+            if (i == bb->cursor) color = CURSOR_COLOR;
+            else if (S_ISDIR(entry->info.st_mode)) color = DIR_COLOR;
+            else if (S_ISLNK(entry->info.st_mode)) color = LINK_COLOR;
+            else if (entry->info.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH))
+                color = EXECUTABLE_COLOR;
+
             int x = 0, y = i - bb->scroll + 2;
             move_cursor(out, x, y);
             draw_row(out, bb->columns, entry, color, winsize.ws_col-1);
