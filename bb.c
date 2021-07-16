@@ -34,6 +34,12 @@
 #define BB_VERSION "0.30.0"
 #define MAX_BINDINGS 1024
 #define SCROLLOFF MIN(5, (winsize.ws_row-4)/2)
+#define ONSCREEN (winsize.ws_row - 3)
+
+#define new(t) memcheck(calloc(1, sizeof(t)))
+#define xcalloc(a,b) memcheck(calloc(a,b))
+#define xrealloc(a,b) memcheck(realloc(a,b))
+#define clean_err(...) do { cleanup(); err(1, __VA_ARGS__); } while (0)
 
 // Functions
 void bb_browse(bb_t *bb, int argc, char *argv[]);

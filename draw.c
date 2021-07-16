@@ -293,6 +293,7 @@ void render(FILE *out, bb_t *bb)
 
     struct winsize winsize;
     ioctl(STDIN_FILENO, TIOCGWINSZ, &winsize);
+    int onscreen  = winsize.ws_row - 3;
 
     bb->dirty |= (winsize.ws_row != oldsize.ws_row) || (winsize.ws_col != oldsize.ws_col);
 
@@ -337,9 +338,9 @@ void render(FILE *out, bb_t *bb)
         fputs("\033[37;2m ...no files here... \033[0m\033[J", out);
     } else {
         entry_t **files = bb->files;
-        for (int i = bb->scroll; i < bb->scroll + ONSCREEN && i < bb->nfiles; i++) {
+        for (int i = bb->scroll; i < bb->scroll + onscreen && i < bb->nfiles; i++) {
             if (!(bb->dirty || i == bb->cursor || i == lastcursor ||
-                  i < lastscroll || i >= lastscroll + ONSCREEN)) {
+                  i < lastscroll || i >= lastscroll + onscreen)) {
                 continue;
             }
 
@@ -350,15 +351,15 @@ void render(FILE *out, bb_t *bb)
             move_cursor(out, x, y);
             draw_row(out, bb->columns, entry, color, winsize.ws_col-1);
         }
-        move_cursor(out, 0, MIN(bb->nfiles - bb->scroll, ONSCREEN) + 2);
+        move_cursor(out, 0, MIN(bb->nfiles - bb->scroll, onscreen) + 2);
         fputs("\033[J", out);
     }
 
     // Scrollbar:
-    if (bb->nfiles > ONSCREEN) {
-        int height = (ONSCREEN*ONSCREEN + (bb->nfiles-1))/bb->nfiles;
-        int start = 2 + (bb->scroll*ONSCREEN)/bb->nfiles;
-        for (int i = 2; i < 2 + ONSCREEN; i++) {
+    if (bb->nfiles > onscreen) {
+        int height = (onscreen*onscreen + (bb->nfiles-1))/bb->nfiles;
+        int start = 2 + (bb->scroll*onscreen)/bb->nfiles;
+        for (int i = 2; i < 2 + onscreen; i++) {
             move_cursor(out, winsize.ws_col-1, i);
             fprintf(out, "%s\033[0m",
                 (i >= start && i < start + height) ?  SCROLLBAR_FG : SCROLLBAR_BG);

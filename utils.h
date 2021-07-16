@@ -17,15 +17,8 @@
 #define streq(a,b) (strcmp(a,b)==0)
 #endif
 
-#define new(t) memcheck(calloc(1, sizeof(t)))
-#define xcalloc(a,b) memcheck(calloc(a,b))
-#define xrealloc(a,b) memcheck(realloc(a,b))
-#define clean_err(...) do { cleanup(); err(1, __VA_ARGS__); } while (0)
-
 #define MAX(a,b) ((a) < (b) ? (b) : (a))
 #define MIN(a,b) ((a) > (b) ? (b) : (a))
-
-#define ONSCREEN (winsize.ws_row - 3)
 
 // Platform-dependent time strucutre accessors:
 #ifdef __APPLE__
