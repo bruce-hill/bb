@@ -7,7 +7,7 @@
 # The format is: ## <key>(,<key>)*:[ ]+<description>(\n script)+
 #
 # May God have mercy on my soul for creating this abomination:
-sed '1,'$LINENO'd; /^$/d; s/^## \(.*\): \(.*\)/'"$(printf '\003')"'bind:\1:# \2/' "$0" | tr '\003' '\000' | bbcmd; exit
+awk 'NR<='$LINENO'{next} /^##/{sub(/: /, ":# "); sub(/^## /,"\0bind:")} /./{print}' "$0" | bbcmd; exit
 
 ## Section: BB Commands
 ## ?,F1: Show Help menu
