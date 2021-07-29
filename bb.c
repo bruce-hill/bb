@@ -7,6 +7,7 @@
 //
 
 #include <ctype.h>
+#include <err.h>
 #include <fcntl.h>
 #include <glob.h>
 #include <limits.h>
@@ -36,11 +37,6 @@
 #define SCROLLOFF MIN(5, (winsize.ws_row-4)/2)
 #define ONSCREEN (winsize.ws_row - 3)
 
-#define new(t) memcheck(calloc(1, sizeof(t)))
-#define xcalloc(a,b) memcheck(calloc(a,b))
-#define xrealloc(a,b) memcheck(realloc(a,b))
-#define clean_err(...) do { cleanup(); err(1, __VA_ARGS__); } while (0)
-
 // Functions
 void bb_browse(bb_t *bb, int argc, char *argv[]);
 static void check_cmdfile(bb_t *bb);
@@ -54,7 +50,6 @@ static void init_term(void);
 static int is_simple_bbcmd(const char *s);
 static entry_t* load_entry(bb_t *bb, const char *path);
 static int matches_cmd(const char *str, const char *cmd);
-static void* memcheck(void *p);
 static char* normalize_path(const char *path, char *pbuf);
 static int populate_files(bb_t *bb, const char *path);
 static void print_bindings(int fd);
@@ -91,6 +86,10 @@ static struct winsize winsize = {0};
 static char cmdfilename[PATH_MAX] = {0};
 static bb_t *current_bb = NULL;
 
+static char err_tmpfilename[PATH_MAX] = {0};
+int stderr_dup_fd = -1, err_tmp_fd = -1;
+FILE *err_file = NULL;
+
 //
 // Use bb to browse the filesystem.
 //
@@ -112,8 +111,7 @@ void bb_browse(bb_t *bb, int argc, char *argv[])
 
     struct stat path_stat;
     const char *goto_file = NULL;
-    if (stat(full_initial_path, &path_stat) != 0)
-        clean_err("Could not find initial path: \"%s\"", initial_path);
+    nonnegative(stat(full_initial_path, &path_stat), "Could not find initial path: \"%s\"", initial_path);
     if (!S_ISDIR(path_stat.st_mode)) {
         char *slash = strrchr(full_initial_path, '/');
         *slash = '\0';
@@ -121,12 +119,12 @@ void bb_browse(bb_t *bb, int argc, char *argv[])
     }
 
     if (populate_files(bb, full_initial_path))
-        clean_err("Could not find initial path: \"%s\"", full_initial_path);
+        errx(EXIT_FAILURE, "Could not find initial path: \"%s\"", full_initial_path);
 
     // Emergency fallback:
     bindings[0].key = KEY_CTRL_C;
-    bindings[0].script = strdup("kill -INT $PPID");
-    bindings[0].description = strdup("Kill the bb process");
+    bindings[0].script = check_strdup("kill -INT $PPID");
+    bindings[0].description = check_strdup("Kill the bb process");
     run_script(bb, "bbstartup");
 
     FILE *cmdfile = fopen(cmdfilename, "a");
@@ -170,7 +168,7 @@ static void check_cmdfile(bb_t *bb)
         run_bbcmd(bb, cmd);
         if (bb->should_quit) break;
     }
-    free(cmd);
+    delete(&cmd);
     fclose(cmdfile);
     unlink(cmdfilename);
 }
@@ -208,6 +206,17 @@ static void cleanup(void)
         fputs(T_LEAVE_BBMODE, tty_out);
         fflush(tty_out);
         tcsetattr(fileno(tty_out), TCSANOW, &orig_termios);
+    }
+    if (err_tmp_fd != -1) {
+        fflush(stderr);
+        dup2(stderr_dup_fd, STDERR_FILENO); // Put stderr back to normal
+        char buf[256];
+        lseek(err_tmp_fd, 0, SEEK_SET);
+        for (ssize_t len; (len = read(err_tmp_fd, buf, sizeof(buf))) > 0; )
+            write(STDERR_FILENO, buf, len);
+        close(err_tmp_fd);
+        err_tmp_fd = stderr_dup_fd = -1;
+        unlink(err_tmpfilename);
     }
 }
 
@@ -359,8 +368,7 @@ static void handle_next_key_binding(bb_t *bb)
 //
 static void init_term(void)
 {
-    if (tcsetattr(fileno(tty_out), TCSANOW, &bb_termios) == -1)
-        clean_err("Couldn't tcsetattr");
+    nonnegative(tcsetattr(fileno(tty_out), TCSANOW, &bb_termios));
     update_term_size(0);
     // Initiate mouse tracking and disable text wrapping:
     fputs(T_ENTER_BBMODE, tty_out);
@@ -415,15 +423,14 @@ static entry_t* load_entry(bb_t *bb, const char *path)
     ssize_t linkpathlen = -1;
     char linkbuf[PATH_MAX];
     if (S_ISLNK(filestat.st_mode)) {
-        linkpathlen = readlink(pbuf, linkbuf, sizeof(linkbuf));
-        if (linkpathlen < 0) clean_err("Couldn't read link: '%s'", pbuf);
+        linkpathlen = nonnegative(readlink(pbuf, linkbuf, sizeof(linkbuf)), "Couldn't read link: '%s'", pbuf);
         linkbuf[linkpathlen] = '\0';
         while (linkpathlen > 0 && linkbuf[linkpathlen-1] == '/') linkbuf[--linkpathlen] = '\0';
         if (stat(pbuf, &linkedstat) == -1) memset(&linkedstat, 0, sizeof(linkedstat));
     }
     size_t pathlen = strlen(pbuf);
     size_t entry_size = sizeof(entry_t) + (pathlen + 1) + (size_t)(linkpathlen + 1);
-    entry_t *entry = xcalloc(entry_size, 1);
+    entry_t *entry = new_bytes(entry_size);
     char *end = stpcpy(entry->fullname, pbuf);
     if (linkpathlen >= 0)
         entry->linkname = strcpy(end + 1, linkbuf);
@@ -451,16 +458,6 @@ static int matches_cmd(const char *str, const char *cmd)
         return 0;
     while (*str == *cmd && *cmd && *cmd != ':') ++str, ++cmd;
     return *str == '\0' || *str == ':';
-}
-
-//
-// Memory allocation failures are unrecoverable in bb, so this wrapper just
-// prints an error message and exits if that happens.
-//
-static void* memcheck(void *p)
-{
-    if (!p) clean_err("Allocation failure");
-    return p;
 }
 
 //
@@ -532,7 +529,7 @@ static int populate_files(bb_t *bb, const char *path)
     if (clear_future_history && !samedir) {
         for (bb_history_t *next, *h = bb->history ? bb->history->next : NULL; h; h = next) {
             next = h->next;
-            free(h);
+            delete(&h);
         }
 
         bb_history_t *h = new(bb_history_t);
@@ -553,8 +550,7 @@ static int populate_files(bb_t *bb, const char *path)
             try_free_entry(bb->files[i]);
             bb->files[i] = NULL;
         }
-        free(bb->files);
-        bb->files = NULL;
+        delete(&bb->files);
     }
     bb->nfiles = 0;
     bb->cursor = 0;
@@ -565,10 +561,10 @@ static int populate_files(bb_t *bb, const char *path)
 
     size_t space = 0;
     glob_t globbuf = {0};
-    char *pat, *tmpglob = memcheck(strdup(bb->globpats));
+    char *pat, *tmpglob = check_strdup(bb->globpats);
     while ((pat = strsep(&tmpglob, " ")) != NULL)
         glob(pat, GLOB_NOSORT|GLOB_APPEND, NULL, &globbuf);
-    free(tmpglob);
+    delete(&tmpglob);
     for (size_t i = 0; i < globbuf.gl_pathc; i++) {
         // Don't normalize path so we can get "." and ".."
         entry_t *entry = load_entry(bb, globbuf.gl_pathv[i]);
@@ -578,7 +574,7 @@ static int populate_files(bb_t *bb, const char *path)
         }
         entry->index = bb->nfiles;
         if ((size_t)bb->nfiles + 1 > space)
-            bb->files = xrealloc(bb->files, (space += 100)*sizeof(void*));
+            bb->files = grow(bb->files, space += 100);
         bb->files[bb->nfiles++] = entry;
     }
     globfree(&globbuf);
@@ -657,12 +653,12 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
     const char *value = strchr(cmd, ':');
     if (value) ++value;
     if (matches_cmd(cmd, "bind:")) { // +bind:<keys>:<script>
-        char *value_copy = memcheck(strdup(value));
+        char *value_copy = check_strdup(value);
         char *keys = trim(value_copy);
-        if (!keys[0]) { free(value_copy); return; }
+        if (!keys[0]) { delete(&value_copy); return; }
         char *script = strchr(keys+1, ':');
         if (!script) {
-            free(value_copy);
+            delete(&value_copy);
             flash_warn(bb, "No script provided.");
             return;
         }
@@ -683,16 +679,16 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
                     continue;
                 char *script2;
                 if (is_simple_bbcmd(script)) {
-                    script2 = memcheck(strdup(script));
+                    script2 = check_strdup(script);
                 } else {
                     const char *prefix = "set -e\n";
-                    script2 = xcalloc(strlen(prefix) + strlen(script) + 1, 1);
+                    script2 = new_bytes(strlen(prefix) + strlen(script) + 1);
                     sprintf(script2, "%s%s", prefix, script);
                 }
-                binding_t binding = {keyval, script2, memcheck(strdup(description))};
+                binding_t binding = {keyval, script2, check_strdup(description)};
                 if (bindings[i].key == keyval) {
-                    free((char*)bindings[i].description);
-                    free((char*)bindings[i].script);
+                    delete((char**)&bindings[i].description);
+                    delete((char**)&bindings[i].script);
                     for (; i + 1 < sizeof(bindings)/sizeof(bindings[0]) && bindings[i+1].key; i++)
                         bindings[i] = bindings[i+1];
                 }
@@ -700,7 +696,7 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
                 break;
             }
         }
-        free(value_copy);
+        delete(&value_copy);
     } else if (matches_cmd(cmd, "cd:")) { // +cd:
         if (populate_files(bb, value))
             flash_warn(bb, "Could not open directory: \"%s\"", value);
@@ -737,8 +733,7 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
         fputs("\033[K", tty_out);
         restore_term(&orig_termios);
         signal(SIGTTOU, SIG_IGN);
-        if (tcsetpgrp(fileno(tty_out), child->pid))
-            clean_err("Couldn't set pgrp");
+        nonnegative(tcsetpgrp(fileno(tty_out), child->pid));
         kill(-(child->pid), SIGCONT);
         wait_for_process(&child);
         signal(SIGTTOU, SIG_DFL);
@@ -758,7 +753,7 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
         char pbuf[PATH_MAX];
         strcpy(pbuf, e->fullname);
         char *lastslash = strrchr(pbuf, '/');
-        if (!lastslash) clean_err("No slash found in filename: %s", pbuf);
+        if (!lastslash) errx(EXIT_FAILURE, "No slash found in filename: %s", pbuf);
         *lastslash = '\0'; // Split in two
         try_free_entry(e);
         // Move to dir and reselect
@@ -773,14 +768,13 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
     } else if (matches_cmd(cmd, "help")) { // +help
         char filename[PATH_MAX];
         sprintf(filename, "%s/bbhelp.XXXXXX", getenv("TMPDIR"));
-        int fd = mkstemp(filename);
-        if (fd == -1) clean_err("Couldn't create temporary help file at %s", filename);
+        int fd = nonnegative(mkstemp(filename), "Couldn't create temporary help file at %s", filename);
         print_bindings(fd);
         close(fd);
         char script[512] = "less -rKX < ";
         strcat(script, filename);
         run_script(bb, script);
-        if (unlink(filename) == -1) clean_err("Couldn't delete temporary help file: '%s'", filename);
+        nonnegative(unlink(filename), "Couldn't delete temporary help file: '%s'", filename);
     } else if (matches_cmd(cmd, "interleave:") || matches_cmd(cmd, "interleave")) { // +interleave
         bb->interleave_dirs = value ? (value[0] == '1') : !bb->interleave_dirs;
         set_interleave(bb, bb->interleave_dirs);
@@ -858,12 +852,11 @@ static int run_script(bb_t *bb, const char *cmd)
 {
     proc_t *proc = new(proc_t);
     signal(SIGTTOU, SIG_IGN);
-    if ((proc->pid = fork()) == 0) {
+    if ((proc->pid = nonnegative(fork())) == 0) {
         pid_t pgrp = getpid();
         (void)setpgid(0, pgrp);
-        if (tcsetpgrp(STDIN_FILENO, pgrp))
-            clean_err("Couldn't set pgrp");
-        const char **args = xcalloc(4 + (size_t)bb->nselected + 1, sizeof(char*));
+        nonnegative(tcsetpgrp(STDIN_FILENO, pgrp));
+        const char **args = new(char*[4 + (size_t)bb->nselected + 1]);
         int i = 0;
         args[i++] = "sh";
         args[i++] = "-c";
@@ -880,12 +873,9 @@ static int run_script(bb_t *bb, const char *cmd)
         dup2(fileno(tty_out), STDOUT_FILENO);
         dup2(fileno(tty_in), STDIN_FILENO);
         execvp(args[0], (char**)args);
-        clean_err("Failed to execute command: '%s'", cmd);
+        err(EXIT_FAILURE, "Failed to execute command: '%s'", cmd);
         return -1;
     }
-
-    if (proc->pid == -1)
-        clean_err("Failed to fork");
 
     (void)setpgid(getpid(), getpid());
     LL_PREPEND(bb->running_procs, proc, running);
@@ -937,8 +927,8 @@ static void set_cursor(bb_t *bb, int newcur)
 //
 static void set_globs(bb_t *bb, const char *globs)
 {
-    free(bb->globpats);
-    bb->globpats = memcheck(strdup(globs));
+    delete(&bb->globpats);
+    bb->globpats = check_strdup(globs);
     setenv("BBGLOB", bb->globpats, 1);
 }
 
@@ -1036,7 +1026,7 @@ static int try_free_entry(entry_t *e)
 {
     if (IS_SELECTED(e) || IS_VIEWED(e) || !IS_LOADED(e)) return 0;
     LL_REMOVE(e, hash);
-    free(e);
+    delete(&e);
     return 1;
 }
 
@@ -1086,13 +1076,11 @@ static int wait_for_process(proc_t **proc)
             continue;
         if (WIFEXITED(status) || WIFSIGNALED(status)) {
             LL_REMOVE((*proc), running);
-            free(*proc);
-            *proc = NULL;
+            delete(proc);
         } else if (WIFSTOPPED(status))
             break;
     }
-    if (tcsetpgrp(fileno(tty_out), getpid()))
-        clean_err("Failed to set pgrp");
+    nonnegative(tcsetpgrp(fileno(tty_out), getpid()));
     signal(SIGTTOU, SIG_DFL);
     return status;
 }
@@ -1146,9 +1134,9 @@ int main(int argc, char *argv[])
     // Default values
     setenv("TMPDIR", "/tmp", 0);
     sprintf(cmdfilename, "%s/"BB_NAME".XXXXXX", getenv("TMPDIR"));
-    int cmdfd;
-    if ((cmdfd = mkostemp(cmdfilename, O_APPEND)) == -1)
-        clean_err("Couldn't create "BB_NAME" command file: '%s'", cmdfilename);
+    int cmdfd = nonnegative(
+        mkostemp(cmdfilename, O_APPEND),
+        "Couldn't create "BB_NAME" command file: '%s'", cmdfilename);
     close(cmdfd);
     setenv("BBCMD", cmdfilename, 1);
     char xdg_config_home[PATH_MAX], xdg_data_home[PATH_MAX];
@@ -1162,21 +1150,22 @@ int main(int argc, char *argv[])
     static char bbpath[PATH_MAX];
     // Hacky fix to allow `bb` to be run out of its build directory:
     if (strncmp(argv[0], "./", 2) == 0) {
-        if (realpath(argv[0], bbpath) == NULL)
-            clean_err("Could not resolve path: %s", bbpath);
+        nonnull(realpath(argv[0], bbpath), "Could not resolve path: %s", bbpath);
         char *slash = strrchr(bbpath, '/');
-        if (!slash) clean_err("No slash found in real path: %s", bbpath);
+        if (!slash) errx(EXIT_FAILURE, "No slash found in real path: %s", bbpath);
         *slash = '\0';
         setenv("BBPATH", bbpath, 1);
     }
     if (getenv("BBPATH")) {
-        if (asprintf(&newpath, "%s/"BB_NAME":%s/scripts:%s",
-                     getenv("XDG_CONFIG_HOME"), getenv("BBPATH"), getenv("PATH")) < 0)
-            clean_err("Could not allocate memory for PATH");
+        nonnegative(
+            asprintf(&newpath, "%s/"BB_NAME":%s/scripts:%s",
+                     getenv("XDG_CONFIG_HOME"), getenv("BBPATH"), getenv("PATH")),
+            "Could not allocate memory for PATH");
     } else {
-        if (asprintf(&newpath, "%s/"BB_NAME":%s/"BB_NAME":%s",
-                     getenv("XDG_CONFIG_HOME"), getenv("sysconfdir"), getenv("PATH")) < 0)
-            clean_err("Could not allocate memory for PATH");
+        nonnegative(
+            asprintf(&newpath, "%s/"BB_NAME":%s/"BB_NAME":%s",
+                     getenv("XDG_CONFIG_HOME"), getenv("sysconfdir"), getenv("PATH")),
+            "Could not allocate memory for PATH");
     }
     setenv("PATH", newpath, 1);
 
@@ -1188,17 +1177,21 @@ int main(int argc, char *argv[])
     sprintf(depthstr, "%d", depth + 1);
     setenv("BBDEPTH", depthstr, 1);
 
-    tty_in = fopen("/dev/tty", "r");
-    if (!tty_in) clean_err("Couldn't open /dev/tty file for reading");
-    tty_out = fopen("/dev/tty", "w");
-    if (!tty_out) clean_err("Couldn't open /dev/tty file for writing");
-    if (tcgetattr(fileno(tty_out), &orig_termios))
-        clean_err("Couldn't tcgetattr");
+    atexit(cleanup);
+
+    sprintf(err_tmpfilename, "%s/"BB_NAME".err.XXXXXX", getenv("TMPDIR"));
+    err_tmp_fd = nonnegative(mkostemp(err_tmpfilename, O_RDWR), "Couldn't create error file");
+    stderr_dup_fd = nonnegative(dup(STDERR_FILENO));
+    nonnegative(dup2(err_tmp_fd, STDERR_FILENO), "Couldn't redirect error output");
+
+    tty_in = nonnull(fopen("/dev/tty", "r"));
+    tty_out = nonnull(fopen("/dev/tty", "w"));
+    nonnegative(tcgetattr(fileno(tty_out), &orig_termios));
     memcpy(&bb_termios, &orig_termios, sizeof(bb_termios));
     cfmakeraw(&bb_termios);
     bb_termios.c_cc[VMIN] = 0;
     bb_termios.c_cc[VTIME] = 1;
-    atexit(cleanup);
+
     int signals[] = {SIGTERM, SIGINT, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF, SIGSEGV, SIGTSTP};
     struct sigaction sa = {.sa_handler = &cleanup_and_raise, .sa_flags = (int)(SA_NODEFER | SA_RESETHAND)};
     for (size_t i = 0; i < sizeof(signals)/sizeof(signals[0]); i++)
@@ -1213,7 +1206,6 @@ int main(int argc, char *argv[])
     set_globs(&bb, "*");
     init_term();
     bb_browse(&bb, argc, argv);
-    cleanup();
 
     if (bb.selected && print_selection) {
         for (entry_t *e = bb.selected; e; e = e->selected.next) {
@@ -1229,10 +1221,10 @@ int main(int argc, char *argv[])
     populate_files(&bb, NULL);
     while (bb.selected)
         set_selected(&bb, bb.selected, 0);
-    free(bb.globpats);
+    delete(&bb.globpats);
     for (bb_history_t *next; bb.history; bb.history = next) {
         next = bb.history->next;
-        free(bb.history);
+        delete(&bb.history);
     }
     return 0;
 }

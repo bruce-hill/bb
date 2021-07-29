@@ -22,7 +22,7 @@ CWARN=-Wall -Wextra
 CFLAGS += '-DBB_NAME="$(NAME)"'
 OSFLAGS != case $$(uname -s) in *BSD|Darwin) echo '-D_BSD_SOURCE';; Linux) echo '-D_GNU_SOURCE';; *) echo '-D_DEFAULT_SOURCE';; esac
 
-CFILES=draw.c terminal.c
+CFILES=draw.c terminal.c utils.c
 OBJFILES=$(CFILES:.c=.o)
 
 all: $(NAME)

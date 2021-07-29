@@ -1,16 +1,14 @@
 //
 // utils.h
-// Copyright 2020 Bruce Hill
+// Copyright 2021 Bruce Hill
 // Released under the MIT license with the Commons Clause
 //
-// This file contains some definitions of some utility macros.
+// This file contains some definitions of some utility macros and functions.
 //
 
 #ifndef FILE_UTILS__H
 #define FILE_UTILS__H
 
-#include <err.h>
-#include <stdio.h>
 #include <string.h>
 
 #ifndef streq
@@ -55,6 +53,24 @@
     ((node)->name).next = NULL; \
 } while (0)
 
+#define S1(x) #x
+#define S2(x) S1(x)
+#define __LOCATION__ __FILE__ ":" S2(__LINE__)
+
+// Error checking helper macros:
+#define nonnegative(exp, ...) check_nonnegative(exp, __LOCATION__ ": `" #exp "` " __VA_ARGS__)
+#define nonnull(exp, ...) check_nonnull(exp, __LOCATION__ ": `" #exp "` " __VA_ARGS__)
+// Error-checking memory allocation helper macros:
+#define new(t) check_nonnull(calloc(1, sizeof(t)), __LOCATION__ ": new(" #t ") failed")
+#define new_bytes(n) check_nonnull(calloc(1, n), __LOCATION__ ": new_bytes(" #n ") failed")
+#define grow(obj, new_count) check_nonnull(reallocarray(obj, (new_count), sizeof(obj[0])), __LOCATION__ ": grow(" #obj ", " #new_count ") failed")
+#define check_strdup(s) check_nonnull(strdup(s), __LOCATION__ ": check_strdup(" #s ") failed")
+
+int check_nonnegative(int negative_err, const char *err_msg, ...);
+__attribute__((returns_nonnull))
+void *check_nonnull(void *p, const char *err_msg, ...);
+__attribute__((nonnull))
+void delete(void *p);
 
 #endif
 // vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1
