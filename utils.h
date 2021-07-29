@@ -53,6 +53,9 @@
     ((node)->name).next = NULL; \
 } while (0)
 
+#define LEN(a) (sizeof(a)/sizeof(a[0]))
+#define FOREACH(type, var, array) for (type var = array; (var) < &(array)[LEN(array)]; var++)
+
 #define S1(x) #x
 #define S2(x) S1(x)
 #define __LOCATION__ __FILE__ ":" S2(__LINE__)

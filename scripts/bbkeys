@@ -318,6 +318,3 @@ key="$(bbask -1 "Press key to bind...")"
 echo
 script="$(bbask "Bind script: ")"
 bbcmd bind:"$key":"{ $script; } || bbpause"
-
-
-## Section: User Bindings

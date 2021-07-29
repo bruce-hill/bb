@@ -32,7 +32,7 @@
 #define BB_NAME "bb"
 #endif
 
-#define BB_VERSION "0.30.0"
+#define BB_VERSION "0.31.0"
 #define MAX_BINDINGS 1024
 #define SCROLLOFF MIN(5, (winsize.ws_row-4)/2)
 #define ONSCREEN (winsize.ws_row - 3)
@@ -86,9 +86,16 @@ static struct winsize winsize = {0};
 static char cmdfilename[PATH_MAX] = {0};
 static bb_t *current_bb = NULL;
 
-static char err_tmpfilename[PATH_MAX] = {0};
-int stderr_dup_fd = -1, err_tmp_fd = -1;
-FILE *err_file = NULL;
+// Redirect stderr/stdout to these files during execution, and dump them on exit
+typedef struct {
+    int orig_fd, dup_fd, tmp_fd;
+    const char *name;
+    char filename[PATH_MAX];
+} outbuf_t;
+outbuf_t output_buffers[] = {
+    {.name="stdout", .orig_fd=STDOUT_FILENO, .dup_fd=-1, .tmp_fd=-1},
+    {.name="stderr", .orig_fd=STDERR_FILENO, .dup_fd=-1, .tmp_fd=-1},
+};
 
 //
 // Use bb to browse the filesystem.
@@ -194,7 +201,7 @@ static void cleanup_and_raise(int sig)
 }
 
 //
-// Reset the screen and delete the cmdfile
+// Reset the screen, delete the cmdfile, and print the stdout/stderr buffers
 //
 static void cleanup(void)
 {
@@ -207,16 +214,17 @@ static void cleanup(void)
         fflush(tty_out);
         tcsetattr(fileno(tty_out), TCSANOW, &orig_termios);
     }
-    if (err_tmp_fd != -1) {
-        fflush(stderr);
-        dup2(stderr_dup_fd, STDERR_FILENO); // Put stderr back to normal
+    FOREACH(outbuf_t*, ob, output_buffers) {
+        if (ob->tmp_fd == -1) continue;
+        fflush(ob->orig_fd == STDOUT_FILENO ? stdout : stderr);
+        dup2(ob->dup_fd, ob->orig_fd);
+        lseek(ob->tmp_fd, 0, SEEK_SET);
         char buf[256];
-        lseek(err_tmp_fd, 0, SEEK_SET);
-        for (ssize_t len; (len = read(err_tmp_fd, buf, sizeof(buf))) > 0; )
-            write(STDERR_FILENO, buf, len);
-        close(err_tmp_fd);
-        err_tmp_fd = stderr_dup_fd = -1;
-        unlink(err_tmpfilename);
+        for (ssize_t len; (len = read(ob->tmp_fd, buf, LEN(buf))) > 0; )
+            write(ob->orig_fd, buf, len);
+        close(ob->tmp_fd);
+        ob->tmp_fd = ob->dup_fd = -1;
+        unlink(ob->filename);
     }
 }
 
@@ -314,9 +322,9 @@ static void handle_next_key_binding(bb_t *bb)
         } while (key == -1);
 
         binding = NULL;
-        for (size_t i = 0; bindings[i].script && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
-            if (key == bindings[i].key) {
-                binding = &bindings[i];
+        FOREACH(binding_t*, b, bindings) {
+            if (key == b->key) {
+                binding = b;
                 break;
             }
         }
@@ -614,30 +622,24 @@ static int populate_files(bb_t *bb, const char *path)
 //
 static void print_bindings(int fd)
 {
-    char buf[1000], buf2[1024];
-    for (size_t i = 0; bindings[i].script && i < sizeof(bindings)/sizeof(bindings[0]); i++) {
-        if (bindings[i].key == -1) {
-            const char *label = bindings[i].description;
-            sprintf(buf, "\n\033[33;1;4m\033[%dG%s\033[0m\n", (winsize.ws_col-(int)strlen(label))/2, label);
-            write(fd, buf, strlen(buf));
+    FOREACH(binding_t*, b, bindings) {
+        if (!b->description) break;
+        if (b->key == -1) {
+            const char *label = b->description;
+            dprintf(fd, "\n\033[33;1;4m\033[%dG%s\033[0m\n", (winsize.ws_col-(int)strlen(label))/2, label);
             continue;
         }
-        size_t shared = 0;
+        char buf[1000];
         char *p = buf;
-        for (size_t j = i; bindings[j].script && streq(bindings[j].description, bindings[i].description); j++) {
-            if (j > i) p = stpcpy(p, ", ");
-            ++shared;
-            int key = bindings[j].key;
-            p = bkeyname(key, p);
+        for (binding_t *next = b; next < &bindings[LEN(bindings)] && next->script && streq(b->description, next->description); next++) {
+            if (next > b) p = stpcpy(p, ", ");
+            p = bkeyname(next->key, p);
+            b = next;
         }
         *p = '\0';
-        sprintf(buf2, "\033[1m\033[%dG%s\033[0m", winsize.ws_col/2 - 1 - (int)strlen(buf), buf);
-        write(fd, buf2, strlen(buf2));
-        sprintf(buf2, "\033[1m\033[%dG\033[34m%s\033[0m", winsize.ws_col/2 + 1,
-                bindings[i].description);
-        write(fd, buf2, strlen(buf2));
+        dprintf(fd, "\033[1m\033[%dG%s\033[0m", winsize.ws_col/2 - 1 - (int)strlen(buf), buf);
+        dprintf(fd, "\033[1m\033[%dG\033[34m%s\033[0m", winsize.ws_col/2 + 1, b->description);
         write(fd, "\033[0m\n", strlen("\033[0m\n"));
-        i += shared - 1;
     }
     write(fd, "\n", 1);
 }
@@ -671,28 +673,31 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
             else script = trim(script);
         } else description = script;
         for (char *key; (key = strsep(&keys, ",")); ) {
-            if (streq(key, "Section")) continue;
-            int keyval = bkeywithname(key);
-            if (keyval == -1) continue;
-            for (size_t i = 0; i < sizeof(bindings)/sizeof(bindings[0]); i++) {
-                if (bindings[i].script && bindings[i].key != keyval)
-                    continue;
-                char *script2;
-                if (is_simple_bbcmd(script)) {
-                    script2 = check_strdup(script);
-                } else {
-                    const char *prefix = "set -e\n";
-                    script2 = new_bytes(strlen(prefix) + strlen(script) + 1);
-                    sprintf(script2, "%s%s", prefix, script);
+            int keyval;
+            if (streq(key, "Section")) {
+                keyval = -1;
+            } else {
+                keyval = bkeywithname(key);
+                if (keyval == -1) continue;
+                // Delete existing bindings for this key (if any):
+                FOREACH(binding_t*, b, bindings) {
+                    if (b->key == keyval) {
+                        delete((char**)&b->description);
+                        delete((char**)&b->script);
+                        memmove(b, b+1, (size_t)(&bindings[LEN(bindings)] - (b+1)));
+                        memset(&bindings[LEN(bindings)-1], 0, sizeof(binding_t));
+                    }
                 }
-                binding_t binding = {keyval, script2, check_strdup(description)};
-                if (bindings[i].key == keyval) {
-                    delete((char**)&bindings[i].description);
-                    delete((char**)&bindings[i].script);
-                    for (; i + 1 < sizeof(bindings)/sizeof(bindings[0]) && bindings[i+1].key; i++)
-                        bindings[i] = bindings[i+1];
-                }
-                bindings[i] = binding;
+            }
+            // Append binding:
+            FOREACH(binding_t*, b, bindings) {
+                if (b->script) continue;
+                b->key = keyval;
+                if (is_simple_bbcmd(script))
+                    b->script = check_strdup(script);
+                else
+                    nonnegative(asprintf((char**)&b->script, "set -e\n%s", script), "Could not copy script");
+                b->description = check_strdup(description);
                 break;
             }
         }
@@ -767,7 +772,7 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
         else try_free_entry(e);
     } else if (matches_cmd(cmd, "help")) { // +help
         char filename[PATH_MAX];
-        sprintf(filename, "%s/bbhelp.XXXXXX", getenv("TMPDIR"));
+        sprintf(filename, "%s/"BB_NAME".help.XXXXXX", getenv("TMPDIR"));
         int fd = nonnegative(mkstemp(filename), "Couldn't create temporary help file at %s", filename);
         print_bindings(fd);
         close(fd);
@@ -1133,7 +1138,7 @@ int main(int argc, char *argv[])
     // Set up environment variables
     // Default values
     setenv("TMPDIR", "/tmp", 0);
-    sprintf(cmdfilename, "%s/"BB_NAME".XXXXXX", getenv("TMPDIR"));
+    sprintf(cmdfilename, "%s/"BB_NAME".cmd.XXXXXX", getenv("TMPDIR"));
     int cmdfd = nonnegative(
         mkostemp(cmdfilename, O_APPEND),
         "Couldn't create "BB_NAME" command file: '%s'", cmdfilename);
@@ -1179,10 +1184,12 @@ int main(int argc, char *argv[])
 
     atexit(cleanup);
 
-    sprintf(err_tmpfilename, "%s/"BB_NAME".err.XXXXXX", getenv("TMPDIR"));
-    err_tmp_fd = nonnegative(mkostemp(err_tmpfilename, O_RDWR), "Couldn't create error file");
-    stderr_dup_fd = nonnegative(dup(STDERR_FILENO));
-    nonnegative(dup2(err_tmp_fd, STDERR_FILENO), "Couldn't redirect error output");
+    FOREACH(outbuf_t*, ob, output_buffers) {
+        sprintf(ob->filename, "%s/"BB_NAME".%s.XXXXXX", getenv("TMPDIR"), ob->name);
+        ob->tmp_fd = nonnegative(mkostemp(ob->filename, O_RDWR), "Couldn't create error file");
+        ob->dup_fd = nonnegative(dup(ob->orig_fd));
+        nonnegative(dup2(ob->tmp_fd, ob->orig_fd), "Couldn't redirect error output");
+    }
 
     tty_in = nonnull(fopen("/dev/tty", "r"));
     tty_out = nonnull(fopen("/dev/tty", "w"));
@@ -1194,7 +1201,7 @@ int main(int argc, char *argv[])
 
     int signals[] = {SIGTERM, SIGINT, SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF, SIGSEGV, SIGTSTP};
     struct sigaction sa = {.sa_handler = &cleanup_and_raise, .sa_flags = (int)(SA_NODEFER | SA_RESETHAND)};
-    for (size_t i = 0; i < sizeof(signals)/sizeof(signals[0]); i++)
+    for (size_t i = 0; i < LEN(signals); i++)
         sigaction(signals[i], &sa, NULL);
 
     bb_t bb = {
@@ -1206,6 +1213,7 @@ int main(int argc, char *argv[])
     set_globs(&bb, "*");
     init_term();
     bb_browse(&bb, argc, argv);
+    cleanup(); // Optional, but this allows us to write directly to stdout instead of the buffer
 
     if (bb.selected && print_selection) {
         for (entry_t *e = bb.selected; e; e = e->selected.next) {
