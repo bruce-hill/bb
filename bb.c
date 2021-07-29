@@ -876,6 +876,7 @@ static int run_script(bb_t *bb, const char *cmd)
         setenv("BB", bb->nfiles ? bb->files[bb->cursor]->fullname : "", 1);
 
         dup2(fileno(tty_out), STDOUT_FILENO);
+        dup2(fileno(tty_out), STDERR_FILENO);
         dup2(fileno(tty_in), STDIN_FILENO);
         execvp(args[0], (char**)args);
         err(EXIT_FAILURE, "Failed to execute command: '%s'", cmd);
