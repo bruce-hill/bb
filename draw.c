@@ -302,6 +302,7 @@ void render(FILE *out, bb_t *bb)
     int onscreen  = winsize.ws_row - 3;
 
     bb->dirty |= (winsize.ws_row != oldsize.ws_row) || (winsize.ws_col != oldsize.ws_col);
+    oldsize = winsize;
 
     if (!bb->dirty) {
         // Use terminal scrolling:

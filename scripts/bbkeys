@@ -25,6 +25,10 @@ kill -TSTP $PPID
 ## Ctrl-\: Quit and generate core dump
 kill -QUIT $PPID
 
+## +: Run a bb command
+bbcmd "$(bbask '+')"
+bbcmd refresh
+
 ## Section: File Navigation
 ## j,Down: Next file
 bbcmd move:+1
@@ -67,10 +71,10 @@ mark="$(find "$XDG_CONFIG_HOME"/bb/marks/ -mindepth 1 -type l -printf '%P\0' | b
 mark="$(readlink -f "$XDG_CONFIG_HOME"/bb/marks/"$mark")"
 bbcmd cd:"$mark"
 
-## -,Backspace: Go to previous directory
+## [,Backspace: Go to previous directory
 bbcmd cd:-
 
-## +,=: Go to next directory
+## ]: Go to next directory
 bbcmd cd:+
 
 ## ;: Show selected files
