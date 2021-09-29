@@ -65,4 +65,4 @@ void col_size(entry_t *entry, const char *color, char *buf, int width);
 void col_name(entry_t *entry, const char *color, char *buf, int width);
 
 #endif
-// vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1
+// vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1,\:0

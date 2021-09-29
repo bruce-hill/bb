@@ -95,11 +95,11 @@ int bgetkey(FILE *in, int *mouse_x, int *mouse_y)
         return KEY_ESC;
 
     switch (c) {
-        case '\x1b': return KEY_ESC;
-        case '[': c = nextchar(fd); goto CSI_start;
-        case 'P': goto DCS;
-        case 'O': goto SS3;
-        default: return MOD_ALT | c;
+    case '\x1b': return KEY_ESC;
+    case '[': c = nextchar(fd); goto CSI_start;
+    case 'P': goto DCS;
+    case 'O': goto SS3;
+    default: return MOD_ALT | c;
     }
 
   CSI_start:
@@ -107,104 +107,104 @@ int bgetkey(FILE *in, int *mouse_x, int *mouse_y)
         return MOD_ALT | '[';
 
     switch (c) {
-        case 'A': return modifiers | KEY_ARROW_UP;
-        case 'B': return modifiers | KEY_ARROW_DOWN;
-        case 'C': return modifiers | KEY_ARROW_RIGHT;
-        case 'D': return modifiers | KEY_ARROW_LEFT;
-        case 'F': return modifiers | KEY_END;
-        case 'H': return modifiers | KEY_HOME;
-        case 'J': return numcode == 2 ? (MOD_SHIFT | KEY_HOME) : -1;
-        case 'K': return MOD_SHIFT | KEY_END;
-        case 'M': return MOD_CTRL | KEY_DELETE;
-        case 'P': return modifiers | (numcode == 1 ? KEY_F1 : KEY_DELETE);
-        case 'Q': return numcode == 1 ? (modifiers | KEY_F2) : -1;
-        case 'R': return numcode == 1 ? (modifiers | KEY_F3) : -1;
-        case 'S': return numcode == 1 ? (modifiers | KEY_F4) : -1;
-        case '~':
-            switch (numcode) {
-                case 1: return modifiers | KEY_HOME;
-                case 2: return modifiers | KEY_INSERT;
-                case 3: return modifiers | KEY_DELETE;
-                case 4: return modifiers | KEY_END;
-                case 5: return modifiers | KEY_PGUP;
-                case 6: return modifiers | KEY_PGDN;
-                case 7: return modifiers | KEY_HOME;
-                case 8: return modifiers | KEY_END;
-                case 10: return modifiers | KEY_F0;
-                case 11: return modifiers | KEY_F1;
-                case 12: return modifiers | KEY_F2;
-                case 13: return modifiers | KEY_F3;
-                case 14: return modifiers | KEY_F4;
-                case 15: return modifiers | KEY_F5;
-                case 17: return modifiers | KEY_F6;
-                case 18: return modifiers | KEY_F7;
-                case 19: return modifiers | KEY_F8;
-                case 20: return modifiers | KEY_F9;
-                case 21: return modifiers | KEY_F10;
-                case 23: return modifiers | KEY_F11;
-                case 24: return modifiers | KEY_F12;
-                default: break;
-            }
-            return -1;
-        case '<': { // Mouse clicks
-            int buttons = 0, x = 0, y = 0;
-            c = nextnum(fd, nextchar(fd), &buttons);
-            if (c != ';') return -1;
-            c = nextnum(fd, nextchar(fd), &x);
-            if (c != ';') return -1;
-            c = nextnum(fd, nextchar(fd), &y);
-            if (c != 'm' && c != 'M') return -1;
+    case 'A': return modifiers | KEY_ARROW_UP;
+    case 'B': return modifiers | KEY_ARROW_DOWN;
+    case 'C': return modifiers | KEY_ARROW_RIGHT;
+    case 'D': return modifiers | KEY_ARROW_LEFT;
+    case 'F': return modifiers | KEY_END;
+    case 'H': return modifiers | KEY_HOME;
+    case 'J': return numcode == 2 ? (MOD_SHIFT | KEY_HOME) : -1;
+    case 'K': return MOD_SHIFT | KEY_END;
+    case 'M': return MOD_CTRL | KEY_DELETE;
+    case 'P': return modifiers | (numcode == 1 ? KEY_F1 : KEY_DELETE);
+    case 'Q': return numcode == 1 ? (modifiers | KEY_F2) : -1;
+    case 'R': return numcode == 1 ? (modifiers | KEY_F3) : -1;
+    case 'S': return numcode == 1 ? (modifiers | KEY_F4) : -1;
+    case '~':
+        switch (numcode) {
+        case 1: return modifiers | KEY_HOME;
+        case 2: return modifiers | KEY_INSERT;
+        case 3: return modifiers | KEY_DELETE;
+        case 4: return modifiers | KEY_END;
+        case 5: return modifiers | KEY_PGUP;
+        case 6: return modifiers | KEY_PGDN;
+        case 7: return modifiers | KEY_HOME;
+        case 8: return modifiers | KEY_END;
+        case 10: return modifiers | KEY_F0;
+        case 11: return modifiers | KEY_F1;
+        case 12: return modifiers | KEY_F2;
+        case 13: return modifiers | KEY_F3;
+        case 14: return modifiers | KEY_F4;
+        case 15: return modifiers | KEY_F5;
+        case 17: return modifiers | KEY_F6;
+        case 18: return modifiers | KEY_F7;
+        case 19: return modifiers | KEY_F8;
+        case 20: return modifiers | KEY_F9;
+        case 21: return modifiers | KEY_F10;
+        case 23: return modifiers | KEY_F11;
+        case 24: return modifiers | KEY_F12;
+        default: break;
+        }
+        return -1;
+    case '<': { // Mouse clicks
+        int buttons = 0, x = 0, y = 0;
+        c = nextnum(fd, nextchar(fd), &buttons);
+        if (c != ';') return -1;
+        c = nextnum(fd, nextchar(fd), &x);
+        if (c != ';') return -1;
+        c = nextnum(fd, nextchar(fd), &y);
+        if (c != 'm' && c != 'M') return -1;
 
-            if (mouse_x) *mouse_x = x - 1;
-            if (mouse_y) *mouse_y = y - 1;
+        if (mouse_x) *mouse_x = x - 1;
+        if (mouse_y) *mouse_y = y - 1;
 
-            if (buttons & 4) modifiers |= MOD_SHIFT;
-            if (buttons & 8) modifiers |= MOD_META;
-            if (buttons & 16) modifiers |= MOD_CTRL;
-            int key = -1;
-            switch (buttons & ~(4|8|16)) {
-                case 0: key = c == 'm' ? MOUSE_LEFT_RELEASE : MOUSE_LEFT_PRESS; break;
-                case 1: key = c == 'm' ? MOUSE_MIDDLE_RELEASE : MOUSE_MIDDLE_PRESS; break;
-                case 2: key = c == 'm' ? MOUSE_RIGHT_RELEASE : MOUSE_RIGHT_PRESS; break;
-                case 32: key = MOUSE_LEFT_DRAG; break;
-                case 33: key = MOUSE_MIDDLE_DRAG; break;
-                case 34: key = MOUSE_RIGHT_DRAG; break;
-                case 64: key = MOUSE_WHEEL_RELEASE; break;
-                case 65: key = MOUSE_WHEEL_PRESS; break;
-                default: return -1;
-            }
-            if (key == MOUSE_LEFT_RELEASE || key == MOUSE_RIGHT_RELEASE || key == MOUSE_MIDDLE_RELEASE) {
-                static int lastclick = -1;
-                static struct timespec lastclicktime = {0, 0};
-                struct timespec clicktime;
-                clock_gettime(CLOCK_MONOTONIC, &clicktime);
-                if (key == lastclick) {
-                    double dt_ms = 1e3*(double)(clicktime.tv_sec - lastclicktime.tv_sec)
-                        + 1e-6*(double)(clicktime.tv_nsec - lastclicktime.tv_nsec);
-                    if (dt_ms < DOUBLECLICK_THRESHOLD) {
-                        switch (key) {
-                            case MOUSE_LEFT_RELEASE: key = MOUSE_LEFT_DOUBLE; break;
-                            case MOUSE_RIGHT_RELEASE: key = MOUSE_RIGHT_DOUBLE; break;
-                            case MOUSE_MIDDLE_RELEASE: key = MOUSE_MIDDLE_DOUBLE; break;
-                            default: break;
-                        }
+        if (buttons & 4) modifiers |= MOD_SHIFT;
+        if (buttons & 8) modifiers |= MOD_META;
+        if (buttons & 16) modifiers |= MOD_CTRL;
+        int key = -1;
+        switch (buttons & ~(4|8|16)) {
+        case 0: key = c == 'm' ? MOUSE_LEFT_RELEASE : MOUSE_LEFT_PRESS; break;
+        case 1: key = c == 'm' ? MOUSE_MIDDLE_RELEASE : MOUSE_MIDDLE_PRESS; break;
+        case 2: key = c == 'm' ? MOUSE_RIGHT_RELEASE : MOUSE_RIGHT_PRESS; break;
+        case 32: key = MOUSE_LEFT_DRAG; break;
+        case 33: key = MOUSE_MIDDLE_DRAG; break;
+        case 34: key = MOUSE_RIGHT_DRAG; break;
+        case 64: key = MOUSE_WHEEL_RELEASE; break;
+        case 65: key = MOUSE_WHEEL_PRESS; break;
+        default: return -1;
+        }
+        if (key == MOUSE_LEFT_RELEASE || key == MOUSE_RIGHT_RELEASE || key == MOUSE_MIDDLE_RELEASE) {
+            static int lastclick = -1;
+            static struct timespec lastclicktime = {0, 0};
+            struct timespec clicktime;
+            clock_gettime(CLOCK_MONOTONIC, &clicktime);
+            if (key == lastclick) {
+                double dt_ms = 1e3*(double)(clicktime.tv_sec - lastclicktime.tv_sec)
+                    + 1e-6*(double)(clicktime.tv_nsec - lastclicktime.tv_nsec);
+                if (dt_ms < DOUBLECLICK_THRESHOLD) {
+                    switch (key) {
+                    case MOUSE_LEFT_RELEASE: key = MOUSE_LEFT_DOUBLE; break;
+                    case MOUSE_RIGHT_RELEASE: key = MOUSE_RIGHT_DOUBLE; break;
+                    case MOUSE_MIDDLE_RELEASE: key = MOUSE_MIDDLE_DOUBLE; break;
+                    default: break;
                     }
                 }
-                lastclicktime = clicktime;
-                lastclick = key;
             }
-            return modifiers | key;
+            lastclicktime = clicktime;
+            lastclick = key;
         }
-        default:
-            if ('0' <= c && c <= '9') {
-                // Ps prefix
-                c = nextnum(fd, c, &numcode);
-                if (c == ';') {
-                    c = nextnum(fd, nextchar(fd), &modifiers);
-                    modifiers = (modifiers >> 1) << MOD_BITSHIFT;
-                }
-                goto CSI_start;
+        return modifiers | key;
+    }
+    default:
+        if ('0' <= c && c <= '9') {
+            // Ps prefix
+            c = nextnum(fd, c, &numcode);
+            if (c == ';') {
+                c = nextnum(fd, nextchar(fd), &modifiers);
+                modifiers = (modifiers >> 1) << MOD_BITSHIFT;
             }
+            goto CSI_start;
+        }
     }
     return -1;
 
@@ -213,11 +213,11 @@ int bgetkey(FILE *in, int *mouse_x, int *mouse_y)
 
   SS3:
     switch (nextchar(fd)) {
-        case 'P': return KEY_F1;
-        case 'Q': return KEY_F2;
-        case 'R': return KEY_F3;
-        case 'S': return KEY_F4;
-        default: break;
+    case 'P': return KEY_F1;
+    case 'Q': return KEY_F2;
+    case 'R': return KEY_F3;
+    case 'S': return KEY_F4;
+    default: break;
     }
     return -1;
 }
@@ -267,4 +267,4 @@ int bkeywithname(const char *name)
     }
     return strlen(name) == 1 ? name[0] : -1;
 }
-// vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1
+// vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1,\:0

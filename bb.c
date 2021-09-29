@@ -247,43 +247,43 @@ static int compare_files(const void *v1, const void *v2)
     for (char *sort = bb->sort + 1; *sort; sort += 2) {
         sign = sort[-1] == '-' ? -1 : 1;
         switch (*sort) {
-            case COL_SELECTED: COMPARE(IS_SELECTED(e1), IS_SELECTED(e2)); break;
-            case COL_NAME: {
-                // This sorting method is not identical to strverscmp(). Notably, bb's sort
-                // will order: [0, 1, 9, 00, 01, 09, 10, 000, 010] instead of strverscmp()'s
-                // order: [000, 00, 01, 010, 09, 0, 1, 9, 10]. I believe bb's sort is consistent
-                // with how people want their files grouped: all files padded to n digits
-                // will be grouped together, and files with the same padding will be sorted
-                // ordinally. This version also does case-insensitivity by lowercasing words,
-                // so the following characters come before all letters: [\]^_`
-                const char *n1 = e1->name, *n2 = e2->name;
-                while (*n1 && *n2) {
-                    char c1 = tolower(*n1), c2 = tolower(*n2);
-                    if ('0' <= c1 && c1 <= '9' && '0' <= c2 && c2 <= '9') {
-                        long i1 = strtol(n1, (char**)&n1, 10);
-                        long i2 = strtol(n2, (char**)&n2, 10);
-                        // Shorter numbers always go before longer. In practice, I assume
-                        // filenames padded to the same number of digits should be grouped
-                        // together, instead of
-                        // [1.png, 0001.png, 2.png, 0002.png, 3.png], it makes more sense to have:
-                        // [1.png, 2.png, 3.png, 0001.png, 0002.png]
-                        COMPARE((n2 - e2->name), (n1 - e1->name));
-                        COMPARE(i2, i1);
-                    } else {
-                        COMPARE(c2, c1);
-                        ++n1; ++n2;
-                    }
+        case COL_SELECTED: COMPARE(IS_SELECTED(e1), IS_SELECTED(e2)); break;
+        case COL_NAME: {
+            // This sorting method is not identical to strverscmp(). Notably, bb's sort
+            // will order: [0, 1, 9, 00, 01, 09, 10, 000, 010] instead of strverscmp()'s
+            // order: [000, 00, 01, 010, 09, 0, 1, 9, 10]. I believe bb's sort is consistent
+            // with how people want their files grouped: all files padded to n digits
+            // will be grouped together, and files with the same padding will be sorted
+            // ordinally. This version also does case-insensitivity by lowercasing words,
+            // so the following characters come before all letters: [\]^_`
+            const char *n1 = e1->name, *n2 = e2->name;
+            while (*n1 && *n2) {
+                char c1 = tolower(*n1), c2 = tolower(*n2);
+                if ('0' <= c1 && c1 <= '9' && '0' <= c2 && c2 <= '9') {
+                    long i1 = strtol(n1, (char**)&n1, 10);
+                    long i2 = strtol(n2, (char**)&n2, 10);
+                    // Shorter numbers always go before longer. In practice, I assume
+                    // filenames padded to the same number of digits should be grouped
+                    // together, instead of
+                    // [1.png, 0001.png, 2.png, 0002.png, 3.png], it makes more sense to have:
+                    // [1.png, 2.png, 3.png, 0001.png, 0002.png]
+                    COMPARE((n2 - e2->name), (n1 - e1->name));
+                    COMPARE(i2, i1);
+                } else {
+                    COMPARE(c2, c1);
+                    ++n1; ++n2;
                 }
-                COMPARE(tolower(*n2), tolower(*n1));
-                break;
             }
-            case COL_PERM: COMPARE((e1->info.st_mode & 0x3FF), (e2->info.st_mode & 0x3FF)); break;
-            case COL_SIZE: COMPARE(e1->info.st_size, e2->info.st_size); break;
-            case COL_MTIME: COMPARE_TIME(mtime(e1->info), mtime(e2->info)); break;
-            case COL_CTIME: COMPARE_TIME(ctime(e1->info), ctime(e2->info)); break;
-            case COL_ATIME: COMPARE_TIME(atime(e1->info), atime(e2->info)); break;
-            case COL_RANDOM: COMPARE(e2->shufflepos, e1->shufflepos); break;
-            default: break;
+            COMPARE(tolower(*n2), tolower(*n1));
+            break;
+        }
+        case COL_PERM: COMPARE((e1->info.st_mode & 0x3FF), (e2->info.st_mode & 0x3FF)); break;
+        case COL_SIZE: COMPARE(e1->info.st_size, e2->info.st_size); break;
+        case COL_MTIME: COMPARE_TIME(mtime(e1->info), mtime(e2->info)); break;
+        case COL_CTIME: COMPARE_TIME(ctime(e1->info), ctime(e2->info)); break;
+        case COL_ATIME: COMPARE_TIME(atime(e1->info), atime(e2->info)); break;
+        case COL_RANDOM: COMPARE(e2->shufflepos, e1->shufflepos); break;
+        default: break;
         }
     }
     return 0;
@@ -1114,13 +1114,13 @@ int main(int argc, char *argv[])
         } else if (argv[i][0] == '-' && argv[i][1] != '-') {
             for (char *c = &argv[i][1]; *c; c++) {
                 switch (*c) {
-                    case 'h': goto help;
-                    case 'v': goto version;
-                    case 'd': print_dir = 1; break;
-                    case '0': sep = '\0'; break;
-                    case 's': print_selection = 1; break;
-                    default: printf("Unknown command line argument: -%c\n%s", *c, usage_str);
-                             return 1;
+                case 'h': goto help;
+                case 'v': goto version;
+                case 'd': print_dir = 1; break;
+                case '0': sep = '\0'; break;
+                case 's': print_selection = 1; break;
+                default: printf("Unknown command line argument: -%c\n%s", *c, usage_str);
+                         return 1;
                 }
             }
         } else if (i < argc-1) {
@@ -1238,4 +1238,4 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-// vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1
+// vim: ts=4 sw=0 et cino=L2,l1,(0,W4,m1,\:0
