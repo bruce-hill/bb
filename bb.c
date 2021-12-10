@@ -52,7 +52,7 @@ static entry_t* load_entry(bb_t *bb, const char *path);
 static int matches_cmd(const char *str, const char *cmd);
 static char* normalize_path(const char *path, char *pbuf);
 static int populate_files(bb_t *bb, const char *path);
-static void print_bindings(int fd);
+static void print_bindings(FILE *f);
 static void run_bbcmd(bb_t *bb, const char *cmd);
 static void restore_term(const struct termios *term);
 static int run_script(bb_t *bb, const char *cmd);
@@ -132,7 +132,7 @@ void bb_browse(bb_t *bb, int argc, char *argv[])
     bindings[0].key = KEY_CTRL_C;
     bindings[0].script = check_strdup("kill -INT $PPID");
     bindings[0].description = check_strdup("Kill the bb process");
-    run_script(bb, "bbstartup");
+    system("bbstartup");
 
     FILE *cmdfile = fopen(cmdfilename, "a");
     if (goto_file)
@@ -156,7 +156,7 @@ void bb_browse(bb_t *bb, int argc, char *argv[])
         render(tty_out, bb);
         handle_next_key_binding(bb);
     }
-    run_script(bb, "bbshutdown");
+    system("bbshutdown");
     check_cmdfile(bb);
 }
 
@@ -620,13 +620,13 @@ static int populate_files(bb_t *bb, const char *path)
 //
 // Print the current key bindings
 //
-static void print_bindings(int fd)
+static void print_bindings(FILE *f)
 {
     FOREACH(binding_t*, b, bindings) {
         if (!b->description) break;
         if (b->key == -1) {
             const char *label = b->description;
-            dprintf(fd, "\n\033[33;1;4m\033[%dG%s\033[0m\n", (winsize.ws_col-(int)strlen(label))/2, label);
+            fprintf(f, "\n\033[33;1;4m\033[%dG%s\033[0m\n", (winsize.ws_col-(int)strlen(label))/2, label);
             continue;
         }
         char buf[1000];
@@ -637,11 +637,11 @@ static void print_bindings(int fd)
             b = next;
         }
         *p = '\0';
-        dprintf(fd, "\033[1m\033[%dG%s\033[0m", winsize.ws_col/2 - 1 - (int)strlen(buf), buf);
-        dprintf(fd, "\033[1m\033[%dG\033[34m%s\033[0m", winsize.ws_col/2 + 1, b->description);
-        write(fd, "\033[0m\n", strlen("\033[0m\n"));
+        fprintf(f, "\033[1m\033[%dG%s\033[0m", winsize.ws_col/2 - 1 - (int)strlen(buf), buf);
+        fprintf(f, "\033[1m\033[%dG\033[34m%s\033[0m", winsize.ws_col/2 + 1, b->description);
+        fprintf(f, "\033[0m\n");
     }
-    write(fd, "\n", 1);
+    fprintf(f, "\n");
 }
 
 //
@@ -771,15 +771,10 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
             set_cursor(bb, e->index);
         else try_free_entry(e);
     } else if (matches_cmd(cmd, "help")) { // +help
-        char filename[PATH_MAX];
-        sprintf(filename, "%s/"BB_NAME".help.XXXXXX", getenv("TMPDIR"));
-        int fd = nonnegative(mkstemp(filename), "Couldn't create temporary help file at %s", filename);
-        print_bindings(fd);
-        close(fd);
-        char script[512] = "less -rKX < ";
-        strcat(script, filename);
-        run_script(bb, script);
-        nonnegative(unlink(filename), "Couldn't delete temporary help file: '%s'", filename);
+        FILE *p = popen("less -rfKX >/dev/tty", "w");
+        print_bindings(p);
+        pclose(p);
+        bb->dirty = 1;
     } else if (matches_cmd(cmd, "interleave:") || matches_cmd(cmd, "interleave")) { // +interleave
         bb->interleave_dirs = value ? (value[0] == '1') : !bb->interleave_dirs;
         set_interleave(bb, bb->interleave_dirs);
