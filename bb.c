@@ -684,7 +684,8 @@ static void run_bbcmd(bb_t *bb, const char *cmd)
                     if (b->key == keyval) {
                         delete((char**)&b->description);
                         delete((char**)&b->script);
-                        memmove(b, b+1, (size_t)(&bindings[LEN(bindings)] - (b+1)));
+                        int i = (int)(b - bindings);
+                        memmove(&bindings[i], &bindings[i+1], sizeof(binding_t)*(LEN(bindings) - i - 1));
                         memset(&bindings[LEN(bindings)-1], 0, sizeof(binding_t));
                     }
                 }
