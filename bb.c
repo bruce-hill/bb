@@ -317,7 +317,11 @@ static void handle_next_key_binding(bb_t *bb)
     binding_t *binding;
     do {
         do {
+            struct winsize prevsize = winsize;
             key = bgetkey(tty_in, &mouse_x, &mouse_y);
+            // Window size changed while waiting for keypress:
+            if (winsize.ws_row != prevsize.ws_row || winsize.ws_col != prevsize.ws_col)
+                bb->dirty = 1;
             if (key == -1 && bb->dirty) return;
         } while (key == -1);
 
