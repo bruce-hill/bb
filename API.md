@@ -30,10 +30,6 @@ own version there.
   failure if the user does not press 'y'.
 - `bbpause`: Display a "press any key to continue" message and wait for a keypress.
 - `bbpick [prompt]`: Select one of `NULL`-delimited multiple inputs and print it.
-- `bbtargets "$BBCMD" "$@"`: If `$BB` is not currently among `$@` (the
-  selected files), this script prompts the user to ask whether they want to
-  perform an action on the selected files, or on the cursor. The result is
-  printed as `cursor` or `selected`.
 - `bbunscroll`: Print text to the screen *above* the cursor instead of below it.
 
 ## Environment Variables
