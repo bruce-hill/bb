@@ -364,6 +364,12 @@ static void handle_next_key_binding(bb_t *bb)
         fputs("\033[K", tty_out);
         restore_term(&orig_termios);
         run_script(bb, binding->script);
+        for (entry_t *next, *e = bb->selected; e; e = next) {
+            next = e->selected.next;
+            struct stat buf;
+            if (stat(e->fullname, &buf) != 0)
+                set_selected(bb, e, 0);
+        }
         init_term();
         set_title(bb);
         check_cmdfile(bb);
