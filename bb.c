@@ -455,7 +455,10 @@ static entry_t* load_entry(bb_t *bb, const char *path)
     if (streq(entry->fullname, "/")) {
         entry->name = entry->fullname;
     } else {
-        entry->name = strrchr(entry->fullname, '/') + 1; // Last path component
+        if (strncmp(entry->fullname, bb->path, strlen(bb->path)) == 0)
+            entry->name = entry->fullname + strlen(bb->path);
+        else
+            entry->name = strrchr(entry->fullname, '/') + 1; // Last path component
     }
     if (S_ISLNK(filestat.st_mode))
         entry->linkedmode = linkedstat.st_mode;
