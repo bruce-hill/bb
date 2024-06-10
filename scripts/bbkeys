@@ -253,8 +253,8 @@ bbcmd fg
 
 ## Section: Viewing Options
 ## s: Sort by...
-sort="$(bbask -1 "Sort (n)ame (s)ize (m)odification (c)reation (a)ccess (r)andom (p)ermissions: ")"
-bbcmd sort:"~$sort"
+new_sort="$(bbask -1 "Sort (n)ame (s)ize (m)odification (c)reation (a)ccess (r)andom (p)ermissions: ")"
+bbcmd sort:"~$new_sort"
 
 ## ---,#: Set columns
 columns="$(bbask "Set columns (*)selected (a)ccessed (c)reated (m)odified (n)ame (p)ermissions (r)andom (s)ize: ")"
