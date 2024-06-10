@@ -20,13 +20,13 @@
 
 // Platform-dependent time strucutre accessors:
 #ifdef __APPLE__
-#define mtime(s) (s).st_mtimespec
-#define atime(s) (s).st_atimespec
-#define ctime(s) (s).st_ctimespec
+#define get_mtime(s) (s).st_mtimespec
+#define get_atime(s) (s).st_atimespec
+#define get_ctime(s) (s).st_ctimespec
 #else
-#define mtime(s) (s).st_mtim
-#define atime(s) (s).st_atim
-#define ctime(s) (s).st_ctim
+#define get_mtime(s) (s).st_mtim
+#define get_atime(s) (s).st_atim
+#define get_ctime(s) (s).st_ctim
 #endif
 
 // Entry macros

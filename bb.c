@@ -37,6 +37,8 @@
 #define SCROLLOFF MIN(5, (winsize.ws_row-4)/2)
 #define ONSCREEN (winsize.ws_row - 3)
 
+#define LOG(...) do { FILE *f = fopen("log.txt", "a"); fprintf(f, __VA_ARGS__); fclose(f); } while (0)
+
 // Functions
 void bb_browse(bb_t *bb, int argc, char *argv[]);
 static void check_cmdfile(bb_t *bb);
@@ -279,9 +281,9 @@ static int compare_files(const void *v1, const void *v2)
         }
         case COL_PERM: COMPARE((e1->info.st_mode & 0x3FF), (e2->info.st_mode & 0x3FF)); break;
         case COL_SIZE: COMPARE(e1->info.st_size, e2->info.st_size); break;
-        case COL_MTIME: COMPARE_TIME(mtime(e1->info), mtime(e2->info)); break;
-        case COL_CTIME: COMPARE_TIME(ctime(e1->info), ctime(e2->info)); break;
-        case COL_ATIME: COMPARE_TIME(atime(e1->info), atime(e2->info)); break;
+        case COL_MTIME: COMPARE_TIME(get_mtime(e1->info), get_mtime(e2->info)); break;
+        case COL_CTIME: COMPARE_TIME(get_ctime(e1->info), get_ctime(e2->info)); break;
+        case COL_ATIME: COMPARE_TIME(get_atime(e1->info), get_atime(e2->info)); break;
         case COL_RANDOM: COMPARE(e2->shufflepos, e1->shufflepos); break;
         default: break;
         }
@@ -1007,8 +1009,8 @@ static void set_sort(bb_t *bb, const char *sort)
     char sortbuf[MAX_SORT+1];
     strncpy(sortbuf, sort, MAX_SORT);
     for (char *s = sortbuf; s[0] && s[1]; s += 2) {
-        char *found;
-        if ((found = strchr(bb->sort, s[1]))) {
+        char *found = strchr(bb->sort, s[1]);
+        if (found) {
             if (*s == '~')
                 *s = found[-1] == '+' && found == &bb->sort[1] ? '-' : '+';
             memmove(found-1, found+1, strlen(found+1)+1);
