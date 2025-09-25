@@ -11,7 +11,6 @@
 #define FILE__TERMINAL_H
 
 #include <stdio.h>
-#include <time.h>
 #include <unistd.h>
 
 // Maximum time in milliseconds between double clicks

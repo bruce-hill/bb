@@ -13,8 +13,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "terminal.h"
-
 #define MAX_COLS 12
 #define MAX_SORT (2 * MAX_COLS)
 #define HASH_SIZE 1024
