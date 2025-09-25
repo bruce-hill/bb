@@ -15,8 +15,7 @@
 // If the given argument is nonnegative, print the error message and exit with
 // failure. Otherwise, return the given argument.
 //
-int check_nonnegative(int negative_err, const char *err_msg, ...)
-{
+int check_nonnegative(int negative_err, const char *err_msg, ...) {
     if (negative_err < 0) {
         va_list args;
         va_start(args, err_msg);
@@ -30,8 +29,7 @@ int check_nonnegative(int negative_err, const char *err_msg, ...)
 // If the given argument is NULL, print the error message and exit with
 // failure. Otherwise return the given argument.
 //
-void *check_nonnull(void *p, const char *err_msg, ...)
-{
+void *check_nonnull(void *p, const char *err_msg, ...) {
     if (p == NULL) {
         va_list args;
         va_start(args, err_msg);
@@ -46,11 +44,10 @@ void *check_nonnull(void *p, const char *err_msg, ...)
 // the pointer to NULL. (This is a safer alternative to free() that
 // automatically NULLs out the pointer so it can't be used after freeing)
 //
-void delete(void *p)
-{
-    if (*(void**)p != NULL) {
-        free(*(void**)p);
-        *(void**)p = NULL;
+void delete(void *p) {
+    if (*(void **)p != NULL) {
+        free(*(void **)p);
+        *(void **)p = NULL;
     }
 }
 

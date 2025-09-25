@@ -9,14 +9,14 @@
 #define FILE_TYPES__H
 
 #include <limits.h>
-#include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include "terminal.h"
 
 #define MAX_COLS 12
-#define MAX_SORT (2*MAX_COLS)
+#define MAX_SORT (2 * MAX_COLS)
 #define HASH_SIZE 1024
 #define HASH_MASK (HASH_SIZE - 1)
 
@@ -70,8 +70,8 @@ typedef struct bb_s {
     int scroll, cursor;
 
     char *globpats;
-    char sort[MAX_SORT+1];
-    char columns[MAX_COLS+1];
+    char sort[MAX_SORT + 1];
+    char columns[MAX_COLS + 1];
     unsigned int interleave_dirs : 1;
     unsigned int should_quit : 1;
     unsigned int dirty : 1;
