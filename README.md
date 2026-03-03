@@ -8,7 +8,7 @@
 - Free of any build dependencies other than the C standard library (no ncurses)
 - A good proof-of-concept for making a TUI from scratch
 
-![BB Preview Video](https://bitbucket.org/spilt/bb/downloads/bb.gif)
+![BB Preview Video](bb.gif)
 
 
 ## Building
