@@ -28,8 +28,11 @@
         newname="$(bbask "Rename $(printf "\033[33m%s\033[39m" "${f##*/}"): " "${f##*/}")" || break
         r="$(dirname "$f")/$newname"
         [ "$r" = "$f" ] && continue
-        [ -e "$r" ] && printf "\033[31;1m$r already exists! It will be overwritten.\033[0m "
-            && bbconfirm && { rm -rf "$r" || { bbpause; exit; }; }
+        if [ -e "$r" ]; then
+            printf "\033[31;1m$r already exists! It will be overwritten.\033[0m "
+            bbconfirm || continue
+            rm -rf "$r" || { bbpause; exit; }
+        fi
         mv "$f" "$r" || { bbpause; exit; }
         bbcmd deselect:"$f" select:"$r"
         [ "$f" = "$BB" ] && bbcmd goto:"$r"
