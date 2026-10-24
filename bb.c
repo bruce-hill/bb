@@ -768,6 +768,7 @@ static void run_bbcmd(bb_t *bb, const char *cmd) {
         e = load_entry(bb, lastslash + 1);
         if (!e) {
             flash_warn(bb, "Could not find file again: \"%s\"", lastslash + 1);
+            return;
         }
         if (IS_VIEWED(e)) set_cursor(bb, e->index);
         else try_free_entry(e);
