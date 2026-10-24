@@ -443,9 +443,11 @@ static entry_t *load_entry(bb_t *bb, const char *path) {
     ssize_t linkpathlen = -1;
     char linkbuf[PATH_MAX];
     if (S_ISLNK(filestat.st_mode)) {
-        linkpathlen = nonnegative(readlink(pbuf, linkbuf, sizeof(linkbuf)), "Couldn't read link: '%s'", pbuf);
+        // The link may have been removed or replaced since lstat(), so fail gracefully:
+        linkpathlen = readlink(pbuf, linkbuf, sizeof(linkbuf) - 1);
+        if (linkpathlen < 0) return NULL;
         linkbuf[linkpathlen] = '\0';
-        while (linkpathlen > 0 && linkbuf[linkpathlen - 1] == '/')
+        while (linkpathlen > 1 && linkbuf[linkpathlen - 1] == '/')
             linkbuf[--linkpathlen] = '\0';
         if (stat(pbuf, &linkedstat) == -1) memset(&linkedstat, 0, sizeof(linkedstat));
     }
@@ -464,7 +466,6 @@ static entry_t *load_entry(bb_t *bb, const char *path) {
     entry->info = filestat;
     LL_PREPEND(bb->hash[(int)filestat.st_ino & HASH_MASK], entry, hash);
     entry->index = -1;
-    bb->hash[(int)filestat.st_ino & HASH_MASK] = entry;
     return entry;
 }
 
