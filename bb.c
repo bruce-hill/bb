@@ -637,7 +637,7 @@ static void print_bindings(FILE *f) {
             b = next;
         }
         *p = '\0';
-        fprintf(f, "\033[1m\033[%dG%s\033[0m", winsize.ws_col / 2 - 1 - (int)strlen(buf), buf);
+        fprintf(f, "\033[1m\033[%dG%s\033[0m", (int)winsize.ws_col / 2 - 1 - (int)strlen(buf), buf);
         fprintf(f, "\033[1m\033[%dG\033[34m%s\033[0m", winsize.ws_col / 2 + 1, b->description);
         fprintf(f, "\033[0m\n");
     }
