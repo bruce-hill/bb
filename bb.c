@@ -142,6 +142,8 @@ void bb_browse(bb_t *bb, int argc, char *argv[]) {
     system("bbstartup");
 
     FILE *cmdfile = fopen(cmdfilename, "a");
+    if (!cmdfile)
+        errx(EXIT_FAILURE, "Could not open command file");
     if (goto_file) fprintf(cmdfile, "%cgoto:%s", '\0', goto_file);
     for (int i = 0; i < argc; i++) {
         if (argv[i][0] == '+') {
