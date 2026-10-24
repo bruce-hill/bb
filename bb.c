@@ -424,8 +424,11 @@ static entry_t *load_entry(bb_t *bb, const char *path) {
     if (!path || !path[0]) return NULL;
     if (lstat(path, &filestat) == -1) return NULL;
     char pbuf[PATH_MAX];
-    if (path[0] == '/') strcpy(pbuf, path);
-    else sprintf(pbuf, "%s%s", bb->path, path);
+    if (path[0] == '/') {
+        if (snprintf(pbuf, sizeof(pbuf), "%s", path) >= sizeof(pbuf)) return NULL;
+    } else {
+        if (snprintf(pbuf, sizeof(pbuf), "%s%s", bb->path, path) >= sizeof(pbuf)) return NULL;
+    }
     if (pbuf[strlen(pbuf) - 1] == '/' && pbuf[1]) pbuf[strlen(pbuf) - 1] = '\0';
 
     // Check for pre-existing:
