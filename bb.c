@@ -485,11 +485,14 @@ static char *normalize_path(const char *path, char *normalized) {
     if (path[0] == '~' && (path[1] == '\0' || path[1] == '/')) {
         char *home;
         if (!(home = getenv("HOME"))) return NULL;
+        size_t len = strlen(home);
+        if (len >= PATH_MAX) return NULL;
         strcpy(pbuf, home);
         ++path;
     } else if (path[0] != '/') {
         strcpy(pbuf, "./");
     }
+    if (strlen(pbuf) + strlen(path) >= PATH_MAX) return NULL;
     strcat(pbuf, path);
     if (realpath(pbuf, normalized) == NULL) {
         strcpy(normalized, pbuf); // TODO: normalize better?
