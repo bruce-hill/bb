@@ -127,7 +127,7 @@ echo "bbcmd glob:'$BBGLOB' sort:'$BBSORT' columns:'$BBCOLUMNS' $BBINTERLEAVE" > 
 ## Ctrl-s: Save the selection
 savename="$(bbask "Save selection as: ")"
 savedir="$XDG_DATA_HOME/bb/${savename%.sel}.sel"
-! [ -d "$savedir" ] || bbconfirm "Do you want to overwrite the existing save? "
+[ -d "$savedir" ] && { bbconfirm "Do you want to overwrite the existing save? " || exit; }
 rm -rf "$savedir"
 [ $# -gt 0 ] && mkdir -p "$savedir"
 for f; do ln -sT "$f" "$savedir/${f##*/}" || exit 1; done
