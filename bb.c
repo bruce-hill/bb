@@ -354,7 +354,7 @@ static void handle_next_key_binding(bb_t *bb) {
         }
         if (mouse_y == 1) {
             strcpy(bbclicked, "<column label>");
-        } else if (2 <= mouse_y && mouse_y <= winsize.ws_row - 2 && bb->scroll + (mouse_y - 2) <= bb->nfiles - 1) {
+        } else if (2 <= mouse_y && mouse_y <= (int)winsize.ws_row - 2 && bb->scroll + (mouse_y - 2) <= bb->nfiles - 1) {
             strcpy(bbclicked, bb->files[bb->scroll + (mouse_y - 2)]->fullname);
         } else {
             bbclicked[0] = '\0';
