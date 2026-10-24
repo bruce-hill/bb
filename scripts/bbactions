@@ -82,7 +82,7 @@
     if [ "$(uname)" = "Darwin" ]; then
         for f; do open "$f"; done
     else
-        xdg-open "$f"
+        for f; do xdg-open "$f"; done
     fi
 }
 
