@@ -1027,8 +1027,10 @@ static char *trim(char *s) {
     if (!s) return NULL;
     while (*s == ' ' || *s == '\n')
         ++s;
+    size_t len = strlen(s);
+    if (len == 0) return s;
     char *end;
-    for (end = &s[strlen(s) - 1]; end >= s && (*end == ' ' || *end == '\n'); end--)
+    for (end = &s[len - 1]; end >= s && (*end == ' ' || *end == '\n'); end--)
         *end = '\0';
     return s;
 }
