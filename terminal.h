@@ -132,7 +132,7 @@ typedef enum {
 #define move_cursor_col(f, x) fprintf((f), "\033[%d`", (int)(x) + 1)
 
 int bgetkey(FILE *in, int *mouse_x, int *mouse_y);
-char *bkeyname(int key, char *buf);
+int bkeyname(int key, char *buf, size_t capacity);
 int bkeywithname(const char *name);
 
 #endif

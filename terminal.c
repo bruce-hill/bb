@@ -277,21 +277,39 @@ SS3:
 }
 
 //
-// Populate `buf` with the name of a key.
+// Populate `buf` with the name of a key. Writes at most `capacity - 1`
+// characters into `buf`, always null-terminates.
+// Returns the length of the key that was written.
 //
-char *bkeyname(int key, char *buf) {
-    if (key & MOD_META) buf = stpcpy(buf, "Super-");
-    if (key & MOD_CTRL) buf = stpcpy(buf, "Ctrl-");
-    if (key & MOD_ALT) buf = stpcpy(buf, "Alt-");
-    if (key & MOD_SHIFT) buf = stpcpy(buf, "Shift-");
+int bkeyname(int key, char *buf, size_t capacity) {
+    if (capacity == 0) return 0;
+    size_t pos = 0;
+    buf[0] = '\0';
+
+    // Append to `buf`, clamping `pos` so it never passes the null terminator
+    // even when snprintf() reports a truncated (would-be) length.
+#define APPEND(...)                                                                                                    \
+    do {                                                                                                               \
+        int n = snprintf(buf + pos, capacity - pos, __VA_ARGS__);                                                      \
+        if (n > 0) pos = (pos + (size_t)n >= capacity) ? capacity - 1 : pos + (size_t)n;                               \
+    } while (0)
+
+    if (key & MOD_META) APPEND("Super-");
+    if (key & MOD_CTRL) APPEND("Ctrl-");
+    if (key & MOD_ALT) APPEND("Alt-");
+    if (key & MOD_SHIFT) APPEND("Shift-");
     key &= ~(MOD_META | MOD_CTRL | MOD_ALT | MOD_SHIFT);
     for (size_t i = 0; i < sizeof(key_names) / sizeof(key_names[0]); i++) {
         if (key_names[i].key == key) {
-            return stpcpy(buf, key_names[i].name);
+            APPEND("%s", key_names[i].name);
+            goto done;
         }
     }
-    if (' ' < key && key <= '~') return buf + sprintf(buf, "%c", key);
-    else return buf + sprintf(buf, "\\x%02X", (unsigned int)key);
+    if (' ' < key && key <= '~') APPEND("%c", key);
+    else APPEND("\\x%02X", (unsigned int)key);
+done:
+#undef APPEND
+    return (int)pos;
 }
 
 //

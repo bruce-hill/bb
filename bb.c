@@ -142,8 +142,7 @@ void bb_browse(bb_t *bb, int argc, char *argv[]) {
     system("bbstartup");
 
     FILE *cmdfile = fopen(cmdfilename, "a");
-    if (!cmdfile)
-        errx(EXIT_FAILURE, "Could not open command file");
+    if (!cmdfile) errx(EXIT_FAILURE, "Could not open command file");
     if (goto_file) fprintf(cmdfile, "%cgoto:%s", '\0', goto_file);
     for (int i = 0; i < argc; i++) {
         if (argv[i][0] == '+') {
@@ -424,10 +423,11 @@ static entry_t *load_entry(bb_t *bb, const char *path) {
     if (!path || !path[0]) return NULL;
     if (lstat(path, &filestat) == -1) return NULL;
     char pbuf[PATH_MAX];
+    const int plen = sizeof(pbuf);
     if (path[0] == '/') {
-        if (snprintf(pbuf, sizeof(pbuf), "%s", path) >= sizeof(pbuf)) return NULL;
+        if (snprintf(pbuf, plen, "%s", path) >= plen) return NULL;
     } else {
-        if (snprintf(pbuf, sizeof(pbuf), "%s%s", bb->path, path) >= sizeof(pbuf)) return NULL;
+        if (snprintf(pbuf, plen, "%s%s", bb->path, path) >= plen) return NULL;
     }
     if (pbuf[strlen(pbuf) - 1] == '/' && pbuf[1]) pbuf[strlen(pbuf) - 1] = '\0';
 
@@ -632,14 +632,16 @@ static void print_bindings(FILE *f) {
             continue;
         }
         char buf[1000];
-        char *p = buf;
+        char *p = buf, *end = &buf[sizeof(buf)];
         for (binding_t *next = b;
              next < &bindings[LEN(bindings)] && next->script && streq(b->description, next->description); next++) {
-            if (next > b) p = stpcpy(p, ", ");
-            p = bkeyname(next->key, p);
+            if (next > b) {
+                int n = snprintf(p, (size_t)(end - p), ", ");
+                if (n > 0) p = (n >= end - p) ? end - 1 : p + n;
+            }
+            p += bkeyname(next->key, p, (size_t)(end - p));
             b = next;
         }
-        *p = '\0';
         fprintf(f, "\033[1m\033[%dG%s\033[0m", (int)winsize.ws_col / 2 - 1 - (int)strlen(buf), buf);
         fprintf(f, "\033[1m\033[%dG\033[34m%s\033[0m", winsize.ws_col / 2 + 1, b->description);
         fprintf(f, "\033[0m\n");
