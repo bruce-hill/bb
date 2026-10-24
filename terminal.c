@@ -119,7 +119,7 @@ static keyname_t key_names[] = {
 };
 
 static int nextchar(int fd) {
-    char c;
+    unsigned char c;
     return read(fd, &c, 1) == 1 ? c : -1;
 }
 
