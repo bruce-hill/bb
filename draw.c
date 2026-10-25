@@ -295,9 +295,11 @@ void render(FILE *out, bb_t *bb) {
         fputs(color, out);
 
         char *home = getenv("HOME");
-        if (home && strncmp(bb->path, home, strlen(home)) == 0) {
+        size_t hlen = home ? strlen(home) : 0;
+        if (home && strncmp(bb->path, home, hlen) == 0 &&
+            (bb->path[hlen] == '\0' || bb->path[hlen] == '/')) {
             fputs("~", out);
-            fputs_escaped(out, bb->path + strlen(home), color);
+            fputs_escaped(out, bb->path + hlen, color);
         } else {
             fputs_escaped(out, bb->path, color);
         }
