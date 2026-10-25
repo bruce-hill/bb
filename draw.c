@@ -270,7 +270,10 @@ void render(FILE *out, bb_t *bb) {
     static struct winsize oldsize = {0};
 
     struct winsize winsize;
-    ioctl(STDIN_FILENO, TIOCGWINSZ, &winsize);
+    if (ioctl(STDIN_FILENO, TIOCGWINSZ, &winsize) == -1) {
+        perror("TIOCGWINSZ");
+        exit(1);
+    }
     int onscreen = winsize.ws_row - 3;
 
     bb->dirty |= (winsize.ws_row != oldsize.ws_row) || (winsize.ws_col != oldsize.ws_col);
