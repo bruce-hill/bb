@@ -231,7 +231,7 @@ CSI_start:
             static int lastclick = -1;
             static struct timespec lastclicktime = {0, 0};
             struct timespec clicktime;
-            clock_gettime(CLOCK_MONOTONIC, &clicktime);
+            if (clock_gettime(CLOCK_MONOTONIC, &clicktime) != 0) return -1;
             if (key == lastclick) {
                 double dt_ms = 1e3 * (double)(clicktime.tv_sec - lastclicktime.tv_sec)
                                + 1e-6 * (double)(clicktime.tv_nsec - lastclicktime.tv_nsec);
