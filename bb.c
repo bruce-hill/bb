@@ -532,8 +532,11 @@ static int populate_files(bb_t *bb, const char *path) {
     char pbuf[PATH_MAX] = {0}, prev[PATH_MAX] = {0};
     strcpy(prev, bb->path);
     if (path != NULL) {
-        if (!normalize_path(path, pbuf)) flash_warn(bb, "Could not normalize path: \"%s\"", path);
-        if (pbuf[strlen(pbuf) - 1] != '/') strcat(pbuf, "/");
+        if (!normalize_path(path, pbuf)) {
+            flash_warn(bb, "Could not normalize path: \"%s\"", path);
+            return -1;
+        }
+        if (pbuf[0] && pbuf[strlen(pbuf) - 1] != '/') strcat(pbuf, "/");
         if (chdir(pbuf)) {
             flash_warn(bb, "Could not cd to: \"%s\"", pbuf);
             return -1;
