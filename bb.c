@@ -635,7 +635,7 @@ static void print_bindings(FILE *f) {
             fprintf(f, "\n\033[33;1;4m\033[%dG%s\033[0m\n", (winsize.ws_col - (int)strlen(label)) / 2, label);
             continue;
         }
-        char buf[1000];
+        char buf[1000] = "";
         char *p = buf, *end = &buf[sizeof(buf)];
         for (binding_t *next = b;
              next < &bindings[LEN(bindings)] && next->script && streq(b->description, next->description); next++) {
