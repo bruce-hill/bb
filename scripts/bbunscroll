@@ -1,5 +1,10 @@
 #!/bin/sh
 # Display text from the current line upward (instead of downward)
 input="$(cat)"
-printf "\\033[$(printf '%s\n' "$input" | wc -l)A\\033[J" >/dev/tty
+if [ -z "$input" ]; then
+    echo
+else
+    printf "\\033[$(printf '%s\n' "$input" | wc -l)A\\033[J" >/dev/tty
+fi
+echo "$input"
 echo "$input"
