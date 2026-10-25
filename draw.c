@@ -341,7 +341,7 @@ void render(FILE *out, bb_t *bb) {
     }
 
     // Scrollbar:
-    if (bb->nfiles > onscreen) {
+    if (bb->nfiles > onscreen && bb->nfiles > 0) {
         int height = (onscreen * onscreen + (bb->nfiles - 1)) / bb->nfiles;
         int start = 2 + (bb->scroll * onscreen) / bb->nfiles;
         for (int i = 2; i < 2 + onscreen; i++) {
