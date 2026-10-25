@@ -496,7 +496,7 @@ static char *normalize_path(const char *path, char *normalized) {
     } else if (path[0] != '/') {
         strcpy(pbuf, "./");
     }
-    if (strlen(pbuf) + strlen(path) >= PATH_MAX) return NULL;
+    if (strlen(path) >= PATH_MAX - strlen(pbuf)) return NULL;
     strcat(pbuf, path);
     if (realpath(pbuf, normalized) == NULL) {
         strcpy(normalized, pbuf); // TODO: normalize better?
